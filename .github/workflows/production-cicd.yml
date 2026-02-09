@@ -138,7 +138,7 @@ jobs:
           exit 1
         fi
         # Test SSH connection with verbose output
-        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed"
+        ssh -vvv -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed"
         
     - name: Configure SSH client and known hosts
       run: |
@@ -154,8 +154,8 @@ jobs:
       run: |
         # SSH into the server and execute blue-green deployment script
         # Using StrictHostKeyChecking=no to bypass host key checking since we already added it to known_hosts
-        # Adding more verbose output for debugging and explicit publickey authentication
-        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} << 'EOF'
+        # Removing IdentitiesOnly=yes to allow SSH agent usage
+        ssh -vvv -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} << 'EOF'
           set -e
           
           # Define deployment directory
