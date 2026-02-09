@@ -41,4 +41,5 @@ uvicorn>=0.27,<1.0
 pytest>=8.0,<9.0
 pytest-django>=4.7,<5.0
 pytest-cov>=4.1,<5.0
+pytest-asyncio>=0.23,<1.0
 factory-boy>=3.3,<4.0
