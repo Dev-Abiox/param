@@ -123,7 +123,7 @@ class TestPatientModel:
         field_names = [f.name for f in Patient._meta.get_fields()]
         assert "name_encrypted" in field_names
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_patient_name_property_encrypts(self):
         """Test Patient name property encrypts data."""
         from apps.core import crypto
