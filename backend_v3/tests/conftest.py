@@ -9,6 +9,27 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
+# Configure Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'clinomic.settings')
+
+# Set default environment variables for tests
+os.environ.setdefault('DJANGO_SECRET_KEY', 'test-secret-key-for-testing')
+os.environ.setdefault('MASTER_ENCRYPTION_KEY', 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==')  # Base64 encoded test key
+os.environ.setdefault('AUDIT_SIGNING_KEY', 'test-audit-key')
+os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret')
+os.environ.setdefault('POSTGRES_DB', 'clinomic_test')
+os.environ.setdefault('POSTGRES_USER', 'postgres')
+os.environ.setdefault('POSTGRES_PASSWORD', 'postgres')
+os.environ.setdefault('POSTGRES_HOST', 'localhost')
+os.environ.setdefault('POSTGRES_PORT', '5432')
+os.environ.setdefault('ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver')
+os.environ.setdefault('CORS_ORIGINS', 'http://localhost:3000')
+os.environ.setdefault('DEBUG', 'True')
+
+# Ensure Django is configured
+import django
+django.setup()
+
 # Generate test encryption key
 TEST_ENCRYPTION_KEY = "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw=="  # Base64 encoded
 
