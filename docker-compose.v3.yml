@@ -1,119 +1,73 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:15-alpine
     restart: always
-    env_file:
-      - .env.v3
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clinomic}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_v3_data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - clinomic_network
 
-  # Production backend with gunicorn
   backend_v3:
     build:
       context: ./backend_v3
       dockerfile: Dockerfile
-    env_file:
-      - .env.v3
-    environment:
-      - DEBUG=False
-      - APP_ENV=production
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-    ports:
-      - "8000:8000"
+    restart: always
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./backend_v3/ml/models:/app/ml/models:ro
+    environment:
+      - DEBUG=${DEBUG:-false}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-clinomic}
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=${POSTGRES_DB:-clinomic}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
-    profiles:
-      - prod
+      start_period: 60s
+    networks:
+      - clinomic_network
 
-  # Development backend with hot reload
-  backend_v3_dev:
-    build:
-      context: ./backend_v3
-      dockerfile: Dockerfile
-    command: python manage.py runserver 0.0.0.0:8000
-    env_file:
-      - .env.v3
-    environment:
-      - DEBUG=True
-      - APP_ENV=dev
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./backend_v3:/app
-      - ./backend_v3/ml/models:/app/ml/models:ro
-    profiles:
-      - dev
-
-  # Development frontend with hot reload
-  frontend_dev:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install --legacy-peer-deps && npm start"
-    env_file:
-      - .env.v3
-    environment:
-      - REACT_APP_BACKEND_URL=http://localhost:8000
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend_v3_dev
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    profiles:
-      - dev
-
-  # Production frontend with nginx
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - REACT_APP_BACKEND_URL=http://localhost:8000
-    ports:
-      - "3000:3000"
+    restart: always
     depends_on:
       - backend_v3
-    profiles:
-      - prod
-
-  # Nginx reverse proxy for production
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - backend_v3
-      - frontend
-    profiles:
-      - prod-nginx
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    expose:
+      - "3000"
+    networks:
+      - clinomic_network
 
 volumes:
   postgres_v3_data:
+
+networks:
+  clinomic_network:
+    driver: bridge
