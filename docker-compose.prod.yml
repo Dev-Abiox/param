@@ -10,15 +10,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  backend:
+  backend_v3:
     image: ghcr.io/${{ secrets.GITHUB_REPOSITORY_OWNER }}/clinomic-backend:latest
     restart: always
     environment:
@@ -56,7 +54,7 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      - backend_v3
 
   nginx:
     image: nginx:alpine
@@ -68,7 +66,7 @@ services:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
-      - backend
+      - backend_v3
       - frontend
 
 volumes:

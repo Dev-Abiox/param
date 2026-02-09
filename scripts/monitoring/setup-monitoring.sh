@@ -213,7 +213,25 @@ check_service_status() {
                 send_alert "Service $container is not running: $status" "CRITICAL"
             fi
         else
-            send_alert "Service $service container not found" "CRITICAL"
+            # Check for alternative container names used in the project
+            case $service in
+                "backend")
+                    container=$(docker ps --format '{{.Names}}' | grep -i "backend_v3" | head -n1)
+                    ;;
+                "frontend")
+                    container=$(docker ps --format '{{.Names}}' | grep -i "frontend_dev" | head -n1)
+                    ;;
+            esac
+            
+            if [[ -n "$container" ]]; then
+                local status=$(docker ps --filter "name=$container" --format '{{.Status}}')
+                
+                if [[ ! $status =~ ^Up.* ]]; then
+                    send_alert "Service $container is not running: $status" "CRITICAL"
+                fi
+            else
+                send_alert "Service $service container not found" "CRITICAL"
+            fi
         fi
     done
 }
@@ -315,7 +333,7 @@ sleep 10
 
 # Ensure the main application is running
 cd /opt/clinomic
-docker-compose -f docker-compose.prod.yml up -d
+./scripts/v3/start.sh prod
 
 # Start monitoring services
 systemctl start clinomic-health-monitor.timer
