@@ -127,9 +127,14 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
         
-    - name: Configure known hosts
+    - name: Configure SSH client and known hosts
       run: |
         mkdir -p ~/.ssh
+        # Configure SSH to accept modern RSA algorithms
+        echo "Host *" > ~/.ssh/config
+        echo "    HostkeyAlgorithms +ssh-rsa" >> ~/.ssh/config
+        echo "    PubkeyAcceptedAlgorithms +ssh-rsa" >> ~/.ssh/config
+        # Add host key to known hosts
         ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
         
     - name: Deploy to BigRock KVM (Blue-Green)
@@ -265,21 +270,3 @@ jobs:
           echo "Blue-green deployment completed successfully!"
           echo "Active environment: $NEXT_ENV"
         EOF
-        
-    - name: Slack Notification Success
-      if: success()
-      uses: 8398a7/action-slack@v3
-      with:
-        status: success
-        text: ':white_check_mark: Production deployment successful!'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        
-    - name: Slack Notification Failure
-      if: failure()
-      uses: 8398a7/action-slack@v3
-      with:
-        status: failure
-        text: ':x: Production deployment failed!'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
