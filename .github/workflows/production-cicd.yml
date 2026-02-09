@@ -132,8 +132,13 @@ jobs:
         echo "SSH Agent PID: $SSH_AGENT_PID"
         echo "SSH Auth Socket: $SSH_AUTH_SOCK"
         ssh-add -l
+        # Check if the key was loaded properly
+        if [ $(ssh-add -l | wc -l) -eq 0 ]; then
+          echo "ERROR: No SSH keys loaded in agent"
+          exit 1
+        fi
         # Test SSH connection with verbose output
-        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed"
+        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed"
         
     - name: Configure SSH client and known hosts
       run: |
@@ -149,8 +154,8 @@ jobs:
       run: |
         # SSH into the server and execute blue-green deployment script
         # Using StrictHostKeyChecking=no to bypass host key checking since we already added it to known_hosts
-        # Adding more verbose output for debugging
-        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no root@${{ secrets.HOST_IP }} << 'EOF'
+        # Adding more verbose output for debugging and explicit publickey authentication
+        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} << 'EOF'
           set -e
           
           # Define deployment directory
