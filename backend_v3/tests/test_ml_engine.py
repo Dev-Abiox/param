@@ -38,9 +38,10 @@ class TestMLEnginePrediction:
     @pytest.fixture
     def mock_engine(self):
         """Create engine with mocked models."""
+        from pathlib import Path
         from apps.screening.ml_engine import B12ClinicalEngine
 
-        engine = B12ClinicalEngine()
+        engine = B12ClinicalEngine(Path("../ml/models"))
 
         # Mock the model loading
         engine._ready = True

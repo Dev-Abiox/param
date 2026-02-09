@@ -19,7 +19,7 @@ class TestCryptoModule:
         yield
         crypto._cipher = None
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_encrypt_field_returns_ciphertext(self):
         """Test that encrypt_field returns non-empty ciphertext."""
         from apps.core.crypto import encrypt_field
@@ -31,7 +31,7 @@ class TestCryptoModule:
         assert ciphertext != plaintext
         assert len(ciphertext) > len(plaintext)
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_decrypt_field_returns_original(self):
         """Test that decrypt_field returns original plaintext."""
         from apps.core.crypto import decrypt_field, encrypt_field
@@ -42,7 +42,7 @@ class TestCryptoModule:
 
         assert decrypted == original
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_encrypt_empty_string_returns_empty(self):
         """Test that encrypting empty string returns empty."""
         from apps.core.crypto import encrypt_field
@@ -50,7 +50,7 @@ class TestCryptoModule:
         result = encrypt_field("")
         assert result == ""
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_decrypt_empty_string_returns_empty(self):
         """Test that decrypting empty string returns empty."""
         from apps.core.crypto import decrypt_field
@@ -66,7 +66,7 @@ class TestCryptoModule:
         with pytest.raises(CryptoError, match="not configured"):
             encrypt_field("test")
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_decrypt_invalid_ciphertext_raises_error(self):
         """Test that decrypting invalid data raises error (fail-closed)."""
         from apps.core.crypto import CryptoError, decrypt_field
@@ -74,7 +74,7 @@ class TestCryptoModule:
         with pytest.raises(CryptoError):
             decrypt_field("invalid-ciphertext-data")
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_encrypt_dict_fields(self):
         """Test encrypting specific fields in a dictionary."""
         from apps.core.crypto import decrypt_field, encrypt_dict_fields
@@ -95,7 +95,7 @@ class TestCryptoModule:
         # Should be decryptable
         assert decrypt_field(encrypted["name"]) == "John Doe"
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_is_crypto_ready_with_valid_key(self):
         """Test is_crypto_ready returns True with valid key."""
         from apps.core.crypto import is_crypto_ready
@@ -109,7 +109,7 @@ class TestCryptoModule:
 
         assert is_crypto_ready() is False
 
-    @override_settings(MASTER_ENCRYPTION_KEY="dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==")
+    @override_settings(MASTER_ENCRYPTION_KEY="vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=")
     def test_get_crypto_status(self):
         """Test crypto status reporting."""
         from apps.core.crypto import get_crypto_status
