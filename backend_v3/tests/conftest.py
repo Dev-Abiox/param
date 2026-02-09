@@ -14,7 +14,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'clinomic.settings')
 
 # Set default environment variables for tests
 os.environ.setdefault('DJANGO_SECRET_KEY', 'test-secret-key-for-testing')
-os.environ.setdefault('MASTER_ENCRYPTION_KEY', 'dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==')  # Base64 encoded test key
+os.environ.setdefault('MASTER_ENCRYPTION_KEY', 'vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=')  # Proper 32-byte base64 encoded test key
 os.environ.setdefault('AUDIT_SIGNING_KEY', 'test-audit-key')
 os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret')
 os.environ.setdefault('POSTGRES_DB', 'clinomic_test')
