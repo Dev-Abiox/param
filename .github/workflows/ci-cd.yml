@@ -1,0 +1,200 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: [3.11]
+        node-version: [20.x]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Set up Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+    
+    - name: Install backend dependencies
+      run: |
+        cd backend_v3
+        pip install -r requirements.txt
+    
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Run backend tests
+      run: |
+        cd backend_v3
+        python -m pytest tests/ -v
+    
+    - name: Run frontend linting
+      run: |
+        cd frontend
+        npm run lint:ci
+    
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm run test:ci
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata for backend
+      id: meta-backend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,onlatest=true
+    
+    - name: Extract metadata for frontend
+      id: meta-frontend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,onlatest=true
+    
+    - name: Build and push backend
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend_v3
+        push: true
+        tags: ${{ steps.meta-backend.outputs.tags }}
+        labels: ${{ steps.meta-backend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build and push frontend
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        push: true
+        tags: ${{ steps.meta-frontend.outputs.tags }}
+        labels: ${{ steps.meta-frontend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-testing:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    environment: testing
+    
+    steps:
+    - name: Deploy to testing environment
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.TESTING_VM_HOST }}
+        username: ${{ secrets.VM_USERNAME }}
+        key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        script: |
+          cd /opt/clinomic
+          
+          # Pull latest images
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+          
+          # Stop existing containers
+          docker-compose down || true
+          
+          # Update compose file with new image tags
+          sed -i "s|image:.*-backend:.*$|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest|" docker-compose.prod.yml
+          sed -i "s|image:.*-frontend:.*$|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest|" docker-compose.prod.yml
+          
+          # Start services
+          docker-compose up -d
+          
+          # Wait for health check
+          timeout 120 bash -c 'until curl -sf http://${{ secrets.TESTING_VM_HOST }}:8000/api/health/live; do sleep 2; done' || {
+            echo "Health check failed after 120 seconds"
+            docker-compose logs
+            exit 1
+          }
+          
+          echo "Testing deployment completed successfully!"
+
+  deploy-production:
+    needs: deploy-testing
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    environment: production
+    
+    steps:
+    - name: Deploy to production environment
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.PRODUCTION_VM_HOST }}
+        username: ${{ secrets.VM_USERNAME }}
+        key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        script: |
+          cd /opt/clinomic
+          
+          # Pull latest images
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+          
+          # Stop existing containers
+          docker-compose down || true
+          
+          # Update compose file with new image tags
+          sed -i "s|image:.*-backend:.*$|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest|" docker-compose.prod.yml
+          sed -i "s|image:.*-frontend:.*$|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest|" docker-compose.prod.yml
+          
+          # Start services
+          docker-compose up -d
+          
+          # Wait for health check
+          timeout 180 bash -c 'until curl -sf http://${{ secrets.PRODUCTION_VM_HOST }}:8000/api/health/live; do sleep 2; done' || {
+            echo "Health check failed after 180 seconds"
+            docker-compose logs
+            exit 1
+          }
+          
+          echo "Production deployment completed successfully!"

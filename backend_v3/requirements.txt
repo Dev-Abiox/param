@@ -1,0 +1,44 @@
+# Django Core
+Django>=5.0,<6.0
+djangorestframework>=3.14,<4.0
+django-cors-headers>=4.3,<5.0
+django-filter>=24.0,<25.0
+
+# Database
+psycopg2-binary>=2.9,<3.0
+django-tenants>=3.6,<4.0
+
+# Authentication
+PyJWT>=2.8,<3.0
+djangorestframework-simplejwt>=5.3,<6.0
+pyotp>=2.9,<3.0
+qrcode>=7.4,<8.0
+
+# Security
+bcrypt>=4.1,<5.0
+cryptography>=42.0,<43.0
+
+# ML Engine
+catboost>=1.2,<2.0
+scikit-learn>=1.4,<1.5
+pandas>=2.1,<3.0
+numpy>=1.26,<2.0
+joblib>=1.3,<2.0
+
+# Audit & Logging
+django-auditlog>=3.0,<4.0
+structlog>=24.0,<25.0
+
+# Utils
+python-dotenv>=1.0,<2.0
+Pillow>=10.2,<11.0
+
+# Production Server
+gunicorn>=21.0,<22.0
+uvicorn>=0.27,<1.0
+
+# Development
+pytest>=8.0,<9.0
+pytest-django>=4.7,<5.0
+pytest-cov>=4.1,<5.0
+factory-boy>=3.3,<4.0

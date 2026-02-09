@@ -1,0 +1,5 @@
+{
+  "name": "Clinomic Labs - B12 Screening",
+  "description": "Professional Laboratory Information System for Vitamin B12 deficiency screening using CBC data. Features role-based access, clinical dashboards, and mock AI inference.",
+  "requestFramePermissions": []
+}

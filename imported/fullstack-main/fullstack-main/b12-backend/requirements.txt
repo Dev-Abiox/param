@@ -1,0 +1,27 @@
+# Core API
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+
+# Data & ML
+pandas==2.2.1
+numpy==1.26.4
+scikit-learn==1.4.2
+catboost==1.2.3
+joblib==1.3.2
+
+# Security & Auth
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Validation
+pydantic==2.6.4
+
+# PDF Generation (for clinical reports)
+reportlab==4.1.0
+
+# Database (for next step)
+sqlalchemy==2.0.28
+psycopg2-binary==2.9.9
+
+# Async utilities
+python-multipart==0.0.9
