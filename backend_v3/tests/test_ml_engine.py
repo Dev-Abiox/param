@@ -40,6 +40,7 @@ class TestMLEnginePrediction:
         """Create engine with mocked models."""
         from pathlib import Path
         from apps.screening.ml_engine import B12ClinicalEngine
+        from unittest.mock import MagicMock
 
         engine = B12ClinicalEngine(Path("../../backend_v3/ml/models"))
 
@@ -53,6 +54,13 @@ class TestMLEnginePrediction:
 
         mock_stage2 = MagicMock()
         mock_stage2.predict_proba.return_value = [[0.7, 0.3]]  # Borderline vs Deficient
+
+        # Create mock thresholds
+        engine.thresholds = {
+            "rule_weight": 0.5,
+            "deficient_threshold": 0.7,
+            "borderline_threshold": 0.4
+        }
 
         engine.stage1 = mock_stage1
         engine.stage2 = mock_stage2
