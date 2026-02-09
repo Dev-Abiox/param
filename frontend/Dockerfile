@@ -7,7 +7,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json ./
+COPY package.json ./
 
 # Install dependencies
 RUN npm ci --legacy-peer-deps
@@ -20,7 +20,7 @@ ARG REACT_APP_BACKEND_URL
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
 # Build application
-RUN npm run build
+RUN CI='' npm run build
 
 # Stage 2: Production with nginx
 FROM nginx:alpine AS production
