@@ -140,7 +140,8 @@ jobs:
     - name: Deploy to BigRock KVM (Blue-Green)
       run: |
         # SSH into the server and execute blue-green deployment script
-        ssh root@${{ secrets.HOST_IP }} << 'EOF'
+        # Using StrictHostKeyChecking=no to bypass host key checking since we already added it to known_hosts
+        ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes root@${{ secrets.HOST_IP }} << 'EOF'
           set -e
           
           # Define deployment directory
