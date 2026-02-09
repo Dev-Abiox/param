@@ -127,6 +127,14 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
         
+    - name: Debug SSH agent and keys
+      run: |
+        echo "SSH Agent PID: $SSH_AGENT_PID"
+        echo "SSH Auth Socket: $SSH_AUTH_SOCK"
+        ssh-add -l
+        # Test SSH connection with verbose output
+        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed"
+        
     - name: Configure SSH client and known hosts
       run: |
         mkdir -p ~/.ssh
@@ -141,7 +149,8 @@ jobs:
       run: |
         # SSH into the server and execute blue-green deployment script
         # Using StrictHostKeyChecking=no to bypass host key checking since we already added it to known_hosts
-        ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes root@${{ secrets.HOST_IP }} << 'EOF'
+        # Adding more verbose output for debugging
+        ssh -vvv -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o PasswordAuthentication=no root@${{ secrets.HOST_IP }} << 'EOF'
           set -e
           
           # Define deployment directory
