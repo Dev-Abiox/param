@@ -223,58 +223,62 @@ jobs:
         scp -o StrictHostKeyChecking=no -r backend_v3/ml/models/* root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/ml/models/
         scp -o StrictHostKeyChecking=no -r ssl/* root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/ssl/ 2>/dev/null || echo "SSL directory is empty - will need to add certificates manually"
         
-        ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} bash -s << EOF
+        # Pass the repository name as an argument to the bash script
+        ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} bash -s "$REPO_LOWER" << 'EOF'
           set -e
+          
+          # Get the repository name from the first argument
+          REPO_NAME="$1"
           
           # Define deployment directory
           DEPLOY_DIR="/opt/clinomic-b12-platform"
-          CURRENT_BLUE="\$DEPLOY_DIR/blue"
-          CURRENT_GREEN="\$DEPLOY_DIR/green"
-          NEW_VERSION=\$(date +%Y%m%d_%H%M%S)
+          CURRENT_BLUE="$DEPLOY_DIR/blue"
+          CURRENT_GREEN="$DEPLOY_DIR/green"
+          NEW_VERSION=$(date +%Y%m%d_%H%M%S)
           
-          # Set GitHub repository (passed from GitHub Actions)
-          GITHUB_REPOSITORY="$REPO_LOWER"
-          
-          echo "Using repository: $GITHUB_REPOSITORY"
-          
-          # Debug: Show all variables
-          echo "=== Debug: Environment Variables ==="
-          echo "REPO_LOWER=$REPO_LOWER"
-          echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
-          echo "DEPLOY_DIR=$DEPLOY_DIR"
-          echo "NEXT_DIR=$NEXT_DIR"
-          echo "CURRENT_ENV=$CURRENT_ENV"
+          echo "Using repository: $REPO_NAME"
           
           # Determine current and next environments
-          if [ -f "\$DEPLOY_DIR/current_env" ]; then
-              CURRENT_ENV=\$(cat \$DEPLOY_DIR/current_env)
+          if [ -f "$DEPLOY_DIR/current_env" ]; then
+              CURRENT_ENV=$(cat $DEPLOY_DIR/current_env)
           else
               CURRENT_ENV="blue"
           fi
           
-          if [ "\$CURRENT_ENV" = "blue" ]; then
+          if [ "$CURRENT_ENV" = "blue" ]; then
               NEXT_ENV="green"
-              NEXT_DIR="\$CURRENT_GREEN"
+              NEXT_DIR="$CURRENT_GREEN"
           else
               NEXT_ENV="blue"
-              NEXT_DIR="\$CURRENT_BLUE"
+              NEXT_DIR="$CURRENT_BLUE"
           fi
-                    
-          echo "Current environment: \$CURRENT_ENV"
-          echo "Deploying to: \$NEXT_ENV"
-                    
+          
+          echo "Current environment: $CURRENT_ENV"
+          echo "Deploying to: $NEXT_ENV"
+          
           # Pull latest images
-          docker pull ghcr.io/\${GITHUB_REPOSITORY}:latest
-          docker pull ghcr.io/\${GITHUB_REPOSITORY}-frontend:latest
-                    
+          docker pull ghcr.io/$REPO_NAME:latest
+          docker pull ghcr.io/${REPO_NAME}-frontend:latest
+          
           # Create new deployment directory if it doesn't exist
-          mkdir -p \$NEXT_DIR
-                    
+          mkdir -p $NEXT_DIR
+          
           # Copy updated docker-compose file and environment files
-          echo "=== Copying files to \$NEXT_DIR ==="
-          cp -f \$DEPLOY_DIR/docker-compose.prod.yml \$NEXT_DIR/
-          cp -f \$DEPLOY_DIR/.env \$NEXT_DIR/ 2>/dev/null || echo ".env file not found"
-                    
+          cp -f $DEPLOY_DIR/docker-compose.prod.yml $NEXT_DIR/
+          cp -f $DEPLOY_DIR/.env $NEXT_DIR/ 2>/dev/null || echo ".env file not found"
+          
+          # Debug: Show what we have
+          echo "=== Current working directory ==="
+          pwd
+          echo "=== Directory contents ==="
+          ls -la
+          
+          if [ ! -f "$NEXT_DIR/docker-compose.prod.yml" ]; then
+              echo "ERROR: docker-compose.prod.yml not found in $NEXT_DIR"
+              ls -la $NEXT_DIR
+              exit 1
+          fi
+          
           # Change to the new directory and verify
           cd $NEXT_DIR
           echo "=== Current working directory ==="
@@ -287,25 +291,24 @@ jobs:
               ls -la $NEXT_DIR
               exit 1
           fi
-                    
-          # Debug: Show what we have
+          
           echo "=== Debug: Current directory contents ==="
           ls -la
           echo "=== Debug: docker-compose.prod.yml content ==="
           cat docker-compose.prod.yml
-                    
+          
           # Update image tags in docker-compose file
           echo "=== Before sed replacement ==="
           grep -n "image:" docker-compose.prod.yml
-                    
+          
           # Use the actual repository name from the variable
-          sed -i "s|image: ghcr.io/dev-abiox/param:latest|image: ghcr.io/${GITHUB_REPOSITORY}:latest|g" docker-compose.prod.yml
-          sed -i "s|image: ghcr.io/dev-abiox/param-frontend:latest|image: ghcr.io/${GITHUB_REPOSITORY}-frontend:latest|g" docker-compose.prod.yml
-                    
+          sed -i "s|image: ghcr.io/dev-abiox/param:latest|image: ghcr.io/$REPO_NAME:latest|g" docker-compose.prod.yml
+          sed -i "s|image: ghcr.io/dev-abiox/param-frontend:latest|image: ghcr.io/$REPO_NAME-frontend:latest|g" docker-compose.prod.yml
+          
           # Debug: Show what sed did
           echo "=== After sed replacement ==="
           grep -n "image:" docker-compose.prod.yml
-                    
+          
           # Generate new secrets if they don't exist
           if [ ! -f "secrets/postgres_password" ]; then
               mkdir -p secrets
@@ -313,20 +316,20 @@ jobs:
               openssl rand -hex 32 > secrets/django_secret_key
               openssl rand -base64 32 > secrets/fernet_key
           fi
-                    
+          
           # Stop any existing containers in the next environment
           docker-compose down 2>/dev/null || true
-                    
+          
           # Pull latest images
           docker-compose pull
-                    
+          
           # Start new environment
           docker-compose up -d
-                    
+          
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
           sleep 30
-                    
+          
           # Check health of the new deployment
           HEALTHY=true
           for service in backend frontend; do
@@ -335,12 +338,12 @@ jobs:
                   HEALTHY=false
               fi
           done
-                    
+          
           # If health check fails, rollback
           if [ "$HEALTHY" = "false" ]; then
               echo "Health check failed, rolling back..."
               docker-compose down
-                        
+              
               # Bring back the old environment
               cd $(dirname $NEXT_DIR)
               PREV_DIR=""
@@ -349,17 +352,17 @@ jobs:
               else
                   PREV_DIR="$CURRENT_GREEN"
               fi
-                        
+              
               cd $PREV_DIR
               docker-compose up -d
               echo "Rollback completed"
               exit 1
           fi
-                    
+          
           # Health check with actual endpoint verification
           BACKEND_URL="http://localhost:8000/api/health/"
           FRONTEND_URL="http://localhost:3000/"
-                    
+          
           echo "Checking backend health: $BACKEND_URL"
           for i in {1..10}; do
               if curl -f -s $BACKEND_URL > /dev/null; then
@@ -369,7 +372,7 @@ jobs:
               echo "Waiting for backend... ($i/10)"
               sleep 10
           done
-                    
+          
           echo "Checking frontend health: $FRONTEND_URL"
           for i in {1..10}; do
               if curl -f -s $FRONTEND_URL > /dev/null; then
@@ -379,20 +382,20 @@ jobs:
               echo "Waiting for frontend... ($i/10)"
               sleep 10
           done
-                    
+          
           # Update the current environment pointer
           echo $NEXT_ENV > $DEPLOY_DIR/current_env
-                    
+          
           # Clean up old environment
           if [ "$NEXT_ENV" = "green" ]; then
               OLD_DIR="$CURRENT_BLUE"
           else
               OLD_DIR="$CURRENT_GREEN"
           fi
-                    
+          
           cd $OLD_DIR
           docker-compose down
-                    
+          
           echo "Blue-green deployment completed successfully!"
           echo "Active environment: $NEXT_ENV"
         EOF
