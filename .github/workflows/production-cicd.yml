@@ -131,31 +131,65 @@ jobs:
       run: |
         echo "SSH Agent PID: $SSH_AGENT_PID"
         echo "SSH Auth Socket: $SSH_AUTH_SOCK"
+        echo "=== Loaded SSH Keys ==="
         ssh-add -l
+        echo "=== SSH Key Fingerprints ==="
+        ssh-add -L | ssh-keygen -lf -
         # Check if the key was loaded properly
         if [ $(ssh-add -l | wc -l) -eq 0 ]; then
           echo "ERROR: No SSH keys loaded in agent"
           exit 1
         fi
+        # Display the public key for verification
+        echo "=== Public Key (add this to server's authorized_keys) ==="
+        ssh-add -L
+        echo "=== Testing SSH connection ==="
         # Test SSH connection with verbose output
-        ssh -vvv -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed"
+        ssh -vvv -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed with exit code: $?"
         
     - name: Configure SSH client and known hosts
       run: |
         mkdir -p ~/.ssh
-        # Configure SSH to accept modern RSA algorithms
-        echo "Host *" > ~/.ssh/config
-        echo "    HostkeyAlgorithms +ssh-rsa" >> ~/.ssh/config
-        echo "    PubkeyAcceptedAlgorithms +ssh-rsa" >> ~/.ssh/config
+        chmod 700 ~/.ssh
+        # Configure SSH to accept modern RSA algorithms and enable verbose logging
+        cat > ~/.ssh/config << 'SSHCONFIG'
+        Host *
+            HostkeyAlgorithms +ssh-rsa
+            PubkeyAcceptedAlgorithms +ssh-rsa
+            IdentitiesOnly yes
+            LogLevel DEBUG3
+            ServerAliveInterval 60
+            ServerAliveCountMax 3
+            ConnectTimeout 30
+        SSHCONFIG
+        chmod 600 ~/.ssh/config
         # Add host key to known hosts
-        ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
+        echo "=== Adding host to known_hosts ==="
+        ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts 2>&1
+        chmod 600 ~/.ssh/known_hosts
+        echo "=== Known hosts added ==="
+        cat ~/.ssh/known_hosts
+        
+    - name: Verify SSH Connection Before Deployment
+      run: |
+        echo "=== Final SSH Connection Test ==="
+        # Try to connect and verify
+        if ! ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} "echo 'SSH connection successful'; whoami; pwd"; then
+          echo "ERROR: Cannot establish SSH connection to server"
+          echo "Please verify:"
+          echo "1. The SSH private key in GitHub Secrets (SSH_PRIVATE_KEY) matches the public key on the server"
+          echo "2. The public key is in /root/.ssh/authorized_keys on the server"
+          echo "3. Server SSH permissions are correct: chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+          echo "4. Server firewall allows SSH connections on port 22"
+          exit 1
+        fi
+        echo "=== SSH Connection Verified ==="
         
     - name: Deploy to BigRock KVM (Blue-Green)
       run: |
         # SSH into the server and execute blue-green deployment script
-        # Using StrictHostKeyChecking=no to bypass host key checking since we already added it to known_hosts
-        # Removing IdentitiesOnly=yes to allow SSH agent usage
-        ssh -vvv -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} << 'EOF'
+        echo "=== Starting Blue-Green Deployment ==="
+        ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} << 'EOF'
           set -e
           
           # Define deployment directory
