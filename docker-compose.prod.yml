@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-clinomic}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,10 +41,11 @@ services:
     volumes:
       - ./ml/models:/app/ml/models:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/ || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 40s
 
   frontend:
     image: ghcr.io/dev-abiox/param-frontend:latest
@@ -54,7 +55,8 @@ services:
     expose:
       - "3000"
     depends_on:
-      - backend_v3
+      backend_v3:
+        condition: service_healthy
 
   nginx:
     image: nginx:alpine
