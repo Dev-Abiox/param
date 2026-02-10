@@ -355,7 +355,12 @@ jobs:
 
           # Pull latest images
           docker-compose -f docker-compose.prod.yml pull
-
+          
+          # Initialize database and domains BEFORE starting services
+          echo "Initializing database and domains..."
+          docker-compose -f docker-compose.prod.yml run --rm backend python manage.py migrate_schemas --shared
+          docker-compose -f docker-compose.prod.yml run --rm backend python manage.py ensure_domains
+                    
           # Start new environment
           docker-compose -f docker-compose.prod.yml up -d
 
