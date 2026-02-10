@@ -17,7 +17,7 @@ services:
       retries: 5
 
   backend_v3:
-    image: ghcr.io/${{ secrets.GITHUB_REPOSITORY_OWNER }}/clinomic-backend:latest
+    image: ghcr.io/dev-abiox/param:latest
     restart: always
     environment:
       - DEBUG=False
@@ -47,7 +47,7 @@ services:
       retries: 3
 
   frontend:
-    image: ghcr.io/${{ secrets.GITHUB_REPOSITORY_OWNER }}/clinomic-frontend:latest
+    image: ghcr.io/dev-abiox/param-frontend:latest
     restart: always
     environment:
       - REACT_APP_BACKEND_URL=${BACKEND_URL}

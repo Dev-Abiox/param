@@ -215,6 +215,14 @@ jobs:
         # Export repository name for use in the SSH command
         REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
         
+        # First, ensure deployment directory exists and copy necessary files
+        echo "=== Uploading deployment files ==="
+        ssh -o StrictHostKeyChecking=no root@${{ secrets.HOST_IP }} "mkdir -p /opt/clinomic-b12-platform/ml/models /opt/clinomic-b12-platform/ssl"
+        scp -o StrictHostKeyChecking=no docker-compose.prod.yml root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/
+        scp -o StrictHostKeyChecking=no nginx.prod.conf root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/
+        scp -o StrictHostKeyChecking=no -r backend_v3/ml/models/* root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/ml/models/
+        scp -o StrictHostKeyChecking=no -r ssl/* root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/ssl/ 2>/dev/null || echo "SSL directory is empty - will need to add certificates manually"
+        
         ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} bash -s << EOF
           set -e
           
