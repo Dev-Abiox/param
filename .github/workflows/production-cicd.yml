@@ -151,12 +151,12 @@ jobs:
       run: |
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
-        # Configure SSH to accept modern RSA algorithms and enable verbose logging
+        # Configure SSH to accept modern RSA algorithms and use SSH agent
         cat > ~/.ssh/config << 'SSHCONFIG'
         Host *
             HostkeyAlgorithms +ssh-rsa
             PubkeyAcceptedAlgorithms +ssh-rsa
-            IdentitiesOnly yes
+            IdentitiesOnly no
             LogLevel DEBUG3
             ServerAliveInterval 60
             ServerAliveCountMax 3
@@ -169,6 +169,10 @@ jobs:
         chmod 600 ~/.ssh/known_hosts
         echo "=== Known hosts added ==="
         cat ~/.ssh/known_hosts
+        echo "=== SSH Config ==="
+        cat ~/.ssh/config
+        echo "=== SSH Agent Keys ==="
+        ssh-add -l || echo "No keys in agent"
         
     - name: Verify SSH Connection Before Deployment
       run: |
