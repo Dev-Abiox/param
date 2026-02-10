@@ -327,6 +327,16 @@ jobs:
               openssl rand -hex 32 > secrets/django_secret_key
               openssl rand -base64 32 > secrets/fernet_key
           fi
+          
+          # Load secrets into environment variables
+          export POSTGRES_PASSWORD=$(cat secrets/postgres_password)
+          export DJANGO_SECRET_KEY=$(cat secrets/django_secret_key)
+          export JWT_SECRET_KEY=$(cat secrets/django_secret_key)
+          export JWT_REFRESH_SECRET_KEY=$(cat secrets/django_secret_key)
+          export MASTER_ENCRYPTION_KEY=$(cat secrets/fernet_key)
+          export ALLOWED_HOSTS="*"
+          export FRONTEND_URL="http://localhost:3000"
+          export CORS_ORIGINS="http://localhost:3000"
 
           # Stop any existing containers in the next environment
           docker-compose -f docker-compose.prod.yml down 2>/dev/null || true
@@ -340,13 +350,22 @@ jobs:
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
           sleep 30
+          
+          # Debug: Check container status
+          echo "=== Container Status ==="
+          docker-compose -f docker-compose.prod.yml ps
+          echo "=== Container Logs ==="
+          docker-compose -f docker-compose.prod.yml logs --tail=20
 
           # Check health of the new deployment
           HEALTHY=true
-          for service in backend frontend; do
+          for service in backend_v3 frontend; do
+              echo "Checking health of $service..."
               if ! docker-compose -f docker-compose.prod.yml ps | grep $service | grep -q "healthy"; then
                   echo "Service $service is not healthy"
                   HEALTHY=false
+              else
+                  echo "Service $service is healthy"
               fi
           done
 
