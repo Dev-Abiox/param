@@ -371,7 +371,7 @@ jobs:
           fi
 
           # Health check with actual endpoint verification
-          BACKEND_URL="http://localhost:8000/api/health/"
+          BACKEND_URL="http://localhost:8000/health/"
           FRONTEND_URL="http://localhost:3000/"
 
           echo "Checking backend health: $BACKEND_URL"
