@@ -209,6 +209,8 @@ jobs:
         echo "=== SSH Connection Verified ==="
         
     - name: Deploy to BigRock KVM (Blue-Green)
+      env:
+        GITHUB_REPO: ${{ github.repository }}
       run: |
         # SSH into the server and execute blue-green deployment script
         echo "=== Starting Blue-Green Deployment ==="
@@ -220,6 +222,9 @@ jobs:
           CURRENT_BLUE="$DEPLOY_DIR/blue"
           CURRENT_GREEN="$DEPLOY_DIR/green"
           NEW_VERSION=$(date +%Y%m%d_%H%M%S)
+          
+          # Set GitHub repository (passed from GitHub Actions)
+          GITHUB_REPOSITORY="'"$GITHUB_REPO"'"
           
           # Determine current and next environments
           if [ -f "$DEPLOY_DIR/current_env" ]; then
