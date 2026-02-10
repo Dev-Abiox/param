@@ -3,10 +3,12 @@ URL configuration for Core API.
 """
 
 from django.urls import path
+from django.http import JsonResponse
 
 from .views import (
     HealthLiveView,
     HealthReadyView,
+    HealthView,
     LoginView,
     LogoutView,
     MeView,
@@ -37,4 +39,5 @@ urlpatterns = [
     # Health Checks
     path('health/live', HealthLiveView.as_view(), name='health-live'),
     path('health/ready', HealthReadyView.as_view(), name='health-ready'),
+    path('health/', HealthView.as_view(), name='health'),
 ]

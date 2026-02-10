@@ -334,6 +334,18 @@ class HealthLiveView(APIView):
         return Response({'status': 'live'})
 
 
+class HealthView(APIView):
+    """
+    Simple health check endpoint.
+
+    GET /health/
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return JsonResponse({"status": "ok"})
+
+
 class HealthReadyView(APIView):
     """
     Readiness probe - checks all dependencies.
