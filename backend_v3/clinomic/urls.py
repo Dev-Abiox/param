@@ -10,4 +10,7 @@ urlpatterns = [
     path('api/', include('apps.core.urls')),
     path('api/screening/', include('apps.screening.urls')),
     path('api/analytics/', include('apps.analytics.urls')),
+    
+    # ADD THIS
+    path('', include('apps.core.urls')),
 ]
