@@ -337,13 +337,16 @@ class HealthLiveView(APIView):
 class HealthView(APIView):
     """
     Simple health check endpoint.
-
+    
     GET /health/
+    No auth required, lightweight, no DB queries
     """
     permission_classes = [AllowAny]
+    authentication_classes = []  # Explicitly disable authentication
 
     def get(self, request):
-        return JsonResponse({"status": "ok"})
+        # Lightweight health check - no database queries
+        return JsonResponse({"status": "healthy"})
 
 
 class HealthReadyView(APIView):
