@@ -35,6 +35,7 @@ services:
       - CORS_ORIGINS=${FRONTEND_URL}
     command: >
       sh -c "
+      python manage.py collectstatic --noinput &&
       python manage.py migrate_schemas --shared &&
       python manage.py ensure_domains &&
       gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
@@ -47,7 +48,7 @@ services:
     volumes:
       - ./ml/models:/app/ml/models:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
       interval: 30s
       timeout: 10s
       retries: 5

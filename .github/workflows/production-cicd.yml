@@ -260,6 +260,16 @@ jobs:
           docker pull ghcr.io/$REPO_NAME:latest
           docker pull ghcr.io/${REPO_NAME}-frontend:latest
           
+          # Verify SSL certificates exist before deployment
+          echo "Verifying SSL certificates..."
+          if [ ! -f "/etc/letsencrypt/live/clinomiclabs.com/fullchain.pem" ] || [ ! -f "/etc/letsencrypt/live/clinomiclabs.com/privkey.pem" ]; then
+              echo "ERROR: SSL certificates not found at /etc/letsencrypt/live/clinomiclabs.com/"
+              echo "Please ensure Let's Encrypt certificates are properly installed"
+              echo "Or temporarily disable SSL by commenting out SSL volume mounts in docker-compose.prod.yml"
+              exit 1
+          fi
+          echo "SSL certificates verified"
+          
           # Create new deployment directory if it doesn't exist
           mkdir -p $NEXT_DIR
           
@@ -324,7 +334,9 @@ jobs:
           if [ ! -f "secrets/postgres_password" ]; then
               mkdir -p secrets
               openssl rand -hex 32 > secrets/postgres_password
-              openssl rand -hex 32 > secrets/django_secret_key
+              openssl rand -hex 50 > secrets/django_secret_key
+              openssl rand -hex 50 > secrets/jwt_secret_key
+              openssl rand -hex 50 > secrets/jwt_refresh_secret_key
               openssl rand -base64 32 > secrets/fernet_key
           fi
           
@@ -333,10 +345,10 @@ jobs:
           export POSTGRES_DB=${POSTGRES_DB:-clinomic}
           export POSTGRES_USER=${POSTGRES_USER:-postgres}
           export DJANGO_SECRET_KEY=$(cat secrets/django_secret_key)
-          export JWT_SECRET_KEY=$(cat secrets/django_secret_key)
-          export JWT_REFRESH_SECRET_KEY=$(cat secrets/django_secret_key)
+          export JWT_SECRET_KEY=$(cat secrets/jwt_secret_key)
+          export JWT_REFRESH_SECRET_KEY=$(cat secrets/jwt_refresh_secret_key)
           export MASTER_ENCRYPTION_KEY=$(cat secrets/fernet_key)
-          export ALLOWED_HOSTS="*"
+          export ALLOWED_HOSTS="clinomiclabs.com,www.clinomiclabs.com,localhost,127.0.0.1"
           export FRONTEND_URL="http://localhost:3000"
           export CORS_ORIGINS="http://localhost:3000"
           
@@ -348,11 +360,8 @@ jobs:
           echo "DJANGO_SECRET_KEY: ******** (hidden)"
 
           # Stop any existing containers in the next environment
-          docker-compose -f docker-compose.prod.yml down -v 2>/dev/null || true
-          
-          # Remove existing PostgreSQL data volume to ensure clean initialization
-          docker volume rm $(basename $NEXT_DIR)_postgres_data 2>/dev/null || true
-
+          docker-compose -f docker-compose.prod.yml down 2>/dev/null || true
+                    
           # Pull latest images
           docker-compose -f docker-compose.prod.yml pull
           
@@ -411,7 +420,7 @@ jobs:
           fi
 
           # Health check with actual endpoint verification
-          BACKEND_URL="http://localhost:8000/health/"
+          BACKEND_URL="http://localhost:8000/api/health/"
           FRONTEND_URL="http://localhost:3000/"
 
           echo "Checking backend health: $BACKEND_URL"
