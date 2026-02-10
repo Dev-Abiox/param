@@ -235,15 +235,15 @@ jobs:
           # Set GitHub repository (passed from GitHub Actions)
           GITHUB_REPOSITORY="$REPO_LOWER"
           
-          echo "Using repository: \$GITHUB_REPOSITORY"
+          echo "Using repository: $GITHUB_REPOSITORY"
           
           # Debug: Show all variables
           echo "=== Debug: Environment Variables ==="
-          echo "REPO_LOWER=\$REPO_LOWER"
-          echo "GITHUB_REPOSITORY=\$GITHUB_REPOSITORY"
-          echo "DEPLOY_DIR=\$DEPLOY_DIR"
-          echo "NEXT_DIR=\$NEXT_DIR"
-          echo "CURRENT_ENV=\$CURRENT_ENV"
+          echo "REPO_LOWER=$REPO_LOWER"
+          echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          echo "DEPLOY_DIR=$DEPLOY_DIR"
+          echo "NEXT_DIR=$NEXT_DIR"
+          echo "CURRENT_ENV=$CURRENT_ENV"
           
           # Determine current and next environments
           if [ -f "\$DEPLOY_DIR/current_env" ]; then
@@ -276,10 +276,15 @@ jobs:
           cp -f \$DEPLOY_DIR/.env \$NEXT_DIR/ 2>/dev/null || echo ".env file not found"
                     
           # Change to the new directory and verify
-          cd \$NEXT_DIR
+          cd $NEXT_DIR
+          echo "=== Current working directory ==="
+          pwd
+          echo "=== Directory contents ==="
+          ls -la
+          
           if [ ! -f "docker-compose.prod.yml" ]; then
-              echo "ERROR: docker-compose.prod.yml not found in \$NEXT_DIR"
-              ls -la \$NEXT_DIR
+              echo "ERROR: docker-compose.prod.yml not found in $NEXT_DIR"
+              ls -la $NEXT_DIR
               exit 1
           fi
                     
@@ -293,8 +298,9 @@ jobs:
           echo "=== Before sed replacement ==="
           grep -n "image:" docker-compose.prod.yml
                     
-          sed -i "s|image: ghcr.io/dev-abiox/param:latest|image: ghcr.io/\${GITHUB_REPOSITORY}:latest|g" docker-compose.prod.yml
-          sed -i "s|image: ghcr.io/dev-abiox/param-frontend:latest|image: ghcr.io/\${GITHUB_REPOSITORY}-frontend:latest|g" docker-compose.prod.yml
+          # Use the actual repository name from the variable
+          sed -i "s|image: ghcr.io/dev-abiox/param:latest|image: ghcr.io/${GITHUB_REPOSITORY}:latest|g" docker-compose.prod.yml
+          sed -i "s|image: ghcr.io/dev-abiox/param-frontend:latest|image: ghcr.io/${GITHUB_REPOSITORY}-frontend:latest|g" docker-compose.prod.yml
                     
           # Debug: Show what sed did
           echo "=== After sed replacement ==="
@@ -310,83 +316,83 @@ jobs:
                     
           # Stop any existing containers in the next environment
           docker-compose down 2>/dev/null || true
-          
+                    
           # Pull latest images
           docker-compose pull
-          
+                    
           # Start new environment
           docker-compose up -d
-          
+                    
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
           sleep 30
-          
+                    
           # Check health of the new deployment
           HEALTHY=true
           for service in backend frontend; do
-              if ! docker-compose ps | grep \$service | grep -q "healthy"; then
-                  echo "Service \$service is not healthy"
+              if ! docker-compose ps | grep $service | grep -q "healthy"; then
+                  echo "Service $service is not healthy"
                   HEALTHY=false
               fi
           done
-          
+                    
           # If health check fails, rollback
-          if [ "\$HEALTHY" = "false" ]; then
+          if [ "$HEALTHY" = "false" ]; then
               echo "Health check failed, rolling back..."
               docker-compose down
-              
+                        
               # Bring back the old environment
-              cd \$(dirname \$NEXT_DIR)
+              cd $(dirname $NEXT_DIR)
               PREV_DIR=""
-              if [ "\$NEXT_ENV" = "green" ]; then
-                  PREV_DIR="\$CURRENT_BLUE"
+              if [ "$NEXT_ENV" = "green" ]; then
+                  PREV_DIR="$CURRENT_BLUE"
               else
-                  PREV_DIR="\$CURRENT_GREEN"
+                  PREV_DIR="$CURRENT_GREEN"
               fi
-              
-              cd \$PREV_DIR
+                        
+              cd $PREV_DIR
               docker-compose up -d
               echo "Rollback completed"
               exit 1
           fi
-          
+                    
           # Health check with actual endpoint verification
           BACKEND_URL="http://localhost:8000/api/health/"
           FRONTEND_URL="http://localhost:3000/"
-          
-          echo "Checking backend health: \$BACKEND_URL"
+                    
+          echo "Checking backend health: $BACKEND_URL"
           for i in {1..10}; do
-              if curl -f -s \$BACKEND_URL > /dev/null; then
+              if curl -f -s $BACKEND_URL > /dev/null; then
                   echo "Backend is healthy"
                   break
               fi
-              echo "Waiting for backend... (\$i/10)"
+              echo "Waiting for backend... ($i/10)"
               sleep 10
           done
-          
-          echo "Checking frontend health: \$FRONTEND_URL"
+                    
+          echo "Checking frontend health: $FRONTEND_URL"
           for i in {1..10}; do
-              if curl -f -s \$FRONTEND_URL > /dev/null; then
+              if curl -f -s $FRONTEND_URL > /dev/null; then
                   echo "Frontend is healthy"
                   break
               fi
-              echo "Waiting for frontend... (\$i/10)"
+              echo "Waiting for frontend... ($i/10)"
               sleep 10
           done
-          
+                    
           # Update the current environment pointer
-          echo \$NEXT_ENV > \$DEPLOY_DIR/current_env
-          
+          echo $NEXT_ENV > $DEPLOY_DIR/current_env
+                    
           # Clean up old environment
-          if [ "\$NEXT_ENV" = "green" ]; then
-              OLD_DIR="\$CURRENT_BLUE"
+          if [ "$NEXT_ENV" = "green" ]; then
+              OLD_DIR="$CURRENT_BLUE"
           else
-              OLD_DIR="\$CURRENT_GREEN"
+              OLD_DIR="$CURRENT_GREEN"
           fi
-          
-          cd \$OLD_DIR
+                    
+          cd $OLD_DIR
           docker-compose down
-          
+                    
           echo "Blue-green deployment completed successfully!"
-          echo "Active environment: \$NEXT_ENV"
+          echo "Active environment: $NEXT_ENV"
         EOF
