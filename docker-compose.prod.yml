@@ -67,7 +67,7 @@ services:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
-      - backend_v3
+      - backend
       - frontend
 
 volumes:
