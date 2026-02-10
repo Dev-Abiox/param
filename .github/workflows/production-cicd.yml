@@ -263,8 +263,18 @@ jobs:
           # Create new deployment directory if it doesn't exist
           mkdir -p $NEXT_DIR
           
+          # Safety check for nginx.prod.conf
+          if [ ! -f "$DEPLOY_DIR/nginx.prod.conf" ]; then
+            echo "ERROR: nginx.prod.conf missing"
+            exit 1
+          fi
+          
+          # Remove any existing nginx.prod.conf path (file or directory) to prevent conflicts
+          rm -rf "$NEXT_DIR/nginx.prod.conf"
+          
           # Copy updated docker-compose file and environment files
           cp -f $DEPLOY_DIR/docker-compose.prod.yml $NEXT_DIR/
+          cp -f $DEPLOY_DIR/nginx.prod.conf $NEXT_DIR/nginx.prod.conf
           cp -f $DEPLOY_DIR/.env $NEXT_DIR/ 2>/dev/null || echo ".env file not found"
           
           # Debug: Show what we have
