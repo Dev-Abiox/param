@@ -77,7 +77,7 @@ start_services() {
     cd "$env_dir"
     
     log "Starting services in $env_dir..."
-    docker compose up -d
+    docker-compose up -d
     
     # Wait for services to be healthy
     log "Waiting for services to become healthy..."
