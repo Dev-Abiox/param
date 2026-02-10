@@ -373,15 +373,22 @@ jobs:
           
           # Wait for services to be ready
           echo "Waiting for services to be ready..."
-          sleep 45
+          sleep 60
+          
+          # Debug: Check container status during wait
+          echo "=== Container Status During Wait ==="
+          docker-compose -f docker-compose.prod.yml ps
           
           # Run migrations and domain setup
+          echo "Running database migrations..."
           docker-compose -f docker-compose.prod.yml exec -T backend python manage.py migrate_schemas --shared
+          
+          echo "Setting up domains..."
           docker-compose -f docker-compose.prod.yml exec -T backend python manage.py ensure_domains
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
-          sleep 60
+          sleep 90
           
           # Debug: Check container status
           echo "=== Container Status ==="
@@ -391,7 +398,11 @@ jobs:
           
           # Additional wait for database to be fully ready
           echo "Waiting additional time for database initialization..."
-          sleep 30
+          sleep 45
+          
+          # Debug: Check detailed container logs
+          echo "=== Detailed Container Logs ==="
+          docker-compose -f docker-compose.prod.yml logs --tail=50
 
           # Check health of the new deployment
           HEALTHY=true
