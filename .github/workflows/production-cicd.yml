@@ -367,11 +367,17 @@ jobs:
           
           # Initialize database and domains BEFORE starting services
           echo "Initializing database and domains..."
-          docker-compose -f docker-compose.prod.yml run --rm backend python manage.py migrate_schemas --shared
-          docker-compose -f docker-compose.prod.yml run --rm backend python manage.py ensure_domains
-                    
-          # Start new environment
+          
+          # Start all services first to ensure proper environment variable passing
           docker-compose -f docker-compose.prod.yml up -d
+          
+          # Wait for services to be ready
+          echo "Waiting for services to be ready..."
+          sleep 45
+          
+          # Run migrations and domain setup
+          docker-compose -f docker-compose.prod.yml exec -T backend python manage.py migrate_schemas --shared
+          docker-compose -f docker-compose.prod.yml exec -T backend python manage.py ensure_domains
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
