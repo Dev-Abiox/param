@@ -50,7 +50,7 @@ services:
     image: ghcr.io/dev-abiox/param-frontend:latest
     restart: always
     environment:
-      - REACT_APP_BACKEND_URL=${BACKEND_URL}
+      - REACT_APP_BACKEND_URL=http://backend_v3:8000
     expose:
       - "3000"
     depends_on:

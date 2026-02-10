@@ -184,7 +184,7 @@ start_production() {
         else
             print_error "Failed to start production services"
             # Check logs
-            docker-compose -f docker-compose.v3.yml --profile prod logs
+            docker-compose -f docker-compose.prod.yml logs
             exit 1
         fi
     else
@@ -200,13 +200,13 @@ configure_production() {
     cd "$DEPLOY_PATH"
     
     # Create a production-specific docker-compose file
-    if [[ -f "docker-compose.v3.yml" ]]; then
-        cp docker-compose.v3.yml docker-compose.prod.yml
-        sed -i 's/POSTGRES_PORT=5433/POSTGRES_PORT=5432/g' docker-compose.prod.yml
-        sed -i 's/debug: true/debug: false/g' docker-compose.prod.yml 2>/dev/null || true
-        
-        print_success "Production docker-compose file created"
+    # Note: docker-compose.prod.yml should already exist as the single source of truth
+    if [[ ! -f "docker-compose.prod.yml" ]]; then
+        print_error "docker-compose.prod.yml not found - this should be the single source of truth"
+        exit 1
     fi
+    
+    print_success "Using existing docker-compose.prod.yml as production configuration"
     
     # Set up systemd service for auto-start
     if [[ -f "/etc/systemd/system" ]]; then
@@ -247,7 +247,7 @@ run_health_checks() {
         print_success "Backend health check passed"
     else
         print_warning "Backend health check failed, checking logs..."
-        docker-compose -f docker-compose.v3.yml --profile prod logs backend_v3 2>/dev/null || true
+        docker-compose -f docker-compose.prod.yml logs backend_v3 2>/dev/null || true
     fi
     
     # Check if frontend is responding
@@ -265,7 +265,7 @@ display_summary() {
     echo "Application deployed successfully to VM!"
     echo ""
     echo "Services running:"
-    docker-compose -f docker-compose.v3.yml --profile prod ps 2>/dev/null || true
+    docker-compose -f docker-compose.prod.yml ps 2>/dev/null || true
     echo ""
     echo "Access URLs:"
     echo "  Backend API: http://localhost:8000"

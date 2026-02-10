@@ -51,7 +51,7 @@ print_success "Next environment: $NEXT_ENV"
 
 # Start NEXT environment
 print_header "DEPLOYING TO $NEXT_ENV ENVIRONMENT"
-docker-compose -f docker-compose.v3.yml --profile prod -p "clinomic-$NEXT_ENV" up -d --build
+docker-compose -f docker-compose.prod.yml -p "clinomic-$NEXT_ENV" up -d
 
 # Wait for services to start
 print_warning "Waiting for $NEXT_ENV services to start..."
@@ -81,7 +81,7 @@ if [ "$HEALTH_STATUS" -eq 200 ]; then
     
     # Stop CURRENT environment
     print_header "STOPPING $CURRENT_ENV ENVIRONMENT"
-    docker-compose -f docker-compose.v3.yml --profile prod -p "clinomic-$CURRENT_ENV" down
+    docker-compose -f docker-compose.prod.yml -p "clinomic-$CURRENT_ENV" down
     
     print_success "Blue-green deployment completed successfully!"
     print_success "Active environment: $NEXT_ENV"
@@ -94,7 +94,7 @@ else
     print_error "Rolling back to $CURRENT_ENV environment"
     
     # Bring back CURRENT environment
-    docker-compose -f docker-compose.v3.yml --profile prod -p "clinomic-$CURRENT_ENV" up -d
+    docker-compose -f docker-compose.prod.yml -p "clinomic-$CURRENT_ENV" up -d
     
     print_error "Deployment rolled back to $CURRENT_ENV"
     exit 1
