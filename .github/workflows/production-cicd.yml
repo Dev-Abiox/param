@@ -178,13 +178,32 @@ jobs:
       run: |
         echo "=== Final SSH Connection Test ==="
         # Try to connect and verify
-        if ! ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} "echo 'SSH connection successful'; whoami; pwd"; then
-          echo "ERROR: Cannot establish SSH connection to server"
-          echo "Please verify:"
-          echo "1. The SSH private key in GitHub Secrets (SSH_PRIVATE_KEY) matches the public key on the server"
-          echo "2. The public key is in /root/.ssh/authorized_keys on the server"
-          echo "3. Server SSH permissions are correct: chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
-          echo "4. Server firewall allows SSH connections on port 22"
+        if ! ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} "echo 'SSH connection successful'; whoami; pwd" 2>&1; then
+          echo ""
+          echo "======================================"
+          echo "ERROR: SSH Authentication Failed"
+          echo "======================================"
+          echo ""
+          echo "The server is REJECTING the SSH key from GitHub Actions."
+          echo ""
+          echo "Public key that needs to be added to the server:"
+          echo "------------------------------------------------"
+          ssh-add -L
+          echo "------------------------------------------------"
+          echo ""
+          echo "TO FIX THIS ISSUE:"
+          echo "1. Copy the public key shown above (entire line starting with 'ssh-rsa')"
+          echo "2. SSH into your server: ssh root@YOUR_SERVER_IP"
+          echo "3. Run these commands:"
+          echo "   mkdir -p ~/.ssh"
+          echo "   chmod 700 ~/.ssh"
+          echo "   echo 'PASTE_THE_PUBLIC_KEY_HERE' >> ~/.ssh/authorized_keys"
+          echo "   chmod 600 ~/.ssh/authorized_keys"
+          echo "4. Re-run this workflow"
+          echo ""
+          echo "Quick one-liner (replace YOUR_SERVER_IP):"
+          echo "ssh root@YOUR_SERVER_IP 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo \"$(ssh-add -L)\" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'"
+          echo ""
           exit 1
         fi
         echo "=== SSH Connection Verified ==="
