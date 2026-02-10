@@ -309,10 +309,13 @@ jobs:
           fi
                     
           # Stop any existing containers in the next environment
-          docker compose down 2>/dev/null || true
+          docker-compose down 2>/dev/null || true
+          
+          # Pull latest images
+          docker-compose pull
           
           # Start new environment
-          docker compose up -d
+          docker-compose up -d
           
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
@@ -321,7 +324,7 @@ jobs:
           # Check health of the new deployment
           HEALTHY=true
           for service in backend frontend; do
-              if ! docker compose ps | grep \$service | grep -q "healthy"; then
+              if ! docker-compose ps | grep \$service | grep -q "healthy"; then
                   echo "Service \$service is not healthy"
                   HEALTHY=false
               fi
@@ -330,7 +333,7 @@ jobs:
           # If health check fails, rollback
           if [ "\$HEALTHY" = "false" ]; then
               echo "Health check failed, rolling back..."
-              docker compose down
+              docker-compose down
               
               # Bring back the old environment
               cd \$(dirname \$NEXT_DIR)
@@ -342,7 +345,7 @@ jobs:
               fi
               
               cd \$PREV_DIR
-              docker compose up -d
+              docker-compose up -d
               echo "Rollback completed"
               exit 1
           fi
@@ -382,7 +385,7 @@ jobs:
           fi
           
           cd \$OLD_DIR
-          docker compose down
+          docker-compose down
           
           echo "Blue-green deployment completed successfully!"
           echo "Active environment: \$NEXT_ENV"
