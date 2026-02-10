@@ -330,6 +330,8 @@ jobs:
           
           # Load secrets into environment variables
           export POSTGRES_PASSWORD=$(cat secrets/postgres_password)
+          export POSTGRES_DB=${POSTGRES_DB:-clinomic}
+          export POSTGRES_USER=${POSTGRES_USER:-postgres}
           export DJANGO_SECRET_KEY=$(cat secrets/django_secret_key)
           export JWT_SECRET_KEY=$(cat secrets/django_secret_key)
           export JWT_REFRESH_SECRET_KEY=$(cat secrets/django_secret_key)
@@ -337,9 +339,19 @@ jobs:
           export ALLOWED_HOSTS="*"
           export FRONTEND_URL="http://localhost:3000"
           export CORS_ORIGINS="http://localhost:3000"
+          
+          # Debug: Show environment variables
+          echo "=== Environment Variables ==="
+          echo "POSTGRES_DB: $POSTGRES_DB"
+          echo "POSTGRES_USER: $POSTGRES_USER"
+          echo "POSTGRES_PASSWORD: ******** (hidden)"
+          echo "DJANGO_SECRET_KEY: ******** (hidden)"
 
           # Stop any existing containers in the next environment
-          docker-compose -f docker-compose.prod.yml down 2>/dev/null || true
+          docker-compose -f docker-compose.prod.yml down -v 2>/dev/null || true
+          
+          # Remove existing PostgreSQL data volume to ensure clean initialization
+          docker volume rm $(basename $NEXT_DIR)_postgres_data 2>/dev/null || true
 
           # Pull latest images
           docker-compose -f docker-compose.prod.yml pull
@@ -349,17 +361,21 @@ jobs:
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
-          sleep 30
+          sleep 60
           
           # Debug: Check container status
           echo "=== Container Status ==="
           docker-compose -f docker-compose.prod.yml ps
           echo "=== Container Logs ==="
-          docker-compose -f docker-compose.prod.yml logs --tail=20
+          docker-compose -f docker-compose.prod.yml logs --tail=30
+          
+          # Additional wait for database to be fully ready
+          echo "Waiting additional time for database initialization..."
+          sleep 30
 
           # Check health of the new deployment
           HEALTHY=true
-          for service in backend_v3 frontend; do
+          for service in backend frontend; do
               echo "Checking health of $service..."
               if ! docker-compose -f docker-compose.prod.yml ps | grep $service | grep -q "healthy"; then
                   echo "Service $service is not healthy"
