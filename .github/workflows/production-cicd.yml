@@ -209,67 +209,70 @@ jobs:
         echo "=== SSH Connection Verified ==="
         
     - name: Deploy to BigRock KVM (Blue-Green)
-      env:
-        GITHUB_REPO: ${{ github.repository }}
       run: |
         # SSH into the server and execute blue-green deployment script
         echo "=== Starting Blue-Green Deployment ==="
-        ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} << 'EOF'
+        # Export repository name for use in the SSH command
+        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+        
+        ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} bash -s << EOF
           set -e
           
           # Define deployment directory
           DEPLOY_DIR="/opt/clinomic-b12-platform"
-          CURRENT_BLUE="$DEPLOY_DIR/blue"
-          CURRENT_GREEN="$DEPLOY_DIR/green"
-          NEW_VERSION=$(date +%Y%m%d_%H%M%S)
+          CURRENT_BLUE="\$DEPLOY_DIR/blue"
+          CURRENT_GREEN="\$DEPLOY_DIR/green"
+          NEW_VERSION=\$(date +%Y%m%d_%H%M%S)
           
           # Set GitHub repository (passed from GitHub Actions)
-          GITHUB_REPOSITORY="'"$GITHUB_REPO"'"
+          GITHUB_REPOSITORY="$REPO_LOWER"
+          
+          echo "Using repository: \$GITHUB_REPOSITORY"
           
           # Determine current and next environments
-          if [ -f "$DEPLOY_DIR/current_env" ]; then
-              CURRENT_ENV=$(cat $DEPLOY_DIR/current_env)
+          if [ -f "\$DEPLOY_DIR/current_env" ]; then
+              CURRENT_ENV=\$(cat \$DEPLOY_DIR/current_env)
           else
               CURRENT_ENV="blue"
           fi
           
-          if [ "$CURRENT_ENV" = "blue" ]; then
+          if [ "\$CURRENT_ENV" = "blue" ]; then
               NEXT_ENV="green"
-              NEXT_DIR="$CURRENT_GREEN"
+              NEXT_DIR="\$CURRENT_GREEN"
           else
               NEXT_ENV="blue"
-              NEXT_DIR="$CURRENT_BLUE"
+              NEXT_DIR="\$CURRENT_BLUE"
           fi
-          
-          echo "Current environment: $CURRENT_ENV"
-          echo "Deploying to: $NEXT_ENV"
-          
+                    
+          echo "Current environment: \$CURRENT_ENV"
+          echo "Deploying to: \$NEXT_ENV"
+                    
           # Pull latest images
-          docker pull ghcr.io/$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]'):latest
-          docker pull ghcr.io/$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')-frontend:latest
-          
+          docker pull ghcr.io/\${GITHUB_REPOSITORY}:latest
+          docker pull ghcr.io/\${GITHUB_REPOSITORY}-frontend:latest
+                    
           # Create new deployment directory if it doesn't exist
-          mkdir -p $NEXT_DIR
-          
+          mkdir -p \$NEXT_DIR
+                    
           # Copy updated docker-compose file and environment files
-          cp -f $DEPLOY_DIR/docker-compose.prod.yml $NEXT_DIR/
-          cp -f $DEPLOY_DIR/.env $NEXT_DIR/ 2>/dev/null || echo ".env file not found"
-          
+          cp -f \$DEPLOY_DIR/docker-compose.prod.yml \$NEXT_DIR/
+          cp -f \$DEPLOY_DIR/.env \$NEXT_DIR/ 2>/dev/null || echo ".env file not found"
+                    
           # Generate new secrets if they don't exist
-          if [ ! -f "$NEXT_DIR/secrets/postgres_password" ]; then
-              mkdir -p $NEXT_DIR/secrets
-              openssl rand -hex 32 > $NEXT_DIR/secrets/postgres_password
-              openssl rand -hex 32 > $NEXT_DIR/secrets/django_secret_key
-              openssl rand -base64 32 > $NEXT_DIR/secrets/fernet_key
+          if [ ! -f "\$NEXT_DIR/secrets/postgres_password" ]; then
+              mkdir -p \$NEXT_DIR/secrets
+              openssl rand -hex 32 > \$NEXT_DIR/secrets/postgres_password
+              openssl rand -hex 32 > \$NEXT_DIR/secrets/django_secret_key
+              openssl rand -base64 32 > \$NEXT_DIR/secrets/fernet_key
           fi
-          
+                    
           # Stop any existing containers in the next environment
-          cd $NEXT_DIR
+          cd \$NEXT_DIR
           docker compose down 2>/dev/null || true
-          
+                    
           # Update image tags in docker-compose file
-          sed -i "s|image: ghcr.io/$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]']):.*|image: ghcr.io/$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]']):latest|" docker-compose.prod.yml
-          sed -i "s|image: ghcr.io/$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')-frontend:.*|image: ghcr.io/$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')-frontend:latest|" docker-compose.prod.yml
+          sed -i "s|image: ghcr.io/[^:]*:|image: ghcr.io/\${GITHUB_REPOSITORY}:|g" docker-compose.prod.yml
+          sed -i "s|image: ghcr.io/[^:]*-frontend:|image: ghcr.io/\${GITHUB_REPOSITORY}-frontend:|g" docker-compose.prod.yml
           
           # Start new environment
           docker compose up -d
@@ -281,27 +284,27 @@ jobs:
           # Check health of the new deployment
           HEALTHY=true
           for service in backend frontend; do
-              if ! docker compose ps | grep $service | grep -q "healthy"; then
-                  echo "Service $service is not healthy"
+              if ! docker compose ps | grep \$service | grep -q "healthy"; then
+                  echo "Service \$service is not healthy"
                   HEALTHY=false
               fi
           done
           
           # If health check fails, rollback
-          if [ "$HEALTHY" = "false" ]; then
+          if [ "\$HEALTHY" = "false" ]; then
               echo "Health check failed, rolling back..."
               docker compose down
               
               # Bring back the old environment
-              cd $(dirname $NEXT_DIR)
+              cd \$(dirname \$NEXT_DIR)
               PREV_DIR=""
-              if [ "$NEXT_ENV" = "green" ]; then
-                  PREV_DIR="$CURRENT_BLUE"
+              if [ "\$NEXT_ENV" = "green" ]; then
+                  PREV_DIR="\$CURRENT_BLUE"
               else
-                  PREV_DIR="$CURRENT_GREEN"
+                  PREV_DIR="\$CURRENT_GREEN"
               fi
               
-              cd $PREV_DIR
+              cd \$PREV_DIR
               docker compose up -d
               echo "Rollback completed"
               exit 1
@@ -311,39 +314,39 @@ jobs:
           BACKEND_URL="http://localhost:8000/api/health/"
           FRONTEND_URL="http://localhost:3000/"
           
-          echo "Checking backend health: $BACKEND_URL"
+          echo "Checking backend health: \$BACKEND_URL"
           for i in {1..10}; do
-              if curl -f -s $BACKEND_URL > /dev/null; then
+              if curl -f -s \$BACKEND_URL > /dev/null; then
                   echo "Backend is healthy"
                   break
               fi
-              echo "Waiting for backend... ($i/10)"
+              echo "Waiting for backend... (\$i/10)"
               sleep 10
           done
           
-          echo "Checking frontend health: $FRONTEND_URL"
+          echo "Checking frontend health: \$FRONTEND_URL"
           for i in {1..10}; do
-              if curl -f -s $FRONTEND_URL > /dev/null; then
+              if curl -f -s \$FRONTEND_URL > /dev/null; then
                   echo "Frontend is healthy"
                   break
               fi
-              echo "Waiting for frontend... ($i/10)"
+              echo "Waiting for frontend... (\$i/10)"
               sleep 10
           done
           
           # Update the current environment pointer
-          echo $NEXT_ENV > $DEPLOY_DIR/current_env
+          echo \$NEXT_ENV > \$DEPLOY_DIR/current_env
           
           # Clean up old environment
-          if [ "$NEXT_ENV" = "green" ]; then
-              OLD_DIR="$CURRENT_BLUE"
+          if [ "\$NEXT_ENV" = "green" ]; then
+              OLD_DIR="\$CURRENT_BLUE"
           else
-              OLD_DIR="$CURRENT_GREEN"
+              OLD_DIR="\$CURRENT_GREEN"
           fi
           
-          cd $OLD_DIR
+          cd \$OLD_DIR
           docker compose down
           
           echo "Blue-green deployment completed successfully!"
-          echo "Active environment: $NEXT_ENV"
+          echo "Active environment: \$NEXT_ENV"
         EOF
