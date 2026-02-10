@@ -65,7 +65,8 @@ services:
       - "443:443"
     volumes:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt/live/clinomiclabs.com/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - /etc/letsencrypt/live/clinomiclabs.com/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
     depends_on:
       - backend
       - frontend
