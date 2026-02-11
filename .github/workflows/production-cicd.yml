@@ -1,82 +1,99 @@
-name: Production CI/CD
+deploy:
+  needs: build
+  runs-on: ubuntu-latest
 
-on:
-  push:
-    branches: [main, master]
+  steps:
+    - name: Bulletproof Blue-Green Deploy
+      run: |
+        ssh \
+          -o StrictHostKeyChecking=no \
+          -o HostKeyAlgorithms=+ssh-rsa \
+          -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+          root@${{ secrets.HOST_IP }} << 'EOF'
 
-env:
-  REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/dev-abiox/param
-  FRONTEND_IMAGE: ghcr.io/dev-abiox/param-frontend
+        set -e
 
-########################
-# BUILD & PUSH
-########################
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+        BASE=/opt/clinomic-b12-platform
+        COMPOSE="$BASE/docker-compose.prod.yml"
 
-    permissions:
-      contents: read
-      packages: write
+        echo "=== VALIDATION ==="
 
-    steps:
-      - uses: actions/checkout@v4
+        [ -f "$COMPOSE" ] || { echo "Compose missing"; exit 1; }
+        [ -f "$BASE/nginx.prod.conf" ] || { echo "Nginx config missing"; exit 1; }
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        echo "=== DETECT CURRENT ==="
+        CURRENT=$(cat $BASE/current_env 2>/dev/null || echo blue)
 
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./backend_v3
-          push: true
-          tags: |
-            ${{ env.BACKEND_IMAGE }}:latest
-            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+        if [ "$CURRENT" = "blue" ]; then
+          NEXT="green"
+        else
+          NEXT="blue"
+        fi
 
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: true
-          tags: |
-            ${{ env.FRONTEND_IMAGE }}:latest
-            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+        echo "Current: $CURRENT"
+        echo "Next: $NEXT"
 
-########################
-# DEPLOY
-########################
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
+        cd $BASE/$NEXT
 
-    steps:
-      - uses: actions/checkout@v4
+        echo "=== SNAPSHOT RUNNING STATE ==="
+        docker ps > $BASE/rollback_ps.txt
 
-      - uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        echo "=== PULL IMAGES ==="
+        docker-compose -f $COMPOSE pull
 
-      - name: Deploy on VM
-        run: |
-          ssh -o StrictHostKeyChecking=no root@${{ secrets.HOST_IP }} << 'EOF'
-            set -e
+        echo "=== START NEXT ENV ==="
+        docker-compose -f $COMPOSE up -d
 
-            cd /opt/clinomic-b12-platform
+        echo "=== WAIT FOR BOOT ==="
+        sleep 45
 
-            echo "Pulling latest images..."
-            docker-compose -f docker-compose.prod.yml pull
+        ##################################
+        # HEALTH CHECKS
+        ##################################
 
-            echo "Recreating containers..."
-            docker-compose -f docker-compose.prod.yml up -d
+        FAIL=0
 
-            echo "Waiting for services..."
-            sleep 40
+        echo "Check containers running..."
+        docker-compose -f $COMPOSE ps | grep Up || FAIL=1
 
-            echo "Testing site..."
-            curl -k -f https://localhost || exit 1
+        echo "Check backend responds..."
+        curl -sf http://localhost:8000 || FAIL=1
 
-            echo "Deployment successful"
-          EOF
+        echo "Check HTTPS via nginx..."
+        curl -skf https://localhost || FAIL=1
+
+        ##################################
+        # ROLLBACK LOGIC
+        ##################################
+
+        if [ "$FAIL" -eq 1 ]; then
+          echo "=== HEALTH FAILED → ROLLBACK ==="
+
+          docker-compose -f $COMPOSE down
+
+          echo "Restoring previous env..."
+          cd $BASE/$CURRENT
+          docker-compose -f $COMPOSE up -d
+
+          echo "ROLLBACK COMPLETE"
+          exit 1
+        fi
+
+        ##################################
+        # SWITCH LIVE
+        ##################################
+
+        echo "=== SWITCH TRAFFIC ==="
+        echo $NEXT > $BASE/current_env
+
+        ##################################
+        # STOP OLD ENV
+        ##################################
+
+        echo "=== STOP OLD ==="
+        cd $BASE/$CURRENT
+        docker-compose -f $COMPOSE down || true
+
+        echo "=== DEPLOY SUCCESS ==="
+
+        EOF
