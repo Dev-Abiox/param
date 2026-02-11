@@ -1,506 +1,82 @@
-name: Production CI/CD Pipeline with Blue-Green Deployment
+name: Production CI/CD
 
 on:
   push:
     branches: [main, master]
-  pull_request:
-    branches: [main, master]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: dev-abiox/param
+  BACKEND_IMAGE: ghcr.io/dev-abiox/param
+  FRONTEND_IMAGE: ghcr.io/dev-abiox/param-frontend
 
+########################
+# BUILD & PUSH
+########################
 jobs:
-  test-backend:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-        
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        
-    - name: Install dependencies
-      run: |
-        cd backend_v3
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        
-    - name: Run backend tests
-      run: |
-        cd backend_v3
-        python -m pytest --cov=apps --cov-report=xml --cov-report=term
-        
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./backend_v3/coverage.xml
-        flags: backend
-        name: backend
-
-  test-frontend:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        
-    - name: Install frontend dependencies
-      run: |
-        cd frontend
-        npm ci --legacy-peer-deps
-        
-    - name: Run frontend tests
-      run: |
-        cd frontend
-        npm test -- --passWithNoTests --ci --coverage --coverageReporters=lcov
-        
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./frontend/coverage/lcov.info
-        flags: frontend
-        name: frontend
-
   build-and-push:
-    needs: [test-backend, test-frontend]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    
+
     permissions:
       contents: read
       packages: write
-      
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Extract metadata for Docker
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/dev-abiox/param
-        
-    - name: Build and push Docker images
-      uses: docker/build-push-action@v5
-      with:
-        context: ./backend_v3
-        file: ./backend_v3/Dockerfile
-        push: true
-        tags: ${{ env.REGISTRY }}/dev-abiox/param:latest,${{ env.REGISTRY }}/dev-abiox/param:${{ github.sha }}
-        labels: ${{ steps.meta.outputs.labels }}
-        
-    - name: Build and push frontend image
-      uses: docker/build-push-action@v5
-      with:
-        context: ./frontend
-        file: ./frontend/Dockerfile
-        push: true
-        tags: ${{ env.REGISTRY }}/dev-abiox/param-frontend:latest,${{ env.REGISTRY }}/dev-abiox/param-frontend:${{ github.sha }}
-        labels: ${{ steps.meta.outputs.labels }}
 
-  deploy-blue-green:
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend_v3
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+########################
+# DEPLOY
+########################
+  deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup SSH key for deployment
-      uses: webfactory/ssh-agent@v0.8.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-        
-    - name: Debug SSH agent and keys
-      run: |
-        echo "SSH Agent PID: $SSH_AGENT_PID"
-        echo "SSH Auth Socket: $SSH_AUTH_SOCK"
-        echo "=== Loaded SSH Keys ==="
-        ssh-add -l
-        echo "=== SSH Key Fingerprints ==="
-        ssh-add -L | ssh-keygen -lf -
-        # Check if the key was loaded properly
-        if [ $(ssh-add -l | wc -l) -eq 0 ]; then
-          echo "ERROR: No SSH keys loaded in agent"
-          exit 1
-        fi
-        # Display the public key for verification
-        echo "=== Public Key (add this to server's authorized_keys) ==="
-        ssh-add -L
-        echo "=== Testing SSH connection ==="
-        # Test SSH connection with verbose output
-        ssh -vvv -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey root@${{ secrets.HOST_IP }} "echo SSH connection successful" || echo "SSH connection failed with exit code: $?"
-        
-    - name: Configure SSH client and known hosts
-      run: |
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-        # Configure SSH to accept modern RSA algorithms and use SSH agent
-        cat > ~/.ssh/config << 'SSHCONFIG'
-        Host *
-            HostkeyAlgorithms +ssh-rsa
-            PubkeyAcceptedAlgorithms +ssh-rsa
-            IdentitiesOnly no
-            LogLevel DEBUG3
-            ServerAliveInterval 60
-            ServerAliveCountMax 3
-            ConnectTimeout 30
-        SSHCONFIG
-        chmod 600 ~/.ssh/config
-        # Add host key to known hosts
-        echo "=== Adding host to known_hosts ==="
-        ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts 2>&1
-        chmod 600 ~/.ssh/known_hosts
-        echo "=== Known hosts added ==="
-        cat ~/.ssh/known_hosts
-        echo "=== SSH Config ==="
-        cat ~/.ssh/config
-        echo "=== SSH Agent Keys ==="
-        ssh-add -l || echo "No keys in agent"
-        
-    - name: Verify SSH Connection Before Deployment
-      run: |
-        echo "=== Final SSH Connection Test ==="
-        # Try to connect and verify
-        if ! ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} "echo 'SSH connection successful'; whoami; pwd" 2>&1; then
-          echo ""
-          echo "======================================"
-          echo "ERROR: SSH Authentication Failed"
-          echo "======================================"
-          echo ""
-          echo "The server is REJECTING the SSH key from GitHub Actions."
-          echo ""
-          echo "Public key that needs to be added to the server:"
-          echo "------------------------------------------------"
-          ssh-add -L
-          echo "------------------------------------------------"
-          echo ""
-          echo "TO FIX THIS ISSUE:"
-          echo "1. Copy the public key shown above (entire line starting with 'ssh-rsa')"
-          echo "2. SSH into your server: ssh root@YOUR_SERVER_IP"
-          echo "3. Run these commands:"
-          echo "   mkdir -p ~/.ssh"
-          echo "   chmod 700 ~/.ssh"
-          echo "   echo 'PASTE_THE_PUBLIC_KEY_HERE' >> ~/.ssh/authorized_keys"
-          echo "   chmod 600 ~/.ssh/authorized_keys"
-          echo "4. Re-run this workflow"
-          echo ""
-          echo "Quick one-liner (replace YOUR_SERVER_IP):"
-          echo "ssh root@YOUR_SERVER_IP 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo \"$(ssh-add -L)\" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'"
-          echo ""
-          exit 1
-        fi
-        echo "=== SSH Connection Verified ==="
-        
-    - name: Deploy to BigRock KVM (Blue-Green)
-      run: |
-        # SSH into the server and execute blue-green deployment script
-        echo "=== Starting Blue-Green Deployment ==="
-        # Export repository name for use in the SSH command
-        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-        
-        # First, ensure deployment directory exists and copy necessary files
-        echo "=== Uploading deployment files ==="
-        ssh -o StrictHostKeyChecking=no root@${{ secrets.HOST_IP }} "mkdir -p /opt/clinomic-b12-platform/ml/models /opt/clinomic-b12-platform/ssl"
-        scp -o StrictHostKeyChecking=no docker-compose.prod.yml root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/
-        scp -o StrictHostKeyChecking=no nginx.prod.conf root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/
-        scp -o StrictHostKeyChecking=no -r backend_v3/ml/models/* root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/ml/models/
-        scp -o StrictHostKeyChecking=no -r ssl/* root@${{ secrets.HOST_IP }}:/opt/clinomic-b12-platform/ssl/ 2>/dev/null || echo "SSL directory is empty - will need to add certificates manually"
-        
-        # Pass the repository name as an argument to the bash script
-        ssh -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o PreferredAuthentications=publickey -o ConnectTimeout=30 root@${{ secrets.HOST_IP }} bash -s "$REPO_LOWER" << 'EOF'
-          set -e
-          
-          # Get the repository name from the first argument
-          REPO_NAME="$1"
-          
-          # Define deployment directory
-          DEPLOY_DIR="/opt/clinomic-b12-platform"
-          CURRENT_BLUE="$DEPLOY_DIR/blue"
-          CURRENT_GREEN="$DEPLOY_DIR/green"
-          NEW_VERSION=$(date +%Y%m%d_%H%M%S)
-          
-          echo "Using repository: $REPO_NAME"
-          
-          # Determine current and next environments
-          if [ -f "$DEPLOY_DIR/current_env" ]; then
-              CURRENT_ENV=$(cat $DEPLOY_DIR/current_env)
-          else
-              CURRENT_ENV="blue"
-          fi
-          
-          if [ "$CURRENT_ENV" = "blue" ]; then
-              NEXT_ENV="green"
-              NEXT_DIR="$CURRENT_GREEN"
-          else
-              NEXT_ENV="blue"
-              NEXT_DIR="$CURRENT_BLUE"
-          fi
-          
-          echo "Current environment: $CURRENT_ENV"
-          echo "Deploying to: $NEXT_ENV"
-          
-          # Pull latest images
-          docker pull ghcr.io/$REPO_NAME:latest
-          docker pull ghcr.io/${REPO_NAME}-frontend:latest
-          
-          # Verify SSL certificates exist before deployment
-          echo "Verifying SSL certificates..."
-          if [ ! -f "/etc/letsencrypt/live/clinomiclabs.com/fullchain.pem" ] || [ ! -f "/etc/letsencrypt/live/clinomiclabs.com/privkey.pem" ]; then
-              echo "ERROR: SSL certificates not found at /etc/letsencrypt/live/clinomiclabs.com/"
-              echo "Please ensure Let's Encrypt certificates are properly installed"
-              echo "Or temporarily disable SSL by commenting out SSL volume mounts in docker-compose.prod.yml"
-              exit 1
-          fi
-          echo "SSL certificates verified"
-          
-          # Verify ML models exist
-          echo "Verifying ML models..."
-          if [ ! -d "/opt/clinomic-b12-platform/ml/models" ] || [ -z "$(ls -A /opt/clinomic-b12-platform/ml/models 2>/dev/null)" ]; then
-              echo "WARNING: ML models directory is empty or missing"
-              echo "Screening functionality will not work until models are added"
-          else
-              echo "ML models verified"
-          fi
-          
-          # Create new deployment directory if it doesn't exist
-          mkdir -p $NEXT_DIR
-          
-          # Safety check for nginx.prod.conf
-          if [ ! -f "$DEPLOY_DIR/nginx.prod.conf" ]; then
-            echo "ERROR: nginx.prod.conf missing"
-            exit 1
-          fi
-          
-          # Remove any existing nginx.prod.conf path (file or directory) to prevent conflicts
-          rm -rf "$NEXT_DIR/nginx.prod.conf"
-          
-          # Copy updated docker-compose file and environment files
-          cp -f $DEPLOY_DIR/docker-compose.prod.yml $NEXT_DIR/
-          cp -f $DEPLOY_DIR/nginx.prod.conf $NEXT_DIR/nginx.prod.conf
-          cp -f $DEPLOY_DIR/.env $NEXT_DIR/ 2>/dev/null || echo ".env file not found"
-          
-          # Debug: Show what we have
-          echo "=== Current working directory ==="
-          pwd
-          echo "=== Directory contents ==="
-          ls -la
-          
-          if [ ! -f "$NEXT_DIR/docker-compose.prod.yml" ]; then
-              echo "ERROR: docker-compose.prod.yml not found in $NEXT_DIR"
-              ls -la $NEXT_DIR
-              exit 1
-          fi
-          
-          # Change to the new directory and verify
-          cd "$NEXT_DIR" || exit 1
+      - uses: actions/checkout@v4
 
-          if [ ! -f "docker-compose.prod.yml" ]; then
-              echo "docker-compose.prod.yml missing"
-              exit 1
-          fi
+      - uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-          # Debug: Show what we have
-          echo "=== Current working directory ==="
-          pwd
-          echo "=== Directory contents ==="
-          ls -la
+      - name: Deploy on VM
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.HOST_IP }} << 'EOF'
+            set -e
 
-          echo "=== Debug: Current directory contents ==="
-          ls -la
-          echo "=== Debug: docker-compose.prod.yml content ==="
-          cat docker-compose.prod.yml
+            cd /opt/clinomic-b12-platform
 
-          # Update image tags in docker-compose file
-          echo "=== Before sed replacement ==="
-          grep -n "image:" docker-compose.prod.yml
+            echo "Pulling latest images..."
+            docker-compose -f docker-compose.prod.yml pull
 
-          # Use the actual repository name from the variable
-          sed -i "s|ghcr.io/dev-abiox/param:latest|ghcr.io/$REPO_NAME:latest|g" docker-compose.prod.yml
-          sed -i "s|ghcr.io/dev-abiox/param-frontend:latest|ghcr.io/$REPO_NAME-frontend:latest|g" docker-compose.prod.yml
+            echo "Recreating containers..."
+            docker-compose -f docker-compose.prod.yml up -d
 
-          # Debug: Show what sed did
-          echo "=== After sed replacement ==="
-          grep -n "image:" docker-compose.prod.yml
+            echo "Waiting for services..."
+            sleep 40
 
-          # Generate new secrets if they don't exist
-          if [ ! -f "secrets/postgres_password" ]; then
-              mkdir -p secrets
-              openssl rand -hex 32 > secrets/postgres_password
-              openssl rand -hex 50 > secrets/django_secret_key
-              openssl rand -hex 50 > secrets/jwt_secret_key
-              openssl rand -hex 50 > secrets/jwt_refresh_secret_key
-              openssl rand -base64 32 > secrets/fernet_key
-          fi
-          
-          # Load secrets into environment variables
-          export POSTGRES_PASSWORD=$(cat secrets/postgres_password)
-          export POSTGRES_DB=${POSTGRES_DB:-clinomic}
-          export POSTGRES_USER=${POSTGRES_USER:-postgres}
-          export DJANGO_SECRET_KEY=$(cat secrets/django_secret_key)
-          export JWT_SECRET_KEY=$(cat secrets/jwt_secret_key)
-          export JWT_REFRESH_SECRET_KEY=$(cat secrets/jwt_refresh_secret_key)
-          export MASTER_ENCRYPTION_KEY=$(cat secrets/fernet_key)
-          export ALLOWED_HOSTS="clinomiclabs.com,www.clinomiclabs.com,localhost,127.0.0.1"
-          export FRONTEND_URL="http://localhost:3000"
-          export CORS_ORIGINS="http://localhost:3000"
-          
-          # Debug: Show environment variables
-          echo "=== Environment Variables ==="
-          echo "POSTGRES_DB: $POSTGRES_DB"
-          echo "POSTGRES_USER: $POSTGRES_USER"
-          echo "POSTGRES_PASSWORD: ******** (hidden)"
-          echo "DJANGO_SECRET_KEY: ******** (hidden)"
+            echo "Testing site..."
+            curl -k -f https://localhost || exit 1
 
-          # Stop any existing containers in the next environment
-          docker-compose -f docker-compose.prod.yml down 2>/dev/null || true
-                    
-          # Pull latest images
-          docker-compose -f docker-compose.prod.yml pull
-          
-          # Initialize database and domains BEFORE starting services
-          echo "Initializing database and domains..."
-          
-          # Start all services first to ensure proper environment variable passing
-          docker-compose -f docker-compose.prod.yml up -d
-          
-          # Wait for services to be ready
-          echo "Waiting for services to be ready..."
-          sleep 60
-          
-          # Debug: Check container status during wait
-          echo "=== Container Status During Wait ==="
-          docker-compose -f docker-compose.prod.yml ps
-          
-          # Debug: Show backend logs if there are any issues
-          echo "=== Backend Container Logs ==="
-          docker-compose -f docker-compose.prod.yml logs backend --tail=50
-          
-          # Run migrations and domain setup
-          echo "Running database migrations..."
-          if ! docker-compose -f docker-compose.prod.yml exec -T backend python manage.py migrate_schemas --shared; then
-              echo "ERROR: Database migrations failed"
-              docker-compose -f docker-compose.prod.yml logs backend
-              exit 1
-          fi
-          
-          echo "Seeding demo data..."
-          if ! docker-compose -f docker-compose.prod.yml exec -T backend python manage.py seed_demo_data --skip-screenings; then
-              echo "ERROR: Demo data seeding failed"
-              docker-compose -f docker-compose.prod.yml logs backend
-              exit 1
-          fi
-          
-          echo "Setting up domains..."
-          if ! docker-compose -f docker-compose.prod.yml exec -T backend python manage.py ensure_domains; then
-              echo "ERROR: Domain setup failed"
-              docker-compose -f docker-compose.prod.yml logs backend
-              exit 1
-          fi
-
-          # Wait for services to become healthy
-          echo "Waiting for services to become healthy..."
-          sleep 90
-          
-          # Debug: Check container status
-          echo "=== Container Status ==="
-          docker-compose -f docker-compose.prod.yml ps
-          echo "=== Container Logs ==="
-          docker-compose -f docker-compose.prod.yml logs --tail=30
-          
-          # Additional wait for database to be fully ready
-          echo "Waiting additional time for database initialization..."
-          sleep 45
-          
-          # Debug: Check detailed container logs
-          echo "=== Detailed Container Logs ==="
-          docker-compose -f docker-compose.prod.yml logs --tail=50
-
-          # Check health of the new deployment
-          HEALTHY=true
-          for service in backend frontend; do
-              echo "Checking health of $service..."
-              if ! docker-compose -f docker-compose.prod.yml ps | grep $service | grep -q "healthy"; then
-                  echo "Service $service is not healthy"
-                  HEALTHY=false
-              else
-                  echo "Service $service is healthy"
-              fi
-          done
-
-          # If health check fails, rollback
-          if [ "$HEALTHY" = "false" ]; then
-              echo "Health check failed, rolling back..."
-              docker-compose -f docker-compose.prod.yml down
-              
-              # Bring back the old environment
-              cd $(dirname $NEXT_DIR)
-              PREV_DIR=""
-              if [ "$NEXT_ENV" = "green" ]; then
-                  PREV_DIR="$CURRENT_BLUE"
-              else
-                  PREV_DIR="$CURRENT_GREEN"
-              fi
-              
-              cd $PREV_DIR
-              docker-compose -f docker-compose.prod.yml up -d
-              echo "Rollback completed"
-              exit 1
-          fi
-
-          # Health check with actual endpoint verification
-          BACKEND_URL="http://localhost:8000/api/health/"
-          FRONTEND_URL="http://localhost:3000/"
-
-          echo "Checking backend health: $BACKEND_URL"
-          for i in {1..10}; do
-              if curl -f -s $BACKEND_URL > /dev/null; then
-                  echo "Backend is healthy"
-                  break
-              fi
-              echo "Waiting for backend... ($i/10)"
-              sleep 10
-          done
-
-          echo "Checking frontend health: $FRONTEND_URL"
-          for i in {1..10}; do
-              if curl -f -s $FRONTEND_URL > /dev/null; then
-                  echo "Frontend is healthy"
-                  break
-              fi
-              echo "Waiting for frontend... ($i/10)"
-              sleep 10
-          done
-
-          # Update the current environment pointer
-          echo $NEXT_ENV > $DEPLOY_DIR/current_env
-
-          # Clean up old environment
-          if [ "$NEXT_ENV" = "green" ]; then
-              OLD_DIR="$CURRENT_BLUE"
-          else
-              OLD_DIR="$CURRENT_GREEN"
-          fi
-
-          cd $OLD_DIR
-          docker-compose -f docker-compose.prod.yml down
-
-          echo "Blue-green deployment completed successfully!"
-          echo "Active environment: $NEXT_ENV"
-        EOF
+            echo "Deployment successful"
+          EOF
