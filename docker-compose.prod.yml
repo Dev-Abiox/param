@@ -49,11 +49,11 @@ services:
     volumes:
       - ./ml/models:/app/ml/models:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 60s
 
   frontend:
     image: ghcr.io/dev-abiox/param-frontend:latest

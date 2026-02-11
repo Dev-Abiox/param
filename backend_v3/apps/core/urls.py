@@ -19,6 +19,7 @@ from .views import (
     MFAVerifySetupView,
     MFAVerifyView,
     TokenRefreshView,
+    health,  # Add the simple health function
 )
 
 urlpatterns = [
@@ -40,4 +41,5 @@ urlpatterns = [
     path('health/live', HealthLiveView.as_view(), name='health-live'),
     path('health/ready', HealthReadyView.as_view(), name='health-ready'),
     path('health/', HealthView.as_view(), name='health'),
+    path('api/health/', health, name='api-health'),  # Simple health endpoint for Docker
 ]
