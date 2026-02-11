@@ -270,6 +270,15 @@ jobs:
           fi
           echo "SSL certificates verified"
           
+          # Verify ML models exist
+          echo "Verifying ML models..."
+          if [ ! -d "/opt/clinomic-b12-platform/ml/models" ] || [ -z "$(ls -A /opt/clinomic-b12-platform/ml/models 2>/dev/null)" ]; then
+              echo "WARNING: ML models directory is empty or missing"
+              echo "Screening functionality will not work until models are added"
+          else
+              echo "ML models verified"
+          fi
+          
           # Create new deployment directory if it doesn't exist
           mkdir -p $NEXT_DIR
           
@@ -379,12 +388,31 @@ jobs:
           echo "=== Container Status During Wait ==="
           docker-compose -f docker-compose.prod.yml ps
           
+          # Debug: Show backend logs if there are any issues
+          echo "=== Backend Container Logs ==="
+          docker-compose -f docker-compose.prod.yml logs backend --tail=50
+          
           # Run migrations and domain setup
           echo "Running database migrations..."
-          docker-compose -f docker-compose.prod.yml exec -T backend python manage.py migrate_schemas --shared
+          if ! docker-compose -f docker-compose.prod.yml exec -T backend python manage.py migrate_schemas --shared; then
+              echo "ERROR: Database migrations failed"
+              docker-compose -f docker-compose.prod.yml logs backend
+              exit 1
+          fi
+          
+          echo "Seeding demo data..."
+          if ! docker-compose -f docker-compose.prod.yml exec -T backend python manage.py seed_demo_data --skip-screenings; then
+              echo "ERROR: Demo data seeding failed"
+              docker-compose -f docker-compose.prod.yml logs backend
+              exit 1
+          fi
           
           echo "Setting up domains..."
-          docker-compose -f docker-compose.prod.yml exec -T backend python manage.py ensure_domains
+          if ! docker-compose -f docker-compose.prod.yml exec -T backend python manage.py ensure_domains; then
+              echo "ERROR: Domain setup failed"
+              docker-compose -f docker-compose.prod.yml logs backend
+              exit 1
+          fi
 
           # Wait for services to become healthy
           echo "Waiting for services to become healthy..."
