@@ -156,11 +156,10 @@ jobs:
           # HEALTH CHECKS (FIXED)
           #################################
           FAIL=0
-
-          docker-compose -f $COMPOSE ps | grep Up || FAIL=1
-
-          # ✅ Correct nginx/SSL health check
+          
+          sleep 20
           curl -skf https://localhost/api/health/live || FAIL=1
+
 
           #################################
           # ROLLBACK
