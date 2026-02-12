@@ -1,9 +1,17 @@
-from django.contrib import admin
-from django.urls import path, include
+from django.urls import path
+
+from .views import SummaryView, LabStatsView, DoctorStatsView, CaseStatsView
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-
-    # REQUIRED
-    path("", include("apps.core.urls")),
+    # Dashboard summary
+    path("summary", SummaryView.as_view(), name="analytics-summary"),
+    
+    # Lab-level statistics
+    path("labs", LabStatsView.as_view(), name="analytics-labs"),
+    
+    # Doctor-level statistics
+    path("doctors", DoctorStatsView.as_view(), name="analytics-doctors"),
+    
+    # Case-level details
+    path("cases", CaseStatsView.as_view(), name="analytics-cases"),
 ]
