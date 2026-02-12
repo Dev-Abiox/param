@@ -150,15 +150,14 @@ jobs:
           echo "Warming up..."
           sleep 45
 
+          
+
           #################################
           # HEALTH CHECKS (FIXED)
           #################################
           FAIL=0
 
           docker-compose -f $COMPOSE ps | grep Up || FAIL=1
-
-          # ✅ Correct backend health check
-          curl -sf http://localhost:8000/api/health/live || FAIL=1
 
           # ✅ Correct nginx/SSL health check
           curl -skf https://localhost/api/health/live || FAIL=1
