@@ -427,7 +427,8 @@ const UserWorkspace = ({ user }) => {
                 <FileText className="w-4 h-4 mr-2" />
                 Manual Entry
               </button>
-              <button
+              {/* PDF functionality temporarily disabled */}
+              {/* <button
                 data-testid="tab-pdf"
                 onClick={() => setActiveTab("pdf")}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center ${
@@ -436,23 +437,21 @@ const UserWorkspace = ({ user }) => {
               >
                 <Upload className="w-4 h-4 mr-2" />
                 Import PDF Report
-              </button>
+              </button> */}
+              {/* Placeholder for PDF tab to maintain layout */}
+              <div className="flex-1 py-3 text-sm font-medium flex items-center justify-center text-slate-300 cursor-not-allowed">
+                <Upload className="w-4 h-4 mr-2" />
+                Import PDF (Disabled)
+              </div>
             </div>
 
             {activeTab === "pdf" && (
               <div className="p-6 bg-slate-50">
-                <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-teal-500 transition-colors bg-white cursor-pointer relative">
-                  <input data-testid="pdf-file-input" type="file" accept=".pdf" onChange={handlePDFUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-gray-100">
                   <Upload className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-sm text-slate-600 font-medium">Click to upload Hospital CBC Report (PDF)</p>
-                  <p className="text-xs text-slate-400 mt-1">Supports Siemens, Abbott, Roche formats</p>
+                  <p className="text-sm text-slate-500 font-medium">PDF Import Temporarily Disabled</p>
+                  <p className="text-xs text-slate-400 mt-1">Feature coming soon</p>
                 </div>
-                {uploadStatus && (
-                  <div data-testid="pdf-upload-status" className="mt-4 flex items-center text-sm text-teal-700 bg-teal-50 border border-teal-100 p-2 rounded">
-                    {isProcessing && <div className="animate-spin h-3 w-3 border-2 border-teal-600 border-t-transparent rounded-full mr-2" />}
-                    {uploadStatus}
-                  </div>
-                )}
               </div>
             )}
 
