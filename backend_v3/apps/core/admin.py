@@ -4,16 +4,39 @@ Django Admin configuration for Core models.
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.utils.text import slugify
 
-from .models import AuditLogEntry, MFASettings, Organization, RefreshToken, User
+from .models import AuditLogEntry, Domain, MFASettings, Organization, RefreshToken, User
+
+
+class DomainInline(admin.TabularInline):
+    model = Domain
+    extra = 1
 
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ['name', 'tier', 'is_active', 'created_at']
+    list_display = ['name', 'schema_name', 'tier', 'is_active', 'created_at']
     list_filter = ['tier', 'is_active']
     search_fields = ['name']
     readonly_fields = ['id', 'created_at', 'updated_at']
+    inlines = [DomainInline]
+    fieldsets = (
+        (None, {'fields': ('name', 'schema_name', 'tier')}),
+        ('Status', {'fields': ('is_active',)}),
+        ('Info', {'fields': ('id', 'created_at', 'updated_at')}),
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(self.readonly_fields)
+        if obj:
+            readonly.append('schema_name')
+        return readonly
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.schema_name:
+            obj.schema_name = slugify(obj.name).replace('-', '_')
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(User)
