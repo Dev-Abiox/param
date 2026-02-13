@@ -52,10 +52,13 @@ echo "✅ MASTER_ENCRYPTION_KEY generated ($(echo -n $MASTER_KEY | wc -c) chars)
 AUDIT_KEY=$(openssl rand -hex 64)
 echo "✅ AUDIT_SIGNING_KEY generated ($(echo -n $AUDIT_KEY | wc -c) chars)"
 
-# Generate MongoDB credentials for production
-MONGO_ROOT_USER="clinomic_admin"
-MONGO_ROOT_PASSWORD=$(openssl rand -base64 32 | tr -d '\n' | tr -d '/' | tr -d '+' | head -c 32)
-echo "✅ MONGO credentials generated"
+# Generate PostgreSQL password
+POSTGRES_PASSWORD=$(openssl rand -base64 32 | tr -d '\n' | tr -d '/' | tr -d '+' | head -c 32)
+echo "✅ POSTGRES_PASSWORD generated"
+
+# Generate Django secret key
+DJANGO_SECRET_KEY=$(openssl rand -base64 64 | tr -d '\n' | head -c 50)
+echo "✅ DJANGO_SECRET_KEY generated"
 
 echo ""
 echo "Writing secrets to: $OUTPUT_FILE"
@@ -80,9 +83,11 @@ MASTER_ENCRYPTION_KEY="$MASTER_KEY"
 # Audit Log Signing
 AUDIT_SIGNING_KEY="$AUDIT_KEY"
 
-# MongoDB Credentials (production)
-MONGO_ROOT_USER="$MONGO_ROOT_USER"
-MONGO_ROOT_PASSWORD="$MONGO_ROOT_PASSWORD"
+# Django Secret Key
+DJANGO_SECRET_KEY="$DJANGO_SECRET_KEY"
+
+# PostgreSQL Credentials
+POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
 EOF
 
 chmod 600 "$OUTPUT_FILE"
