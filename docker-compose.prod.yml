@@ -50,7 +50,7 @@ services:
       - static_volume:/app/staticfiles
       - ./ml/models:/app/ml/models:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/health || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -65,6 +65,12 @@ services:
       - "3000"
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   nginx:
     image: nginx:alpine
@@ -78,8 +84,10 @@ services:
       - /etc/letsencrypt/live/clinomiclabs.com/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
       - /etc/letsencrypt/live/clinomiclabs.com/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
