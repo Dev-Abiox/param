@@ -50,7 +50,7 @@ services:
       - static_volume:/app/staticfiles
       - ./ml/models:/app/ml/models:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f -H 'Host: clinomiclabs.com' http://localhost:8000/api/health/live || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -66,7 +66,7 @@ services:
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 3000 || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
