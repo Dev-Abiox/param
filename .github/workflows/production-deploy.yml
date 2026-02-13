@@ -135,7 +135,7 @@ jobs:
             echo "⚠ Backend health check failed (continuing deployment)"
           fi
 
-          if curl -f http://localhost:3000/; then
+          if curl -f http://localhost:80/; then
             echo "✓ Frontend health check passed"
           else
             echo "⚠ Frontend health check failed (continuing deployment)"
