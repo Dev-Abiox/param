@@ -17,6 +17,7 @@ services:
       retries: 5
     networks:
       - clinomic_network
+      - testing_internal
 
   backend_testing:
     image: ghcr.io/dev-abiox/param:test-latest
@@ -56,13 +57,16 @@ services:
       retries: 5
       start_period: 60s
     networks:
-      - clinomic_network
+      clinomic_network:
+      testing_internal:
+        aliases:
+          - backend
 
   frontend_testing:
     image: ghcr.io/dev-abiox/param-frontend:test-latest
     restart: always
     environment:
-      - REACT_APP_BACKEND_URL=http://backend_testing:8000
+      - REACT_APP_BACKEND_URL=http://backend:8000
     depends_on:
       - backend_testing
     healthcheck:
@@ -73,6 +77,7 @@ services:
       start_period: 60s
     networks:
       - clinomic_network
+      - testing_internal
 
 volumes:
   postgres_testing_data:
@@ -81,3 +86,5 @@ volumes:
 networks:
   clinomic_network:
     external: true
+  testing_internal:
+    driver: bridge
