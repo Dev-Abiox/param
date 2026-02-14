@@ -98,7 +98,8 @@ jobs:
           SERVER="root@${{ secrets.HOST_IP }}"
           ssh $SSH_OPTS $SERVER "mkdir -p /opt/clinomic-b12-platform/ml/models"
           scp $SSH_OPTS docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
-          scp $SSH_OPTS nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
+          scp $SSH_OPTS docker-compose.testing.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.testing.yml
+          scp $SSH_OPTS nginx.testing.conf $SERVER:/opt/clinomic-b12-platform/nginx.testing.conf
           scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/
       - name: Deploy to Production (No Rollback)
         run: |
@@ -115,7 +116,13 @@ jobs:
 
           echo "=== VALIDATING DEPLOYMENT ==="
           [ -f "$COMPOSE" ] || exit 1
-          [ -f "$BASE/nginx.prod.conf" ] || exit 1
+          [ -f "$BASE/nginx.testing.conf" ] || exit 1
+
+          echo "=== ENSURING SHARED DOCKER NETWORK ==="
+          docker network create clinomic_network 2>/dev/null || true
+
+          echo "=== ENSURING TESTING STATIC VOLUME ==="
+          docker volume create static_testing_volume 2>/dev/null || true
 
           echo "=== PULLING NEW IMAGES ==="
           cd $BASE

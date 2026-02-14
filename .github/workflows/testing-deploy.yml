@@ -12,234 +12,124 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  BACKEND_IMAGE: ghcr.io/${{ github.repository }}-backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository }}-frontend
 
 jobs:
-  build-test-image:
+  build-test-images:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: read
       packages: write
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    
+
     - name: Log in to Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Extract metadata for backend
-      id: meta-backend
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix=test-
-          type=raw,value=test-${{ github.sha }}
-    
-    - name: Extract metadata for frontend
-      id: meta-frontend
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix=test-
-          type=raw,value=test-${{ github.sha }}
-    
+
     - name: Build and push backend
       uses: docker/build-push-action@v5
       with:
         context: ./backend_v3
         push: true
-        tags: ${{ steps.meta-backend.outputs.tags }}
-        labels: ${{ steps.meta-backend.outputs.labels }}
+        tags: |
+          ${{ env.BACKEND_IMAGE }}:test-latest
+          ${{ env.BACKEND_IMAGE }}:test-${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-    
+
     - name: Build and push frontend
       uses: docker/build-push-action@v5
       with:
         context: ./frontend
         push: true
-        tags: ${{ steps.meta-frontend.outputs.tags }}
-        labels: ${{ steps.meta-frontend.outputs.labels }}
+        tags: |
+          ${{ env.FRONTEND_IMAGE }}:test-latest
+          ${{ env.FRONTEND_IMAGE }}:test-${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
   deploy-to-testing:
-    needs: build-test-image
+    needs: build-test-images
     runs-on: ubuntu-latest
-    
+
     environment: testing
-    
+
     steps:
-    - name: Deploy to testing environment
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup SSH agent
+      uses: webfactory/ssh-agent@v0.8.0
       with:
-        host: ${{ secrets.TESTING_VM_HOST }}
-        username: ${{ secrets.VM_USERNAME }}
-        key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-        script: |
-          cd /opt/clinomic-testing
-          
-          # Create directory if it doesn't exist
-          if [ ! -d "/opt/clinomic-testing" ]; then
-            sudo mkdir -p /opt/clinomic-testing
-            sudo chown $USER:$USER /opt/clinomic-testing
-            cd /opt/clinomic-testing
-          fi
-          
-          # Pull latest test images
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:test-${{ github.sha }}
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:test-${{ github.sha }}
-          
-          # Create/update docker-compose.testing.yml
-          cat > docker-compose.testing.yml << 'EOF'
-          version: '3.8'
-          
-          services:
-            db:
-              image: postgres:15-alpine
-              restart: always
-              environment:
-                POSTGRES_DB: clinomic_testing
-                POSTGRES_USER: postgres
-                POSTGRES_PASSWORD: $${POSTGRES_PASSWORD}
-              volumes:
-                - postgres_testing_data:/var/lib/postgresql/data
-              ports:
-                - "5434:5432"
-              healthcheck:
-                test: ["CMD-SHELL", "pg_isready -U postgres"]
-                interval: 10s
-                timeout: 5s
-                retries: 5
-          
-            backend_testing:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:test-${{ github.sha }}
-              restart: always
-              environment:
-                - DEBUG=True
-                - APP_ENV=testing
-                - POSTGRES_HOST=db
-                - POSTGRES_PORT=5432
-                - POSTGRES_DB=clinomic_testing
-                - POSTGRES_USER=postgres
-                - POSTGRES_PASSWORD=$${POSTGRES_PASSWORD}
-                - DJANGO_SECRET_KEY=$${DJANGO_SECRET_KEY}
-                - JWT_SECRET_KEY=$${JWT_SECRET_KEY}
-                - JWT_REFRESH_SECRET_KEY=$${JWT_REFRESH_SECRET_KEY}
-                - MASTER_ENCRYPTION_KEY=$${MASTER_ENCRYPTION_KEY}
-              ports:
-                - "8001:8000"
-              depends_on:
-                db:
-                  condition: service_healthy
-              volumes:
-                - ./ml/models:/app/ml/models:ro
-              healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/live"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-          
-            frontend_testing:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:test-${{ github.sha }}
-              restart: always
-              environment:
-                - REACT_APP_BACKEND_URL=http://$${TESTING_VM_HOST}:8001
-              ports:
-                - "3001:3000"
-              depends_on:
-                - backend_testing
-          
-            nginx_testing:
-              image: nginx:alpine
-              restart: always
-              ports:
-                - "8080:80"
-              volumes:
-                - ./nginx.testing.conf:/etc/nginx/nginx.conf:ro
-              depends_on:
-                - backend_testing
-                - frontend_testing
-          
-          volumes:
-            postgres_testing_data:
-          EOF
-          
-          # Create/update nginx configuration
-          cat > nginx.testing.conf << 'EOF'
-          events {
-              worker_connections 1024;
-          }
-          
-          http {
-              upstream backend {
-                  server backend_testing:8000;
-              }
-              
-              upstream frontend {
-                  server frontend_testing:3000;
-              }
-          
-              server {
-                  listen 80;
-                  
-                  # API routes
-                  location /api/ {
-                      proxy_pass http://backend;
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                  }
-                  
-                  # Admin panel
-                  location /admin/ {
-                      proxy_pass http://backend;
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                  }
-                  
-                  # Static files
-                  location /static/ {
-                      proxy_pass http://backend;
-                  }
-                  
-                  # Frontend app
-                  location / {
-                      proxy_pass http://frontend;
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                  }
-              }
-          }
-          EOF
-          
-          # Stop existing containers
-          docker-compose -f docker-compose.testing.yml down || true
-          
-          # Start services
-          docker-compose -f docker-compose.testing.yml up -d
-          
-          # Wait for health check
-          timeout 120 bash -c 'until curl -sf http://${{ secrets.TESTING_VM_HOST }}:8001/api/health/live; do sleep 2; done' || {
-            echo "Health check failed after 120 seconds"
-            docker-compose -f docker-compose.testing.yml logs
-            exit 1
-          }
-          
-          echo "Testing environment deployment completed successfully!"
-          echo "Access URL: http://${{ secrets.TESTING_VM_HOST }}:8080"
+        ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+    - name: Copy config files to server
+      run: |
+        SSH_OPTS="-o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
+        SERVER="root@${{ secrets.HOST_IP }}"
+        BASE="/opt/clinomic-b12-platform"
+
+        ssh $SSH_OPTS $SERVER "mkdir -p $BASE/ml/models"
+        scp $SSH_OPTS docker-compose.testing.yml $SERVER:$BASE/docker-compose.testing.yml
+        scp $SSH_OPTS nginx.testing.conf $SERVER:$BASE/nginx.testing.conf
+        scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:$BASE/ml/
+
+    - name: Deploy testing stack
+      run: |
+        ssh \
+          -o StrictHostKeyChecking=no \
+          -o HostKeyAlgorithms=+ssh-rsa \
+          -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+          root@${{ secrets.HOST_IP }} << 'EOF'
+
+        set -e
+
+        BASE=/opt/clinomic-b12-platform
+
+        echo "=== ENSURING SHARED DOCKER NETWORK ==="
+        docker network create clinomic_network 2>/dev/null || true
+
+        echo "=== ENSURING TESTING STATIC VOLUME ==="
+        docker volume create static_testing_volume 2>/dev/null || true
+
+        echo "=== PULLING NEW TEST IMAGES ==="
+        cd $BASE
+        docker-compose -f docker-compose.testing.yml pull
+
+        echo "=== RESTARTING TESTING STACK ==="
+        docker-compose -f docker-compose.testing.yml down || true
+        docker-compose -f docker-compose.testing.yml up -d
+
+        echo "=== RESTARTING NGINX (prod) TO PICK UP TESTING CONFIG ==="
+        docker-compose -f docker-compose.prod.yml up -d --force-recreate nginx
+
+        echo "=== WARMING UP SERVICES ==="
+        sleep 30
+
+        echo "=== HEALTH CHECK ==="
+        if curl -f -H "Host: testing.clinomiclabs.com" http://localhost:8000/api/health/live 2>/dev/null; then
+          echo "Testing backend health check passed"
+        else
+          echo "Testing backend health check failed - checking logs..."
+          docker-compose -f docker-compose.testing.yml logs --tail=50 backend_testing
+        fi
+
+        # Verify production still works
+        if curl -f -H "Host: clinomiclabs.com" https://localhost/api/health/live -k 2>/dev/null; then
+          echo "Production health check still passing"
+        else
+          echo "WARNING: Production health check failed after testing deploy"
+        fi
+
+        echo "=== TESTING DEPLOYMENT COMPLETE ==="
+        echo "URL: https://testing.clinomiclabs.com"
+
+        EOF

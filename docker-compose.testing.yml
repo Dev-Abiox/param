@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  db_testing:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: clinomic_testing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_testing_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinomic_network
+
+  backend_testing:
+    image: ghcr.io/dev-abiox/param:test-latest
+    restart: always
+    environment:
+      - DEBUG=True
+      - APP_ENV=testing
+      - POSTGRES_HOST=db_testing
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=clinomic_testing
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - ALLOWED_HOSTS=testing.clinomiclabs.com,localhost
+      - CORS_ORIGINS=https://testing.clinomiclabs.com
+    command: >
+      sh -c "
+      python manage.py collectstatic --noinput &&
+      python manage.py migrate_schemas --shared &&
+      python manage.py seed_demo_data --skip-screenings &&
+      python manage.py ensure_domains &&
+      gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
+      "
+    depends_on:
+      db_testing:
+        condition: service_healthy
+    volumes:
+      - static_testing_volume:/app/staticfiles
+      - ./ml/models:/app/ml/models:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f -H 'Host: testing.clinomiclabs.com' http://localhost:8000/api/health/live || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - clinomic_network
+
+  frontend_testing:
+    image: ghcr.io/dev-abiox/param-frontend:test-latest
+    restart: always
+    environment:
+      - REACT_APP_BACKEND_URL=http://backend_testing:8000
+    depends_on:
+      - backend_testing
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - clinomic_network
+
+volumes:
+  postgres_testing_data:
+  static_testing_volume:
+
+networks:
+  clinomic_network:
+    external: true
