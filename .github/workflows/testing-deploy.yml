@@ -78,6 +78,7 @@ jobs:
         BASE="/opt/clinomic-b12-platform"
 
         ssh $SSH_OPTS $SERVER "mkdir -p $BASE/ml/models"
+        scp $SSH_OPTS docker-compose.prod.yml $SERVER:$BASE/docker-compose.prod.yml
         scp $SSH_OPTS docker-compose.testing.yml $SERVER:$BASE/docker-compose.testing.yml
         scp $SSH_OPTS nginx.testing.conf $SERVER:$BASE/nginx.testing.conf
         scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:$BASE/ml/
