@@ -63,6 +63,11 @@ class Command(BaseCommand):
                 "description": "Production domain"
             },
             {
+                "domain": "testing.clinomiclabs.com",
+                "is_primary": False,
+                "description": "Testing/staging environment"
+            },
+            {
                 "domain": "localhost",
                 "is_primary": False,  # Must be False for localhost
                 "description": "Local development"
