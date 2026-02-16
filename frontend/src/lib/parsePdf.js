@@ -1,7 +1,7 @@
-import * as pdfjsLib from "pdfjs-dist";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
+import pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.entry";
 
-// Use the bundled worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 /**
  * Extract CBC values and patient info from a lab report PDF.
@@ -12,127 +12,183 @@ export async function parsePdf(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-  // Extract text from all pages
-  let fullText = "";
+  // Extract text from all pages, preserving line structure
+  const lines = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const pageText = content.items.map((item) => item.str).join(" ");
-    fullText += pageText + "\n";
+
+    // Group text items by Y position to reconstruct lines
+    const itemsByY = {};
+    for (const item of content.items) {
+      const y = Math.round(item.transform[5]); // Y coordinate
+      if (!itemsByY[y]) itemsByY[y] = [];
+      itemsByY[y].push({ x: item.transform[4], str: item.str });
+    }
+
+    // Sort by Y (descending = top to bottom) then X (left to right)
+    const sortedYs = Object.keys(itemsByY).sort((a, b) => b - a);
+    for (const y of sortedYs) {
+      const lineItems = itemsByY[y].sort((a, b) => a.x - b.x);
+      const lineText = lineItems.map((it) => it.str).join(" ");
+      if (lineText.trim()) lines.push(lineText.trim());
+    }
   }
 
-  const cbc = extractCBCValues(fullText);
+  const fullText = lines.join("\n");
+
+  // Debug: log extracted text to console for troubleshooting
+  console.log("PDF extracted text (first 2000 chars):", fullText.substring(0, 2000));
+
+  const cbc = extractCBCValues(lines, fullText);
   const patient = extractPatientInfo(fullText);
 
   return { cbc, patient };
 }
 
 /**
- * Extract a numeric value near a label pattern.
- * Looks for patterns like "Hemoglobin 13.5" or "Hb: 13.5 g/dL"
+ * Search lines for a label and extract the first numeric value on that line.
  */
-function extractValue(text, patterns) {
-  for (const pattern of patterns) {
-    const regex = new RegExp(
-      pattern + "[:\\s]*([\\d]+\\.?[\\d]*)",
-      "i"
-    );
-    const match = text.match(regex);
-    if (match) {
-      const val = parseFloat(match[1]);
-      if (!isNaN(val)) return val;
+function findValueInLines(lines, labelPatterns) {
+  for (const line of lines) {
+    for (const pattern of labelPatterns) {
+      if (pattern.test(line)) {
+        // Find all numbers on this line
+        const numbers = line.match(/\d+\.?\d*/g);
+        if (numbers) {
+          // Return the first reasonable number (skip very small ones like indices)
+          for (const num of numbers) {
+            const val = parseFloat(num);
+            if (!isNaN(val) && val > 0) return val;
+          }
+        }
+      }
     }
   }
   return undefined;
 }
 
-function extractCBCValues(text) {
+function extractCBCValues(lines, fullText) {
   const cbc = {};
 
   const mappings = [
     {
       key: "hb",
       patterns: [
-        "Haemoglobin|Hemoglobin|\\bHb\\b|\\bHGB\\b",
+        /\b(?:Haemoglobin|Hemoglobin|Hb|HGB)\b/i,
       ],
-      range: [3, 25], // reasonable g/dL range
+      range: [3, 25],
     },
     {
       key: "rbc",
       patterns: [
-        "Red Blood Cell(?:s)?(?:\\s*Count)?|\\bRBC\\b(?:\\s*Count)?|Erythrocyte(?:s)?(?:\\s*Count)?",
+        /\b(?:Red\s*Blood\s*Cell|RBC|Erythrocyte)\b/i,
+        /\bRBC\s*Count\b/i,
+        /\bTotal\s*RBC\b/i,
       ],
-      range: [1, 10], // x10^6/µL
+      range: [1, 10],
     },
     {
       key: "wbc",
       patterns: [
-        "White Blood Cell(?:s)?(?:\\s*Count)?|\\bWBC\\b(?:\\s*Count)?|Leucocyte(?:s)?(?:\\s*Count)?|Total\\s*WBC|Total\\s*Leucocyte",
+        /\b(?:White\s*Blood\s*Cell|WBC|Leucocyte|Leukocyte)\b/i,
+        /\bWBC\s*Count\b/i,
+        /\bTotal\s*WBC\b/i,
+        /\bTotal\s*Leucocyte\s*Count\b/i,
+        /\bTLC\b/i,
       ],
-      range: [1, 50], // x10^3/µL
+      range: [1, 50],
     },
     {
       key: "plt",
       patterns: [
-        "Platelet(?:s)?(?:\\s*Count)?|\\bPLT\\b(?:\\s*Count)?|Thrombocyte(?:s)?",
+        /\b(?:Platelet|PLT|Thrombocyte)\b/i,
+        /\bPlatelet\s*Count\b/i,
       ],
-      range: [10, 1000], // x10^3/µL
+      range: [10, 1000],
     },
     {
       key: "hct",
       patterns: [
-        "Hematocrit|Haematocrit|\\bHCT\\b|Packed\\s*Cell\\s*Volume|\\bPCV\\b",
+        /\b(?:Hematocrit|Haematocrit|HCT|PCV)\b/i,
+        /\bPacked\s*Cell\s*Volume\b/i,
       ],
-      range: [15, 65], // %
+      range: [15, 65],
     },
     {
       key: "mcv",
       patterns: [
-        "Mean\\s*Corpuscular\\s*Volume|\\bMCV\\b",
+        /\bMCV\b/i,
+        /\bMean\s*Corpuscular\s*Volume\b/i,
       ],
-      range: [50, 150], // fL
+      range: [50, 150],
     },
     {
       key: "mch",
       patterns: [
-        "Mean\\s*Corpuscular\\s*Hemo?globin(?!\\s*Conc)|\\bMCH\\b(?!C)",
+        /\bMCH\b(?!\s*C)/i,
+        /\bMean\s*Corpuscular\s*Hemo?globin\b(?!\s*Conc)/i,
       ],
-      range: [15, 45], // pg
+      range: [15, 45],
     },
     {
       key: "mchc",
       patterns: [
-        "Mean\\s*Corpuscular\\s*Hemo?globin\\s*Conc(?:entration)?|\\bMCHC\\b",
+        /\bMCHC\b/i,
+        /\bMean\s*Corpuscular\s*Hemo?globin\s*Conc/i,
       ],
-      range: [25, 40], // g/dL
+      range: [25, 40],
     },
     {
       key: "rdw",
       patterns: [
-        "Red\\s*(?:Cell\\s*)?Distribution\\s*Width|\\bRDW\\b(?:[\\s-]*(?:CV|SD))?",
+        /\bRDW\b/i,
+        /\bRed\s*(?:Cell\s*)?Distribution\s*Width\b/i,
       ],
-      range: [8, 30], // %
+      range: [8, 30],
     },
     {
       key: "neu_pct",
       patterns: [
-        "Neutrophil(?:s)?(?:\\s*%)?|\\bNEUT?\\b(?:\\s*%)?|Segmented\\s*Neutrophil",
+        /\bNeutrophil/i,
+        /\bNEUT?\b/i,
+        /\bSegmented\b/i,
       ],
-      range: [5, 95], // %
+      range: [5, 95],
     },
     {
       key: "lym_pct",
       patterns: [
-        "Lymphocyte(?:s)?(?:\\s*%)?|\\bLYM(?:PH)?\\b(?:\\s*%)?",
+        /\bLymphocyte/i,
+        /\bLYM(?:PH)?\b/i,
       ],
-      range: [2, 80], // %
+      range: [2, 80],
     },
   ];
 
   for (const { key, patterns, range } of mappings) {
-    const val = extractValue(text, patterns);
+    const val = findValueInLines(lines, patterns);
     if (val !== undefined && val >= range[0] && val <= range[1]) {
       cbc[key] = val;
+    }
+  }
+
+  // Fallback: try flat text extraction if line-based didn't find enough
+  if (Object.keys(cbc).length < 5) {
+    for (const { key, patterns, range } of mappings) {
+      if (cbc[key] !== undefined) continue; // already found
+      for (const pattern of patterns) {
+        const source = pattern.source;
+        const regex = new RegExp(source + "[^\\d]*?(\\d+\\.?\\d*)", "i");
+        const match = fullText.match(regex);
+        if (match) {
+          const val = parseFloat(match[1]);
+          if (!isNaN(val) && val >= range[0] && val <= range[1]) {
+            cbc[key] = val;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -144,9 +200,9 @@ function extractPatientInfo(text) {
 
   // Patient Name
   const namePatterns = [
-    /Patient\s*Name\s*[:\-]\s*([A-Za-z\s.]+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date)/i,
-    /Name\s*[:\-]\s*([A-Za-z\s.]+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date)/i,
-    /Pt\.?\s*Name\s*[:\-]\s*([A-Za-z\s.]+?)(?:\s{2,}|\n|Age|Sex|Gender)/i,
+    /Patient\s*(?:'s\s*)?Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date|Ref)/i,
+    /Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date)/i,
+    /Pt\.?\s*Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender)/i,
   ];
   for (const regex of namePatterns) {
     const match = text.match(regex);
@@ -158,8 +214,9 @@ function extractPatientInfo(text) {
 
   // Age
   const agePatterns = [
-    /Age\s*[/&]\s*Sex\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y)?\s*[/\\]\s*(M|F|Male|Female)/i,
-    /Age\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y)?/i,
+    /Age\s*[/&]\s*Sex\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?\s*[/\\]\s*(M|F|Male|Female)/i,
+    /Age\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?/i,
+    /(\d{1,3})\s*(?:yrs?|years?|Y)\s*[/\\]\s*(M|F|Male|Female)/i,
   ];
   for (const regex of agePatterns) {
     const match = text.match(regex);
@@ -167,7 +224,6 @@ function extractPatientInfo(text) {
       const age = parseInt(match[1], 10);
       if (age > 0 && age < 150) {
         patient.age = age;
-        // Also extract sex from combined Age/Sex field
         if (match[2]) {
           patient.sex = match[2].charAt(0).toUpperCase() === "M" ? "M" : "F";
         }
@@ -176,10 +232,10 @@ function extractPatientInfo(text) {
     }
   }
 
-  // Sex (if not already extracted from Age/Sex)
+  // Sex (if not already extracted)
   if (!patient.sex) {
     const sexPatterns = [
-      /(?:Sex|Gender)\s*[:\-]\s*(Male|Female|M|F)/i,
+      /(?:Sex|Gender)\s*[:\-]\s*(Male|Female|M|F)\b/i,
     ];
     for (const regex of sexPatterns) {
       const match = text.match(regex);
@@ -192,7 +248,7 @@ function extractPatientInfo(text) {
 
   // Patient ID
   const idPatterns = [
-    /(?:Patient\s*ID|MRN|Reg(?:istration)?\.?\s*No|UHID|Lab\s*(?:No|ID)|Sample\s*(?:No|ID)|Barcode|Accession)\s*[:\-#]\s*([A-Za-z0-9\-/]+)/i,
+    /(?:Patient\s*ID|MRN|Reg(?:istration)?\.?\s*No|UHID|Lab\s*(?:No|ID)|Sample\s*(?:No|ID)|Barcode|Accession|Bill\s*No|SID)\s*[:\-#]\s*([A-Za-z0-9\-/]+)/i,
   ];
   for (const regex of idPatterns) {
     const match = text.match(regex);
