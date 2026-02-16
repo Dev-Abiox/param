@@ -161,13 +161,6 @@ export const ConsentService = {
 };
 
 export const LisService = {
-  uploadPdf: async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await API.post("/lis/parse-pdf", formData);
-    return res.data.cbc;
-  },
-
   predictB12: async (cbcData, patient, consentId = null) => {
     const payload = {
       patientId: patient.id,

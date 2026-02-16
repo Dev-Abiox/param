@@ -1,79 +1,13 @@
-import React, { useState, useEffect } from "react";
-import { Upload, FileText, Play, RotateCcw, Activity, Stethoscope, FileCheck, CheckCircle, Shuffle, Info, X } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Upload, FileText, Play, RotateCcw, Activity, Stethoscope, FileCheck, CheckCircle, X } from "lucide-react";
 
 import { INITIAL_CBC_ROWS } from "../constants";
-
-// Realistic CBC data profiles based on clinical research
-// Sources: Cleveland Clinic, NCBI, MedlinePlus - B12 deficiency indicators
-const CBC_PROFILES = {
-  normal: {
-    label: "Normal",
-    description: "Healthy CBC - all values within reference range",
-    expectedB12: "Normal B12 levels expected",
-    color: "green",
-    getData: (sex) => ({
-      hb: sex === "M" ? randRange(14.0, 16.5) : randRange(12.5, 14.5),
-      rbc: sex === "M" ? randRange(4.7, 5.5) : randRange(4.2, 4.9),
-      wbc: randRange(5.5, 9.0),
-      plt: randRange(180, 350),
-      hct: sex === "M" ? randRange(42, 50) : randRange(37, 44),
-      mcv: randRange(82, 96),      // Normal MCV
-      mch: randRange(28, 31),      // Normal MCH
-      mchc: randRange(33, 35),
-      rdw: randRange(11.8, 13.5),  // Normal RDW
-      neu_pct: randRange(50, 65),
-      lym_pct: randRange(25, 38),
-    }),
-  },
-  borderline: {
-    label: "Borderline",
-    description: "Mild macrocytosis - early B12 deficiency pattern",
-    expectedB12: "Borderline B12 - recommend serum B12 testing",
-    color: "amber",
-    getData: (sex) => ({
-      hb: sex === "M" ? randRange(12.5, 14.0) : randRange(11.0, 12.5),
-      rbc: sex === "M" ? randRange(4.0, 4.6) : randRange(3.7, 4.2),
-      wbc: randRange(4.8, 8.5),
-      plt: randRange(160, 300),
-      hct: sex === "M" ? randRange(38, 43) : randRange(34, 39),
-      mcv: randRange(97, 104),     // Elevated MCV (macrocytic)
-      mch: randRange(31, 34),      // Elevated MCH
-      mchc: randRange(32, 35),
-      rdw: randRange(14.0, 16.0),  // Elevated RDW
-      neu_pct: randRange(45, 62),
-      lym_pct: randRange(28, 42),
-    }),
-  },
-  deficient: {
-    label: "Deficient",
-    description: "Macrocytic anemia - classic B12 deficiency pattern",
-    expectedB12: "High likelihood of B12 deficiency - urgent follow-up",
-    color: "red",
-    getData: (sex) => ({
-      hb: sex === "M" ? randRange(9.5, 12.0) : randRange(8.5, 11.0),
-      rbc: sex === "M" ? randRange(3.2, 4.0) : randRange(2.9, 3.7),
-      wbc: randRange(3.8, 6.5),
-      plt: randRange(120, 200),
-      hct: sex === "M" ? randRange(30, 38) : randRange(28, 35),
-      mcv: randRange(105, 125),    // High MCV (macrocytic anemia)
-      mch: randRange(34, 40),      // High MCH
-      mchc: randRange(32, 36),
-      rdw: randRange(16.0, 22.0),  // High RDW (anisocytosis)
-      neu_pct: randRange(35, 55),
-      lym_pct: randRange(30, 48),
-    }),
-  },
-};
-
-// Helper function for random range with 1 decimal precision
-function randRange(min, max) {
-  return (Math.random() * (max - min) + min).toFixed(1);
-}
 import CBCTable from "../components/CBCTable";
 import ResultPanel from "../components/ResultPanel";
 import ConsentCapture from "../components/ConsentCapture";
 import { LisService, ConsentService } from "../services/api";
 import { Role } from "../types";
+import { parsePdf } from "../lib/parsePdf";
 
 const UserWorkspace = ({ user }) => {
   // Fetch doctors for LAB role
@@ -121,33 +55,54 @@ const UserWorkspace = ({ user }) => {
   const [consentId, setConsentId] = useState(null);
   const [hasValidConsent, setHasValidConsent] = useState(false);
 
-  // Random data state
-  const [randomProfile, setRandomProfile] = useState(null);
+  const fileInputRef = useRef(null);
 
   const handleCBCChange = (key, value) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, value } : r)));
   };
 
   const handlePDFUpload = async (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setUploadStatus("Scanning PDF...");
-      setIsProcessing(true);
-      setScreeningError(null);
-      try {
-        const data = await LisService.uploadPdf(e.target.files[0]);
-        setRows((prev) =>
-          prev.map((r) => ({
-            ...r,
-            value: data[r.key] !== undefined ? String(data[r.key]) : r.value,
-          }))
-        );
-        setUploadStatus("Extraction Complete. Please verify values below.");
-        setActiveTab("manual");
-      } catch (err) {
-        setUploadStatus("Error reading PDF.");
-      } finally {
-        setIsProcessing(false);
-      }
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadStatus("Scanning PDF...");
+    setIsProcessing(true);
+    setScreeningError(null);
+    try {
+      const { cbc, patient: pdfPatient } = await parsePdf(file);
+
+      // Populate CBC values
+      setRows((prev) =>
+        prev.map((r) => ({
+          ...r,
+          value: cbc[r.key] !== undefined ? String(cbc[r.key]) : r.value,
+        }))
+      );
+
+      // Populate patient info from PDF
+      setPatient((prev) => ({
+        ...prev,
+        name: pdfPatient.name || prev.name,
+        age: pdfPatient.age || prev.age,
+        sex: pdfPatient.sex || prev.sex,
+        id: pdfPatient.id || prev.id,
+      }));
+
+      const extractedCount = Object.keys(cbc).length;
+      setUploadStatus(
+        `Extracted ${extractedCount}/11 CBC values${pdfPatient.name ? " + patient info" : ""}. Please verify below.`
+      );
+      setActiveTab("manual");
+      setHasValidConsent(false);
+      setConsentId(null);
+      setResult(null);
+    } catch (err) {
+      console.error("PDF parse error:", err);
+      setUploadStatus("Error reading PDF. Please ensure it's a valid lab report.");
+    } finally {
+      setIsProcessing(false);
+      // Reset file input so the same file can be re-uploaded
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -224,49 +179,6 @@ const UserWorkspace = ({ user }) => {
     setConsentId(null);
     setHasValidConsent(false);
     setShowConsentCapture(false);
-    setRandomProfile(null);
-  };
-
-  // Generate random test data for testing model accuracy
-  const generateRandomData = (profileType = null) => {
-    // Randomly select profile if not specified
-    const profiles = Object.keys(CBC_PROFILES);
-    const selectedType = profileType || profiles[Math.floor(Math.random() * profiles.length)];
-    const profile = CBC_PROFILES[selectedType];
-
-    // Generate CBC data based on patient sex
-    const cbcData = profile.getData(patient.sex);
-
-    // Update rows with generated values
-    setRows((prev) =>
-      prev.map((r) => ({
-        ...r,
-        value: cbcData[r.key] !== undefined ? String(cbcData[r.key]) : r.value,
-      }))
-    );
-
-    // Generate random patient data
-    const firstNames = ["James", "Mary", "John", "Patricia", "Robert", "Jennifer", "Michael", "Linda", "William", "Elizabeth"];
-    const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez"];
-    const randomName = `${lastNames[Math.floor(Math.random() * lastNames.length)]}, ${firstNames[Math.floor(Math.random() * firstNames.length)]}`;
-    const randomAge = Math.floor(Math.random() * 60) + 20; // 20-80 years
-    const randomId = `PT-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 100)}`;
-
-    setPatient((prev) => ({
-      ...prev,
-      name: randomName,
-      age: randomAge,
-      id: randomId,
-      // Preserve user's lab_code if available, otherwise generate random
-      labId: user?.lab_code || `LAB-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
-      // Preserve doctor for DOCTOR role
-      referringDoctor: user?.role === Role.DOCTOR ? (user?.doctor_code || prev.referringDoctor) : prev.referringDoctor,
-    }));
-
-    setRandomProfile(profile);
-    setHasValidConsent(false);
-    setConsentId(null);
-    setResult(null);
   };
 
   return (
@@ -427,8 +339,7 @@ const UserWorkspace = ({ user }) => {
                 <FileText className="w-4 h-4 mr-2" />
                 Manual Entry
               </button>
-              {/* PDF functionality temporarily disabled */}
-              {/* <button
+              <button
                 data-testid="tab-pdf"
                 onClick={() => setActiveTab("pdf")}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center ${
@@ -437,21 +348,52 @@ const UserWorkspace = ({ user }) => {
               >
                 <Upload className="w-4 h-4 mr-2" />
                 Import PDF Report
-              </button> */}
-              {/* Placeholder for PDF tab to maintain layout */}
-              <div className="flex-1 py-3 text-sm font-medium flex items-center justify-center text-slate-300 cursor-not-allowed">
-                <Upload className="w-4 h-4 mr-2" />
-                Import PDF (Disabled)
-              </div>
+              </button>
             </div>
 
             {activeTab === "pdf" && (
               <div className="p-6 bg-slate-50">
-                <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-gray-100">
-                  <Upload className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-sm text-slate-500 font-medium">PDF Import Temporarily Disabled</p>
-                  <p className="text-xs text-slate-400 mt-1">Feature coming soon</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  onChange={handlePDFUpload}
+                  className="hidden"
+                  data-testid="pdf-file-input"
+                />
+                <div
+                  className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-white hover:border-teal-400 hover:bg-teal-50/30 transition-colors cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files?.[0];
+                    if (file && file.type === "application/pdf") {
+                      handlePDFUpload({ target: { files: [file] } });
+                    }
+                  }}
+                >
+                  {isProcessing ? (
+                    <>
+                      <div className="w-10 h-10 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin mx-auto mb-3" />
+                      <p className="text-sm text-teal-700 font-medium">{uploadStatus}</p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-10 h-10 text-teal-500 mx-auto mb-3" />
+                      <p className="text-sm text-slate-700 font-medium">
+                        Click to upload or drag & drop a CBC report PDF
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Supports standard lab report formats. Values will be extracted and shown for verification.
+                      </p>
+                    </>
+                  )}
                 </div>
+                {uploadStatus && !isProcessing && (
+                  <p className="mt-3 text-sm text-teal-700 font-medium text-center">{uploadStatus}</p>
+                )}
               </div>
             )}
 
@@ -465,85 +407,10 @@ const UserWorkspace = ({ user }) => {
               </div>
             )}
 
-            {/* Random Data Indicator */}
-            {randomProfile && (
-              <div className={`px-4 py-3 border-t flex items-center gap-3 ${
-                randomProfile.color === "green" ? "bg-green-50 border-green-100" :
-                randomProfile.color === "amber" ? "bg-amber-50 border-amber-100" :
-                "bg-red-50 border-red-100"
-              }`}>
-                <Info className={`w-5 h-5 flex-shrink-0 ${
-                  randomProfile.color === "green" ? "text-green-600" :
-                  randomProfile.color === "amber" ? "text-amber-600" :
-                  "text-red-600"
-                }`} />
-                <div className="flex-1">
-                  <p className={`text-sm font-semibold ${
-                    randomProfile.color === "green" ? "text-green-800" :
-                    randomProfile.color === "amber" ? "text-amber-800" :
-                    "text-red-800"
-                  }`}>
-                    Test Data: {randomProfile.label} Profile
-                  </p>
-                  <p className={`text-xs ${
-                    randomProfile.color === "green" ? "text-green-600" :
-                    randomProfile.color === "amber" ? "text-amber-600" :
-                    "text-red-600"
-                  }`}>
-                    {randomProfile.expectedB12}
-                  </p>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                  randomProfile.color === "green" ? "bg-green-200 text-green-800" :
-                  randomProfile.color === "amber" ? "bg-amber-200 text-amber-800" :
-                  "bg-red-200 text-red-800"
-                }`}>
-                  Expected: {randomProfile.label}
-                </span>
-              </div>
-            )}
-
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center gap-2">
-              <div className="flex items-center gap-2">
-                <button data-testid="reset-form-button" onClick={resetForm} className="px-4 py-2 border border-slate-300 rounded bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 flex items-center">
-                  <RotateCcw className="w-4 h-4 mr-2" /> Reset
-                </button>
-
-                {/* Randomize Dropdown */}
-                <div className="relative group">
-                  <button
-                    data-testid="randomize-button"
-                    onClick={() => generateRandomData()}
-                    className="px-4 py-2 border border-violet-300 rounded bg-violet-50 text-violet-700 text-sm font-medium hover:bg-violet-100 flex items-center"
-                  >
-                    <Shuffle className="w-4 h-4 mr-2" /> Randomize
-                  </button>
-                  <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[200px]">
-                    <p className="px-3 py-2 text-xs font-semibold text-slate-400 uppercase border-b">Select Profile</p>
-                    <button
-                      onClick={() => generateRandomData("normal")}
-                      className="w-full px-3 py-2 text-sm text-left hover:bg-green-50 flex items-center gap-2"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                      Normal CBC
-                    </button>
-                    <button
-                      onClick={() => generateRandomData("borderline")}
-                      className="w-full px-3 py-2 text-sm text-left hover:bg-amber-50 flex items-center gap-2"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      Borderline B12
-                    </button>
-                    <button
-                      onClick={() => generateRandomData("deficient")}
-                      className="w-full px-3 py-2 text-sm text-left hover:bg-red-50 flex items-center gap-2"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                      B12 Deficient
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <button data-testid="reset-form-button" onClick={resetForm} className="px-4 py-2 border border-slate-300 rounded bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 flex items-center">
+                <RotateCcw className="w-4 h-4 mr-2" /> Reset
+              </button>
 
               <button
                 data-testid="run-screening-button"
