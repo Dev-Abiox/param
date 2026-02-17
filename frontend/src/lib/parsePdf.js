@@ -124,6 +124,7 @@ function findValueInLines(lines, labelPatterns, range) {
 }
 
 // CBC parameter definitions with label patterns and clinical ranges
+// Note: patterns avoid trailing \b after optional groups to match plurals (e.g. "Platelets")
 const CBC_MAPPINGS = [
   {
     key: "hb",
@@ -135,30 +136,29 @@ const CBC_MAPPINGS = [
   {
     key: "rbc",
     patterns: [
-      /\b(?:Red\s*Blood\s*Cell|RBC|Erythrocyte)\s*(?:Count|s)?\b/i,
-      /\bTotal\s*(?:RBC|Red\s*Blood\s*Cell|Erythrocyte)\b/i,
-      /\bR\.?B\.?C\.?\s*Count\b/i,
+      /\b(?:Red\s*Blood\s*Cell|RBC|Erythrocyte)s?\s*(?:Count)?/i,
+      /\bTotal\s*(?:RBC|R\s*\.?\s*B\s*\.?\s*C\s*\.?|Red\s*Blood\s*Cell|Erythrocyte)/i,
+      /\bR\s*\.?\s*B\s*\.?\s*C\s*\.?/i,
     ],
     range: [1, 10],
   },
   {
     key: "wbc",
     patterns: [
-      /\b(?:White\s*Blood\s*Cell|WBC|Leucocyte|Leukocyte)\s*(?:Count|s)?\b/i,
-      /\bTotal\s*(?:WBC|White\s*Blood|Leucocyte|Leukocyte)\s*(?:Count)?\b/i,
-      /\bW\.?B\.?C\.?\s*(?:Count)?\b/i,
+      /\b(?:White\s*Blood\s*Cell|WBC|Leucocyte|Leukocyte)s?\s*(?:Count)?/i,
+      /\bTotal\s*(?:WBC|W\s*\.?\s*B\s*\.?\s*C\s*\.?|White\s*Blood|Leucocyte|Leukocyte)\s*(?:Count)?/i,
+      /\bW\s*\.?\s*B\s*\.?\s*C\s*\.?/i,
       /\bTLC\b/i,
-      /\bTotal\s*Leucocyte\s*Count\b/i,
-      /\bTotal\s*Leukocyte\s*Count\b/i,
+      /\bTotal\s*Leu[ck]ocyte\s*Count/i,
     ],
     range: [1, 50],
   },
   {
     key: "plt",
     patterns: [
-      /\bPlatelet\s*(?:Count)?\b/i,
+      /\bPlatelets?\s*(?:Count)?/i,
       /\bPLT\b/i,
-      /\bThrombocyte\s*(?:Count)?\b/i,
+      /\bThrombocytes?\s*(?:Count)?/i,
     ],
     range: [10, 1000],
   },
@@ -166,8 +166,8 @@ const CBC_MAPPINGS = [
     key: "hct",
     patterns: [
       /\b(?:Hematocrit|Haematocrit|HCT)\b/i,
-      /\bPCV\b/i,
-      /\bPacked\s*Cell\s*Volume\b/i,
+      /\bP\s*\.?\s*C\s*\.?\s*V\s*\.?/i,
+      /\bPacked\s*Cell\s*Volume/i,
     ],
     range: [15, 65],
   },
@@ -175,46 +175,43 @@ const CBC_MAPPINGS = [
     key: "mcv",
     patterns: [
       /\bMCV\b/i,
-      /\bM\.?C\.?V\.?\b/,
-      /\bMean\s*Corpuscular\s*Volume\b/i,
-      /\bMean\s*Cell\s*Volume\b/i,
+      /\bM\s*\.?\s*C\s*\.?\s*V\s*\.?/i,
+      /\bMean\s*(?:Corpuscular|Cell)\s*Volume/i,
     ],
     range: [50, 150],
-  },
-  {
-    key: "mch",
-    patterns: [
-      /\bMCH\b(?!\s*C)/i,
-      /\bM\.?C\.?H\.?\b(?!\s*C)/,
-      /\bMean\s*Corpuscular\s*Hemo?globin\b(?!\s*Conc)/i,
-      /\bMean\s*Cell\s*Hemo?globin\b(?!\s*Conc)/i,
-    ],
-    range: [15, 45],
   },
   {
     key: "mchc",
     patterns: [
       /\bMCHC\b/i,
-      /\bM\.?C\.?H\.?C\.?\b/,
-      /\bMean\s*Corpuscular\s*Hemo?globin\s*Conc/i,
-      /\bMean\s*Cell\s*Hemo?globin\s*Conc/i,
+      /\bM\s*\.?\s*C\s*\.?\s*H\s*\.?\s*C\s*\.?/i,
+      /\bMean\s*(?:Corpuscular|Cell)\s*Hemo?globin\s*Conc/i,
     ],
     range: [25, 40],
   },
   {
+    key: "mch",
+    patterns: [
+      /\bMCH\b(?!\s*C)/i,
+      /\bM\s*\.?\s*C\s*\.?\s*H\s*\.?\s*(?!C)/i,
+      /\bMean\s*(?:Corpuscular|Cell)\s*Hemo?globin\b(?!\s*Conc)/i,
+    ],
+    range: [15, 45],
+  },
+  {
     key: "rdw",
     patterns: [
-      /\bRDW[\s-]*(?:CV|SD)?\b/i,
-      /\bR\.?D\.?W\.?\b/,
-      /\bRed\s*(?:Cell\s*)?Distribution\s*Width\b/i,
+      /\bRDW[\s-]*(?:CV|SD)?/i,
+      /\bR\s*\.?\s*D\s*\.?\s*W\s*\.?/i,
+      /\bRed\s*(?:Cell\s*)?Distribution\s*Width/i,
     ],
     range: [8, 30],
   },
   {
     key: "neu_pct",
     patterns: [
-      /\bNeutrophil\s*(?:%|percent|Percent)?\b/i,
-      /\bNEUT(?:RO)?\s*(?:%|#)?\b/i,
+      /\bNeutrophils?\s*(?:[:%]|percent)?/i,
+      /\bNEUT(?:RO)?S?\b/i,
       /\bSegmented\s*Neutrophil/i,
       /\bPolymorphs?\b/i,
     ],
@@ -223,8 +220,8 @@ const CBC_MAPPINGS = [
   {
     key: "lym_pct",
     patterns: [
-      /\bLymphocyte\s*(?:%|percent|Percent)?\b/i,
-      /\bLYMPH?\s*(?:%|#)?\b/i,
+      /\bLymphocytes?\s*(?:[:%]|percent)?/i,
+      /\bLYMPH?S?\b/i,
     ],
     range: [2, 80],
   },
