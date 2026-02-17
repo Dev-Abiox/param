@@ -1,58 +1,30 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
 import pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.entry";
+import Tesseract from "tesseract.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 /**
  * Extract CBC values and patient info from a lab report PDF.
+ * Uses pdfjs for digital PDFs, falls back to Tesseract OCR for scanned PDFs.
  * Returns { cbc: { hb, rbc, ... }, patient: { name, age, sex, id } }
- * Only includes fields that were successfully extracted.
  */
-export async function parsePdf(file) {
+export async function parsePdf(file, onProgress) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-  // Extract text from all pages, preserving line structure
-  const lines = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
+  // Try digital text extraction first
+  let lines = await extractDigitalText(pdf);
 
-    // Group text items by Y position with tolerance (±3px)
-    const yGroups = [];
-    for (const item of content.items) {
-      if (!item.str || !item.str.trim()) continue;
-      const y = item.transform[5];
-      const x = item.transform[4];
-
-      // Find existing group within tolerance
-      let found = false;
-      for (const group of yGroups) {
-        if (Math.abs(group.y - y) <= 3) {
-          group.items.push({ x, str: item.str });
-          // Update group Y to average for better clustering
-          group.y = (group.y + y) / 2;
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        yGroups.push({ y, items: [{ x, str: item.str }] });
-      }
-    }
-
-    // Sort by Y (descending = top to bottom) then items by X (left to right)
-    yGroups.sort((a, b) => b.y - a.y);
-    for (const group of yGroups) {
-      group.items.sort((a, b) => a.x - b.x);
-      const lineText = group.items.map((it) => it.str).join(" ");
-      if (lineText.trim()) lines.push(lineText.trim());
-    }
+  // If no text found, PDF is likely scanned — use OCR
+  if (lines.length === 0) {
+    console.log("No digital text found, falling back to OCR...");
+    if (onProgress) onProgress("Scanning image with OCR...");
+    lines = await extractWithOCR(pdf);
   }
 
   const fullText = lines.join("\n");
 
-  // Debug: log extracted text to console for troubleshooting
   console.log("PDF extracted lines:", lines);
   console.log("PDF extracted text (first 3000 chars):", fullText.substring(0, 3000));
 
@@ -66,24 +38,101 @@ export async function parsePdf(file) {
 }
 
 /**
+ * Extract text from a digital (non-scanned) PDF using pdfjs.
+ */
+async function extractDigitalText(pdf) {
+  const lines = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+
+    // Group text items by Y position with tolerance (±3px)
+    const yGroups = [];
+    for (const item of content.items) {
+      if (!item.str || !item.str.trim()) continue;
+      const y = item.transform[5];
+      const x = item.transform[4];
+
+      let found = false;
+      for (const group of yGroups) {
+        if (Math.abs(group.y - y) <= 3) {
+          group.items.push({ x, str: item.str });
+          group.y = (group.y + y) / 2;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        yGroups.push({ y, items: [{ x, str: item.str }] });
+      }
+    }
+
+    yGroups.sort((a, b) => b.y - a.y);
+    for (const group of yGroups) {
+      group.items.sort((a, b) => a.x - b.x);
+      const lineText = group.items.map((it) => it.str).join(" ");
+      if (lineText.trim()) lines.push(lineText.trim());
+    }
+  }
+  return lines;
+}
+
+/**
+ * Render PDF pages to canvas and run Tesseract OCR.
+ * Used as fallback for scanned/image-based PDFs.
+ */
+async function extractWithOCR(pdf) {
+  const allLines = [];
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    // Render at 2x scale for better OCR accuracy
+    const scale = 2.0;
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    // Run OCR on the rendered canvas
+    const { data } = await Tesseract.recognize(canvas, "eng", {
+      logger: (m) => {
+        if (m.status === "recognizing text") {
+          console.log(`OCR page ${i}: ${Math.round((m.progress || 0) * 100)}%`);
+        }
+      },
+    });
+
+    // Split OCR text into lines
+    const ocrLines = data.text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    allLines.push(...ocrLines);
+    console.log(`OCR page ${i}: ${ocrLines.length} lines extracted`);
+  }
+
+  return allLines;
+}
+
+/**
  * Given a line that matches a CBC label, extract the result value.
- * Lab reports typically have: Label ... Result ... Unit ... Reference Range
- * We want the Result — usually the first number after the label, but NOT
- * serial numbers (like "1." at start) or reference range numbers (like "12.0 - 16.0").
+ * Looks for the first number AFTER the label text.
  */
 function extractValueFromLine(line, labelPattern) {
-  // Remove the label portion to focus on what comes after
   const labelMatch = line.match(labelPattern);
   if (!labelMatch) return undefined;
 
   const labelEnd = labelMatch.index + labelMatch[0].length;
   const afterLabel = line.substring(labelEnd);
 
-  // Extract all numbers from the portion after the label
   const numbers = afterLabel.match(/\d+\.?\d*/g);
   if (!numbers || numbers.length === 0) return undefined;
 
-  // The first number after the label is typically the result value
   const val = parseFloat(numbers[0]);
   if (!isNaN(val) && val > 0) return val;
 
@@ -91,31 +140,34 @@ function extractValueFromLine(line, labelPattern) {
 }
 
 /**
+ * Try to normalize a value into the expected clinical range,
+ * applying unit conversions if needed.
+ */
+function normalizeValue(val, range) {
+  if (val >= range[0] && val <= range[1]) return val;
+  // WBC: 8500 → 8.5 (×10³/µL)
+  if (range[1] <= 50 && val > 100 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
+    return val / 1000;
+  }
+  // PLT: 250000 → 250 (×10³/µL)
+  if (range[1] <= 1000 && val > 10000 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
+    return Math.round(val / 1000);
+  }
+  return undefined;
+}
+
+/**
  * Search lines for a label and extract the result value.
- * Uses smarter extraction that looks for value AFTER the label text.
  */
 function findValueInLines(lines, labelPatterns, range) {
   for (const line of lines) {
     for (const pattern of labelPatterns) {
       if (pattern.test(line)) {
-        // Reset lastIndex for global-capable patterns
         pattern.lastIndex = 0;
-
         const val = extractValueFromLine(line, pattern);
         if (val !== undefined) {
-          // Check if value is in expected clinical range
-          if (val >= range[0] && val <= range[1]) {
-            return val;
-          }
-          // Handle unit conversions:
-          // WBC sometimes reported as 8500 instead of 8.5 (×10³/µL)
-          // PLT sometimes reported as 250000 instead of 250
-          if (range[1] <= 50 && val > 100 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
-            return val / 1000;
-          }
-          if (range[1] <= 1000 && val > 10000 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
-            return Math.round(val / 1000);
-          }
+          const normalized = normalizeValue(val, range);
+          if (normalized !== undefined) return normalized;
         }
       }
     }
@@ -125,6 +177,7 @@ function findValueInLines(lines, labelPatterns, range) {
 
 // CBC parameter definitions with label patterns and clinical ranges
 // Note: patterns avoid trailing \b after optional groups to match plurals (e.g. "Platelets")
+// MCHC must come before MCH so MCHC lines aren't claimed by MCH
 const CBC_MAPPINGS = [
   {
     key: "hb",
@@ -238,8 +291,7 @@ function extractCBCValues(lines, fullText) {
     }
   }
 
-  // Strategy 2: If line-based missed values, try adjacent lines
-  // Some PDFs split label and value across lines
+  // Strategy 2: If line-based missed values, try adjacent lines and looser matching
   if (Object.keys(cbc).length < 5) {
     for (const { key, patterns, range } of CBC_MAPPINGS) {
       if (cbc[key] !== undefined) continue;
@@ -256,22 +308,14 @@ function extractCBCValues(lines, fullText) {
         }
         if (!matched) continue;
 
-        // Check if value is on the same line (maybe we missed it due to range)
+        // Try all numbers on the line
         const nums = line.match(/\d+\.?\d*/g);
         if (nums) {
           for (const n of nums) {
             const v = parseFloat(n);
-            if (v >= range[0] && v <= range[1]) {
-              cbc[key] = v;
-              break;
-            }
-            // Unit conversion
-            if (range[1] <= 50 && v > 100 && v / 1000 >= range[0] && v / 1000 <= range[1]) {
-              cbc[key] = v / 1000;
-              break;
-            }
-            if (range[1] <= 1000 && v > 10000 && v / 1000 >= range[0] && v / 1000 <= range[1]) {
-              cbc[key] = Math.round(v / 1000);
+            const normalized = normalizeValue(v, range);
+            if (normalized !== undefined) {
+              cbc[key] = normalized;
               break;
             }
           }
@@ -284,8 +328,9 @@ function extractCBCValues(lines, fullText) {
           const nextNums = nextLine.match(/^\s*(\d+\.?\d*)/);
           if (nextNums) {
             const v = parseFloat(nextNums[1]);
-            if (v >= range[0] && v <= range[1]) {
-              cbc[key] = v;
+            const normalized = normalizeValue(v, range);
+            if (normalized !== undefined) {
+              cbc[key] = normalized;
               break;
             }
           }
@@ -300,23 +345,14 @@ function extractCBCValues(lines, fullText) {
       if (cbc[key] !== undefined) continue;
       for (const pattern of patterns) {
         const source = pattern.source;
-        // Match label followed by any non-digit chars, then the value
         const regex = new RegExp(source + "[^\\d]*?(\\d+\\.?\\d*)", "i");
         const match = fullText.match(regex);
         if (match) {
-          let val = parseFloat(match[1]);
+          const val = parseFloat(match[1]);
           if (!isNaN(val) && val > 0) {
-            // Try unit conversion
-            if (val >= range[0] && val <= range[1]) {
-              cbc[key] = val;
-              break;
-            }
-            if (range[1] <= 50 && val > 100 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
-              cbc[key] = val / 1000;
-              break;
-            }
-            if (range[1] <= 1000 && val > 10000 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
-              cbc[key] = Math.round(val / 1000);
+            const normalized = normalizeValue(val, range);
+            if (normalized !== undefined) {
+              cbc[key] = normalized;
               break;
             }
           }
@@ -331,9 +367,9 @@ function extractCBCValues(lines, fullText) {
 function extractPatientInfo(text) {
   const patient = {};
 
-  // Patient Name — expanded patterns for Indian lab reports
+  // Patient Name
   const namePatterns = [
-    /Patient\s*(?:'s\s*)?Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date|Ref|Sample|Lab|Barcode)/i,
+    /Patient\s*(?:'s\s*)?(?:Name|name)\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date|Ref|Sample|Lab|Barcode)/i,
     /Name\s+of\s+(?:the\s+)?Patient\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender)/i,
     /(?:Client|Pt|Pat)\.?\s*Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender)/i,
     /Name\s*[:\-]\s*(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Master|Baby)?\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date)/i,
@@ -343,7 +379,6 @@ function extractPatientInfo(text) {
     const match = text.match(regex);
     if (match && match[1].trim().length > 1) {
       let name = match[1].trim();
-      // Clean up trailing whitespace and common suffixes
       name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Sample|Lab).*$/i, "").trim();
       if (name.length > 1 && name.length < 80) {
         patient.name = name;
@@ -352,7 +387,7 @@ function extractPatientInfo(text) {
     }
   }
 
-  // Age — expanded patterns
+  // Age & Sex (often combined: "Age/Sex: 34 Years/Male")
   const agePatterns = [
     /Age\s*[/&]\s*(?:Sex|Gender)\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs|months?|M)?\.?\s*[/\\|,\s]+\s*(M(?:ale)?|F(?:emale)?)/i,
     /Age\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?/i,
@@ -388,9 +423,9 @@ function extractPatientInfo(text) {
     }
   }
 
-  // Patient ID — expanded patterns for Indian labs
+  // Patient ID
   const idPatterns = [
-    /(?:Patient\s*ID|MRN|Reg(?:istration)?\.?\s*No\.?|UHID|Lab\s*(?:No\.?|ID)|Sample\s*(?:No\.?|ID)|Barcode\s*(?:No\.?)?|Accession\s*(?:No\.?)?|Bill\s*No\.?|SID|Report\s*(?:No\.?|ID)|OPD\s*No\.?|IPD\s*No\.?|Visit\s*(?:No\.?|ID))\s*[:\-#]?\s*([A-Za-z0-9\-/]+)/i,
+    /(?:Patient\s*ID|MRN|Reg(?:istration)?\.?\s*(?:No\.?|ID)|UHID|Lab\s*(?:No\.?|ID)|Sample\s*(?:No\.?|ID)|Barcode\s*(?:No\.?)?|Accession\s*(?:No\.?)?|Bill\s*No\.?|SID|Report\s*(?:No\.?|ID)|OPD\s*No\.?|IPD\s*No\.?|Visit\s*(?:No\.?|ID))\s*[:\-#]?\s*([A-Za-z0-9\-/]+)/i,
   ];
   for (const regex of idPatterns) {
     const match = text.match(regex);

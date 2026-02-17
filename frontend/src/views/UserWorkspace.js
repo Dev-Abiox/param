@@ -69,7 +69,7 @@ const UserWorkspace = ({ user }) => {
     setIsProcessing(true);
     setScreeningError(null);
     try {
-      const { cbc, patient: pdfPatient } = await parsePdf(file);
+      const { cbc, patient: pdfPatient } = await parsePdf(file, setUploadStatus);
 
       // Populate CBC values
       setRows((prev) =>
