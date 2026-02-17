@@ -23,7 +23,7 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
 
     // Add Logo
     try {
-      const logo = await loadImage("/logo.png");
+      const logo = await loadImage("/clean-logo.png?v=1");
       doc.addImage(logo, "PNG", 10, 2, 16, 16);
 
       doc.setTextColor(255, 255, 255);
