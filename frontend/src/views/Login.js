@@ -71,11 +71,6 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     setResetStatus("idle");
   };
 
-  const fillDemoCredentials = (user, pass) => {
-    setUsername(user);
-    setPassword(pass);
-  };
-
   // MFA Challenge View
   if (view === "mfa_challenge") {
     return (
@@ -172,7 +167,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     <div data-testid="login-page" className="min-h-screen bg-slate-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <img src="/logo.png" alt="Clinomic Labs Logo" className="h-20 w-auto" />
+          <img src="/logo.png?v=17" alt="Clinomic Labs Logo" className="w-auto" style={{ height: '200px' }} />
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900 tracking-tight">Clinomic Labs</h2>
         <p className="mt-2 text-center text-sm text-slate-600">B12 Screening Platform v3.0</p>
@@ -340,47 +335,6 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
             </div>
           )}
 
-          {/* Demo Credentials - Clickable */}
-          {view === "login" && (
-            <div className="mt-6">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-300" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-slate-500">Demo Credentials</span>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-3 gap-2" data-testid="demo-credentials">
-                <button
-                  type="button"
-                  onClick={() => fillDemoCredentials("admin_demo", "Demo@2024")}
-                  className="bg-purple-50 hover:bg-purple-100 p-2.5 rounded-lg border border-purple-200 transition-colors text-center"
-                >
-                  <span className="font-semibold text-purple-700 block text-sm">Admin</span>
-                  <span className="text-purple-500 text-xs">admin_demo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoCredentials("lab_demo", "Demo@2024")}
-                  className="bg-teal-50 hover:bg-teal-100 p-2.5 rounded-lg border border-teal-200 transition-colors text-center"
-                >
-                  <span className="font-semibold text-teal-700 block text-sm">Lab Tech</span>
-                  <span className="text-teal-500 text-xs">lab_demo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemoCredentials("doctor_demo", "Demo@2024")}
-                  className="bg-blue-50 hover:bg-blue-100 p-2.5 rounded-lg border border-blue-200 transition-colors text-center"
-                >
-                  <span className="font-semibold text-blue-700 block text-sm">Doctor</span>
-                  <span className="text-blue-500 text-xs">doctor_demo</span>
-                </button>
-              </div>
-              <p className="text-xs text-slate-400 text-center mt-2">Password: Demo@2024</p>
-            </div>
-          )}
         </div>
 
         <div className="mt-4 text-center text-xs text-slate-400">

@@ -18,82 +18,109 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
   const generateDoc = async () => {
     const doc = new jsPDF();
 
-    doc.setFillColor(13, 148, 136);
+    // Header Background
+    doc.setFillColor(13, 148, 136); // Teal-600
     doc.rect(0, 0, 210, 20, "F");
 
-    // Add Logo
+    // Add Logo & Clinomic Labs Title
     try {
-      const logo = await loadImage("/logo.png");
+      const logo = await loadImage("/clean-logo.png?v=1");
       doc.addImage(logo, "PNG", 10, 2, 16, 16);
 
+      // White Vertical Separator
+      doc.setDrawColor(255, 255, 255);
+      doc.setLineWidth(0.5);
+      doc.line(28, 5, 28, 15);
+
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16);
-      doc.text("Clinomic Labs", 30, 13); // Shifted right
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text("Clinomic Labs", 32, 13);
     } catch (e) {
       console.error("Could not load logo", e);
-      // Fallback if logo fails
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
       doc.text("Clinomic Labs", 14, 13);
     }
 
+    // Header - Report Title (Right Aligned)
     doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
     doc.text("Vitamin B12 Screening Report", 195, 13, { align: "right" });
 
+    // Patient Information Section (Two Columns)
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(11);
-    doc.text(`Patient Name: ${patient.name || "N/A"}`, 14, 30);
-    doc.text(`Patient ID: ${patient.id}`, 14, 36);
-    doc.text(`Age/Sex: ${patient.age || "-"} / ${patient.sex}`, 14, 42);
 
-    doc.text(`Date: ${patient.date}`, 140, 30);
-    doc.text(`Lab Ref: ${patient.labId}`, 140, 36);
+    // Left Column
+    doc.setFont("helvetica", "bold"); doc.text("Patient Name:", 14, 30);
+    doc.setFont("helvetica", "normal"); doc.text(patient.name || "N/A", 42, 30);
 
+    doc.setFont("helvetica", "bold"); doc.text("Patient ID:", 14, 36);
+    doc.setFont("helvetica", "normal"); doc.text(patient.id || "N/A", 36, 36);
+
+    doc.setFont("helvetica", "bold"); doc.text("Age/Sex:", 14, 42);
+    doc.setFont("helvetica", "normal"); doc.text(`${patient.age || "-"} / ${patient.sex || "-"}`, 34, 42);
+
+    // Right Column
+    doc.setFont("helvetica", "bold"); doc.text("Date:", 140, 30);
+    doc.setFont("helvetica", "normal"); doc.text(patient.date || "N/A", 152, 30);
+
+    doc.setFont("helvetica", "bold"); doc.text("Lab Name:", 140, 36);
+    doc.setFont("helvetica", "normal"); doc.text(patient.labId || "N/A", 162, 36);
+
+    // Horizontal Line Separator
     doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.1);
     doc.line(14, 48, 196, 48);
 
+    // Screening Result
     const pNormalVal = result.probabilities.normal;
     const pBorderVal = result.probabilities.borderline;
     const pDeficientVal = result.probabilities.deficient;
 
     let labelText = "Normal";
-    let color = [34, 197, 94];
+    let color = [34, 197, 94]; // Green
 
     if (pDeficientVal > Math.max(pNormalVal, pBorderVal)) {
       labelText = "Deficient";
-      color = [239, 68, 68];
+      color = [239, 68, 68]; // Red
     } else if (pBorderVal > Math.max(pNormalVal, pDeficientVal)) {
       labelText = "Borderline";
-      color = [245, 158, 11];
+      color = [245, 158, 11]; // Amber
     }
 
     doc.setFontSize(14);
-    doc.setTextColor(color[0], color[1], color[2]);
-    doc.text(`Screening Result: ${labelText}`, 14, 58);
-
-    doc.setTextColor(60, 60, 60);
-    doc.setFontSize(10);
-    const maxProb = Math.max(pNormalVal, pBorderVal, pDeficientVal);
-    doc.text(`Model Confidence: ${(maxProb * 100).toFixed(1)}%`, 14, 66);
-
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.rect(14, 74, 182, 30, "FD");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("Clinical Interpretation:", 16, 80);
-    doc.setFont("helvetica", "italic");
-    doc.text(result.interpretation || "", 16, 86, { maxWidth: 178 });
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Recommendation:", 16, 94);
     doc.setFont("helvetica", "normal");
-    doc.text(result.recommendation || "", 16, 100, { maxWidth: 178 });
+    doc.setTextColor(0, 0, 0);
+    doc.text("Screening Result:", 14, 58);
 
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(color[0], color[1], color[2]);
+    doc.text(labelText, 55, 58);
+
+    // Interpretation Box
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.rect(14, 68, 182, 42, "FD");
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Clinical Interpretation:", 18, 74);
+    doc.setFont("helvetica", "normal");
+    doc.text(result.interpretation || "", 18, 80, { maxWidth: 174 });
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Recommendation:", 18, 96);
+    doc.setFont("helvetica", "normal");
+    doc.text(result.recommendation || "", 18, 102, { maxWidth: 174 });
+
+    // Table 1: Hematological Indices
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    doc.text("Hematological Indices", 14, 114);
+    doc.text("Hematological Indices", 14, 120);
 
     const indicesBody = [
       ["Mentzer Index", String(result.indices.mentzer), result.indices.mentzer > 13 ? "Possible Iron Deficiency" : "Possible Thalassemia"],
@@ -102,15 +129,16 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
     ];
 
     autoTable(doc, {
-      startY: 118,
+      startY: 124,
       head: [["Index", "Value", "Clinical Significance"]],
       body: indicesBody,
       theme: "grid",
-      headStyles: { fillColor: [15, 118, 110], fontSize: 9 },
-      styles: { fontSize: 8, cellPadding: 2 },
-      columnStyles: { 0: { fontStyle: "bold" } },
+      headStyles: { fillColor: [13, 148, 136], fontSize: 9, fontStyle: "bold" },
+      styles: { fontSize: 8, cellPadding: 3 },
+      columnStyles: { 0: { fontStyle: "bold", cellWidth: 70 }, 1: { cellWidth: 30 } },
     });
 
+    // Table 2: CBC Data
     const finalY = doc.lastAutoTable.finalY + 12;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
@@ -128,18 +156,19 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
       head: [["Test", "Result", "Unit", "Ref. Range"]],
       body: cbcBody,
       theme: "striped",
-      headStyles: { fillColor: [71, 85, 105], fontSize: 9 },
+      headStyles: { fillColor: [51, 65, 85], fontSize: 9, fontStyle: "bold" },
       styles: { fontSize: 8, cellPadding: 2 },
-      alternateRowStyles: { fillColor: [241, 245, 249] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
     });
 
+    // Footer & Page Numbers
     const pageCount = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i += 1) {
       doc.setPage(i);
       doc.setFontSize(8);
       doc.setTextColor(150);
-      doc.text(`Page ${i} of ${pageCount}`, 195, 290, { align: "right" });
-      doc.text("Generated by Clinomic Labs LIS - For Investigational Use Only", 105, 290, { align: "center" });
+      doc.text(`Page ${i} of ${pageCount}`, 195, 285, { align: "right" });
+      doc.text("Generated by Clinomic Labs LIS - For Investigational Use Only", 105, 285, { align: "center" });
     }
 
     return doc;
