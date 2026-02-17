@@ -7,7 +7,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 /**
  * Extract CBC values and patient info from a lab report PDF.
  * Uses pdfjs for digital PDFs, falls back to Tesseract OCR for scanned PDFs.
- * Returns { cbc: { hb, rbc, ... }, patient: { name, age, sex, id } }
  */
 export async function parsePdf(file, onProgress) {
   const arrayBuffer = await file.arrayBuffer();
@@ -15,12 +14,14 @@ export async function parsePdf(file, onProgress) {
 
   // Try digital text extraction first
   let lines = await extractDigitalText(pdf);
+  let isOCR = false;
 
   // If no text found, PDF is likely scanned — use OCR
   if (lines.length === 0) {
     console.log("No digital text found, falling back to OCR...");
-    if (onProgress) onProgress("Scanning image with OCR...");
+    if (onProgress) onProgress("Scanning image with OCR (this may take a few seconds)...");
     lines = await extractWithOCR(pdf);
+    isOCR = true;
   }
 
   const fullText = lines.join("\n");
@@ -28,8 +29,8 @@ export async function parsePdf(file, onProgress) {
   console.log("PDF extracted lines:", lines);
   console.log("PDF extracted text (first 3000 chars):", fullText.substring(0, 3000));
 
-  const cbc = extractCBCValues(lines, fullText);
-  const patient = extractPatientInfo(fullText);
+  const cbc = extractCBCValues(lines, fullText, isOCR);
+  const patient = extractPatientInfo(lines, fullText);
 
   console.log("Extracted CBC:", cbc);
   console.log("Extracted patient:", patient);
@@ -46,7 +47,6 @@ async function extractDigitalText(pdf) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
 
-    // Group text items by Y position with tolerance (±3px)
     const yGroups = [];
     for (const item of content.items) {
       if (!item.str || !item.str.trim()) continue;
@@ -79,15 +79,14 @@ async function extractDigitalText(pdf) {
 
 /**
  * Render PDF pages to canvas and run Tesseract OCR.
- * Used as fallback for scanned/image-based PDFs.
+ * Uses 3x scale and grayscale conversion for better accuracy.
  */
 async function extractWithOCR(pdf) {
   const allLines = [];
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    // Render at 2x scale for better OCR accuracy
-    const scale = 2.0;
+    const scale = 3.0; // Higher scale = better OCR accuracy
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement("canvas");
@@ -95,10 +94,22 @@ async function extractWithOCR(pdf) {
     canvas.height = viewport.height;
     const ctx = canvas.getContext("2d");
 
+    // White background
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     await page.render({ canvasContext: ctx, viewport }).promise;
 
-    // Run OCR on the rendered canvas
-    const { data } = await Tesseract.recognize(canvas, "eng", {
+    // Convert to grayscale for better OCR
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let j = 0; j < data.length; j += 4) {
+      const gray = 0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2];
+      data[j] = data[j + 1] = data[j + 2] = gray;
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    const { data: ocrData } = await Tesseract.recognize(canvas, "eng", {
       logger: (m) => {
         if (m.status === "recognizing text") {
           console.log(`OCR page ${i}: ${Math.round((m.progress || 0) * 100)}%`);
@@ -106,8 +117,7 @@ async function extractWithOCR(pdf) {
       },
     });
 
-    // Split OCR text into lines
-    const ocrLines = data.text
+    const ocrLines = ocrData.text
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
@@ -119,10 +129,8 @@ async function extractWithOCR(pdf) {
   return allLines;
 }
 
-/**
- * Given a line that matches a CBC label, extract the result value.
- * Looks for the first number AFTER the label text.
- */
+// ─── Value extraction helpers ───
+
 function extractValueFromLine(line, labelPattern) {
   const labelMatch = line.match(labelPattern);
   if (!labelMatch) return undefined;
@@ -135,42 +143,43 @@ function extractValueFromLine(line, labelPattern) {
 
   const val = parseFloat(numbers[0]);
   if (!isNaN(val) && val > 0) return val;
-
   return undefined;
 }
 
 /**
- * Try to normalize a value into the expected clinical range,
- * applying unit conversions if needed.
+ * Normalize value into expected clinical range with unit conversions.
+ * isOCR flag enables more aggressive normalization (decimal recovery).
  */
-function normalizeValue(val, range) {
+function normalizeValue(val, range, isOCR) {
   if (val >= range[0] && val <= range[1]) return val;
+
   // OCR may drop decimal point: 445 → 44.5, 954 → 95.4
-  if (val / 10 >= range[0] && val / 10 <= range[1]) {
-    return val / 10;
+  // Only apply for OCR text, and only when val is clearly too large
+  if (isOCR && val > range[1] && val / 10 >= range[0] && val / 10 <= range[1]) {
+    return Math.round((val / 10) * 100) / 100; // Round to 2 decimals
   }
-  // WBC: 8500 → 8.5 (×10³/µL)
+
+  // WBC: 6100 → 6.1 (×10³/µL)
   if (range[1] <= 50 && val > 100 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
-    return val / 1000;
+    return Math.round((val / 1000) * 10) / 10;
   }
-  // PLT: 250000 → 250 (×10³/µL)
+
+  // PLT: 340000 → 340 (×10³/µL)
   if (range[1] <= 1000 && val > 10000 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
     return Math.round(val / 1000);
   }
+
   return undefined;
 }
 
-/**
- * Search lines for a label and extract the result value.
- */
-function findValueInLines(lines, labelPatterns, range) {
+function findValueInLines(lines, labelPatterns, range, isOCR) {
   for (const line of lines) {
     for (const pattern of labelPatterns) {
       if (pattern.test(line)) {
         pattern.lastIndex = 0;
         const val = extractValueFromLine(line, pattern);
         if (val !== undefined) {
-          const normalized = normalizeValue(val, range);
+          const normalized = normalizeValue(val, range, isOCR);
           if (normalized !== undefined) return normalized;
         }
       }
@@ -179,23 +188,21 @@ function findValueInLines(lines, labelPatterns, range) {
   return undefined;
 }
 
-// CBC parameter definitions with label patterns and clinical ranges
-// Note: patterns avoid trailing \b after optional groups to match plurals (e.g. "Platelets")
-// MCHC must come before MCH so MCHC lines aren't claimed by MCH
+// ─── CBC mappings ───
+// MCHC MUST be before MCH (MCH has negative lookahead for C)
+
 const CBC_MAPPINGS = [
   {
     key: "hb",
-    patterns: [
-      /\b(?:Haemoglobin|Hemoglobin|Hb|HGB)\b/i,
-    ],
+    patterns: [/\b(?:Haemoglobin|Hemoglobin|Hb|HGB)\b/i],
     range: [3, 25],
   },
   {
     key: "rbc",
     patterns: [
       /\b(?:Red\s*Blood\s*Cell|RBC|Erythrocyte)s?\s*(?:Count)?/i,
-      /\bTotal\s*(?:RBC|R\s*\.?\s*B\s*\.?\s*C\s*\.?|Red\s*Blood\s*Cell|Erythrocyte)/i,
-      /\bR\s*\.?\s*B\s*\.?\s*C\s*\.?/i,
+      /\bTotal\s*(?:RBC|R\s*\.?\s*B\s*\.?\s*C|Red\s*Blood|Erythrocyte)/i,
+      /\bR\s*\.?\s*B\s*\.?\s*C\s*\.?\b/i,
     ],
     range: [1, 10],
   },
@@ -203,10 +210,9 @@ const CBC_MAPPINGS = [
     key: "wbc",
     patterns: [
       /\b(?:White\s*Blood\s*Cell|WBC|Leucocyte|Leukocyte)s?\s*(?:Count)?/i,
-      /\bTotal\s*(?:WBC|W\s*\.?\s*B\s*\.?\s*C\s*\.?|White\s*Blood|Leucocyte|Leukocyte)\s*(?:Count)?/i,
-      /\bW\s*\.?\s*B\s*\.?\s*C\s*\.?/i,
+      /\bTotal\s*(?:WBC|W\s*\.?\s*B\s*\.?\s*C|White\s*Blood|Leu[ck]ocyte)\s*(?:Count)?/i,
+      /\bW\s*\.?\s*B\s*\.?\s*C\s*\.?\b/i,
       /\bTLC\b/i,
-      /\bTotal\s*Leu[ck]ocyte\s*Count/i,
     ],
     range: [1, 50],
   },
@@ -225,7 +231,6 @@ const CBC_MAPPINGS = [
       /\b(?:Hematocrit|Haematocrit|HCT)\b/i,
       /\bP\s*\.?\s*C\s*\.?\s*V\s*\.?/i,
       /\bPacked\s*Cell\s*Volume/i,
-      /\bP[I1l][O0]N\b/i, // OCR garbles P.C.V → PION/P1ON
     ],
     range: [15, 65],
   },
@@ -234,7 +239,6 @@ const CBC_MAPPINGS = [
     patterns: [
       /\bMCV\b/i,
       /\bM\s*\.?\s*C\s*\.?\s*V\s*\.?/i,
-      /\bMC[:\s.]*V/i, // OCR garbles M.C.V. → MC: Vi:
       /\bMean\s*(?:Corpuscular|Cell)\s*Volume/i,
     ],
     range: [50, 150],
@@ -286,110 +290,97 @@ const CBC_MAPPINGS = [
   },
 ];
 
-function extractCBCValues(lines, fullText) {
+// ─── CBC extraction ───
+
+function extractCBCValues(lines, fullText, isOCR) {
   const cbc = {};
 
-  // Strategy 1: Line-based extraction (most common)
+  // Strategy 1: Line-based pattern matching
   for (const { key, patterns, range } of CBC_MAPPINGS) {
-    const val = findValueInLines(lines, patterns, range);
+    const val = findValueInLines(lines, patterns, range, isOCR);
     if (val !== undefined) {
       cbc[key] = val;
     }
   }
 
-  // Strategy 2: If line-based missed values, try adjacent lines and looser matching
-  if (Object.keys(cbc).length < 5) {
-    for (const { key, patterns, range } of CBC_MAPPINGS) {
-      if (cbc[key] !== undefined) continue;
+  // Strategy 2: Adjacent lines (label on one line, value on next)
+  for (const { key, patterns, range } of CBC_MAPPINGS) {
+    if (cbc[key] !== undefined) continue;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      let matched = false;
+      for (const pattern of patterns) {
+        if (pattern.test(line)) {
+          pattern.lastIndex = 0;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) continue;
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        let matched = false;
-        for (const pattern of patterns) {
-          if (pattern.test(line)) {
-            pattern.lastIndex = 0;
-            matched = true;
+      // Try all numbers on the line
+      const nums = line.match(/\d+\.?\d*/g);
+      if (nums) {
+        for (const n of nums) {
+          const v = parseFloat(n);
+          const normalized = normalizeValue(v, range, isOCR);
+          if (normalized !== undefined) {
+            cbc[key] = normalized;
             break;
           }
         }
-        if (!matched) continue;
+      }
+      if (cbc[key] !== undefined) break;
 
-        // Try all numbers on the line
-        const nums = line.match(/\d+\.?\d*/g);
-        if (nums) {
-          for (const n of nums) {
-            const v = parseFloat(n);
-            const normalized = normalizeValue(v, range);
-            if (normalized !== undefined) {
-              cbc[key] = normalized;
-              break;
-            }
-          }
-        }
-        if (cbc[key] !== undefined) break;
-
-        // Check next line for value (label on one line, value on next)
-        if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1];
-          const nextNums = nextLine.match(/^\s*(\d+\.?\d*)/);
-          if (nextNums) {
-            const v = parseFloat(nextNums[1]);
-            const normalized = normalizeValue(v, range);
-            if (normalized !== undefined) {
-              cbc[key] = normalized;
-              break;
-            }
+      // Check next line
+      if (i + 1 < lines.length) {
+        const nextNums = lines[i + 1].match(/^\s*(\d+\.?\d*)/);
+        if (nextNums) {
+          const v = parseFloat(nextNums[1]);
+          const normalized = normalizeValue(v, range, isOCR);
+          if (normalized !== undefined) {
+            cbc[key] = normalized;
+            break;
           }
         }
       }
     }
   }
 
-  // Strategy 3: Flat text regex extraction
-  if (Object.keys(cbc).length < 8) {
-    for (const { key, patterns, range } of CBC_MAPPINGS) {
-      if (cbc[key] !== undefined) continue;
-      for (const pattern of patterns) {
-        const source = pattern.source;
-        const regex = new RegExp(source + "[^\\d]*?(\\d+\\.?\\d*)", "i");
-        const match = fullText.match(regex);
-        if (match) {
-          const val = parseFloat(match[1]);
-          if (!isNaN(val) && val > 0) {
-            const normalized = normalizeValue(val, range);
-            if (normalized !== undefined) {
-              cbc[key] = normalized;
-              break;
-            }
-          }
-        }
-      }
-    }
-  }
+  // Strategy 3: Section-based extraction
+  // Uses known section order — most reliable for OCR where labels are garbled
+  // Blood Counts: Hb, RBC, WBC, PLT
+  // Differential: Neutrophils, Lymphocytes
+  // Blood Indices: PCV/HCT, MCV, MCH, MCHC, RDW
+  const SECTIONS = [
+    { header: /blood\s*count/i, order: ["hb", "rbc", "wbc", "plt"] },
+    { header: /differential/i, order: ["neu_pct", "lym_pct"] },
+    { header: /blood\s*indic/i, order: ["hct", "mcv", "mch", "mchc", "rdw"] },
+  ];
 
-  // Strategy 4: Section-based extraction for "Blood Indices"
-  // OCR often garbles labels in this section (e.g. P.C.V → PION)
-  // Expected order after "Blood Indices": PCV, MCV, MCH, MCHC, RDW
-  const BLOOD_INDICES_ORDER = ["hct", "mcv", "mch", "mchc", "rdw"];
-  const sectionIdx = lines.findIndex((l) => /blood\s*indic/i.test(l));
-  if (sectionIdx >= 0) {
+  for (const section of SECTIONS) {
+    const sectionIdx = lines.findIndex((l) => section.header.test(l));
+    if (sectionIdx < 0) continue;
+
     let orderPos = 0;
-    for (let i = sectionIdx + 1; i < lines.length && orderPos < BLOOD_INDICES_ORDER.length; i++) {
+    for (let i = sectionIdx + 1; i < lines.length && orderPos < section.order.length; i++) {
       const line = lines[i];
-      // Skip lines that are section headers or have no numbers
-      const nums = line.match(/\d+\.?\d*/g);
-      if (!nums || /^(blood|differential|complete|test\s*name|result)/i.test(line)) continue;
+      // Stop at next section header
+      if (/^(blood|differential|complete|test\s*name|haematological|hematological)/i.test(line)) break;
 
-      const key = BLOOD_INDICES_ORDER[orderPos];
+      const nums = line.match(/\d+\.?\d*/g);
+      if (!nums) continue;
+
+      const key = section.order[orderPos];
       if (cbc[key] === undefined) {
         const mapping = CBC_MAPPINGS.find((m) => m.key === key);
         if (mapping) {
           for (const n of nums) {
             const v = parseFloat(n);
-            const normalized = normalizeValue(v, mapping.range);
+            const normalized = normalizeValue(v, mapping.range, isOCR);
             if (normalized !== undefined) {
               cbc[key] = normalized;
-              console.log(`Section-based: ${key} = ${normalized} from line: "${line}"`);
+              console.log(`Section "${section.header.source}": ${key} = ${normalized} from: "${line}"`);
               break;
             }
           }
@@ -399,79 +390,125 @@ function extractCBCValues(lines, fullText) {
     }
   }
 
+  // Strategy 4: Flat text regex (last resort)
+  if (Object.keys(cbc).length < 8) {
+    for (const { key, patterns, range } of CBC_MAPPINGS) {
+      if (cbc[key] !== undefined) continue;
+      for (const pattern of patterns) {
+        const regex = new RegExp(pattern.source + "[^\\d]*?(\\d+\\.?\\d*)", "i");
+        const match = fullText.match(regex);
+        if (match) {
+          const val = parseFloat(match[1]);
+          if (!isNaN(val) && val > 0) {
+            const normalized = normalizeValue(val, range, isOCR);
+            if (normalized !== undefined) {
+              cbc[key] = normalized;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
   return cbc;
 }
 
-function extractPatientInfo(text) {
+// ─── Patient info extraction ───
+// Uses line-by-line search for better OCR compatibility
+
+function extractPatientInfo(lines, fullText) {
   const patient = {};
 
-  // Patient Name — terminators stop the lazy capture
-  const NAME_TERMINATORS = /(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date|Ref\b|Reg\b|Sample|Lab\b|Barcode|Accession|Report|Bill|UHID|MRN)/i;
-  const namePatterns = [
-    new RegExp("Patient\\s*(?:'s\\s*)?(?:Name|name)\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
-    new RegExp("Name\\s+of\\s+(?:the\\s+)?Patient\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
-    new RegExp("(?:Client|Pt|Pat)\\.?\\s*Name\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
-    new RegExp("Name\\s*[:\\-]\\s*(?:Mr\\.?|Mrs\\.?|Ms\\.?|Dr\\.?|Master|Baby)?\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
-    new RegExp("Name\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
-  ];
-  for (const regex of namePatterns) {
-    const match = text.match(regex);
-    if (match && match[1].trim().length > 1) {
-      let name = match[1].trim();
-      name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Reg|Sample|Lab).*$/i, "").trim();
-      if (name.length > 1 && name.length < 80) {
-        patient.name = name;
-        break;
-      }
-    }
-  }
-
-  // Age & Sex (often combined: "Age/Sex: 34 Years/Male")
-  const agePatterns = [
-    /Age\s*[/&]\s*(?:Sex|Gender)\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs|months?|M)?\.?\s*[/\\|,\s]+\s*(M(?:ale)?|F(?:emale)?)/i,
-    /Age\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?/i,
-    /(\d{1,3})\s*(?:yrs?|years?|Y)\s*[/\\|,\s]+\s*(M(?:ale)?|F(?:emale)?)/i,
-    /Age\s*[:\-]?\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?\s*(?:Sex|Gender)\s*[:\-]?\s*(Male|Female|M|F)/i,
-  ];
-  for (const regex of agePatterns) {
-    const match = text.match(regex);
-    if (match) {
-      const age = parseInt(match[1], 10);
-      if (age > 0 && age < 150) {
-        patient.age = age;
-        if (match[2]) {
-          patient.sex = match[2].charAt(0).toUpperCase() === "M" ? "M" : "F";
+  // Search each line for patient details
+  for (const line of lines) {
+    // Patient Name
+    if (!patient.name) {
+      const nameMatch = line.match(
+        /(?:Patient(?:'s)?|Pat\.?)\s*(?:Name|name)\s*[:\-]\s*(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Master|Baby)?\s*([A-Za-z][A-Za-z\s.,']{1,60})/i
+      );
+      if (nameMatch) {
+        let name = nameMatch[1].trim();
+        // Trim at common suffixes that appear on the same line
+        name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Reg|Sample|Lab|ID|Accession|Report|Bill|UHID|MRN|Referred).*$/i, "").trim();
+        if (name.length > 1 && name.length < 80) {
+          patient.name = name;
         }
-        break;
+      }
+    }
+
+    // Name: ... (simpler fallback)
+    if (!patient.name) {
+      const nameMatch2 = line.match(
+        /\bName\s*[:\-]\s*(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Master|Baby)?\s*([A-Za-z][A-Za-z\s.,']{1,60})/i
+      );
+      if (nameMatch2) {
+        let name = nameMatch2[1].trim();
+        name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Reg|Sample|Lab|ID|Accession|Report|Referred).*$/i, "").trim();
+        if (name.length > 1 && name.length < 80 && !/^(Test|Result|Unit|Reference|Biological|Blood|Complete)/i.test(name)) {
+          patient.name = name;
+        }
+      }
+    }
+
+    // Age/Sex combined: "Age/Sex : 34 Years/Male" or "Age/Sex: 34 Y/M"
+    if (!patient.age) {
+      const ageSexMatch = line.match(
+        /Age\s*[/&]\s*(?:Sex|Gender)\s*[:\-]?\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?\.?\s*[/\\|,\s]+\s*(M(?:ale)?|F(?:emale)?)/i
+      );
+      if (ageSexMatch) {
+        const age = parseInt(ageSexMatch[1], 10);
+        if (age > 0 && age < 150) {
+          patient.age = age;
+          patient.sex = ageSexMatch[2].charAt(0).toUpperCase() === "M" ? "M" : "F";
+        }
+      }
+    }
+
+    // Age alone: "Age : 34 Years" or "Age: 34"
+    if (!patient.age) {
+      const ageMatch = line.match(/\bAge\s*[:\-]\s*(\d{1,3})\s*(?:yrs?|years?|Y|Yrs)?/i);
+      if (ageMatch) {
+        const age = parseInt(ageMatch[1], 10);
+        if (age > 0 && age < 150) patient.age = age;
+      }
+    }
+
+    // "34 Years/Male" pattern
+    if (!patient.age) {
+      const ageMatch2 = line.match(/(\d{1,3})\s*(?:yrs?|years?)\s*[/\\|,\s]+\s*(M(?:ale)?|F(?:emale)?)/i);
+      if (ageMatch2) {
+        const age = parseInt(ageMatch2[1], 10);
+        if (age > 0 && age < 150) {
+          patient.age = age;
+          if (!patient.sex) patient.sex = ageMatch2[2].charAt(0).toUpperCase() === "M" ? "M" : "F";
+        }
+      }
+    }
+
+    // Sex alone
+    if (!patient.sex) {
+      const sexMatch = line.match(/(?:Sex|Gender)\s*[:\-]\s*(Male|Female|M|F)\b/i);
+      if (sexMatch) {
+        patient.sex = sexMatch[1].charAt(0).toUpperCase() === "M" ? "M" : "F";
+      }
+    }
+
+    // Patient ID / Registration ID / Reg. ID
+    if (!patient.id) {
+      const idMatch = line.match(
+        /(?:Patient\s*ID|Reg\.?\s*ID|Reg(?:istration)?\.?\s*No\.?|MRN|UHID|Lab\s*(?:No\.?|ID)|Sample\s*(?:No\.?|ID)|Barcode\s*No\.?|Accession\s*No\.?|Bill\s*No\.?|Report\s*(?:No\.?|ID)|OPD\s*No\.?|IPD\s*No\.?|SID)\s*[:\-#]?\s*([A-Za-z0-9][\w\-/]*)/i
+      );
+      if (idMatch && idMatch[1].trim().length > 1) {
+        patient.id = idMatch[1].trim();
       }
     }
   }
 
-  // Sex (if not already extracted)
+  // Fallback: search fullText for Male/Female if sex not found
   if (!patient.sex) {
-    const sexPatterns = [
-      /(?:Sex|Gender)\s*[:\-]\s*(Male|Female|M|F)\b/i,
-      /\b(Male|Female)\b/i,
-    ];
-    for (const regex of sexPatterns) {
-      const match = text.match(regex);
-      if (match) {
-        patient.sex = match[1].charAt(0).toUpperCase() === "M" ? "M" : "F";
-        break;
-      }
-    }
-  }
-
-  // Patient ID
-  const idPatterns = [
-    /(?:Patient\s*ID|MRN|Reg\.?\s*ID|Reg(?:istration)?\.?\s*No\.?|UHID|Lab\s*(?:No\.?|ID)|Sample\s*(?:No\.?|ID)|Barcode\s*(?:No\.?)?|Accession\s*(?:No\.?)?|Bill\s*No\.?|SID|Report\s*(?:No\.?|ID)|OPD\s*No\.?|IPD\s*No\.?|Visit\s*(?:No\.?|ID))\s*[:\-#]?\s*([A-Za-z0-9\-/]+)/i,
-  ];
-  for (const regex of idPatterns) {
-    const match = text.match(regex);
-    if (match && match[1].trim().length > 1) {
-      patient.id = match[1].trim();
-      break;
-    }
+    const sexMatch = fullText.match(/\b(Male|Female)\b/i);
+    if (sexMatch) patient.sex = sexMatch[1].charAt(0).toUpperCase() === "M" ? "M" : "F";
   }
 
   return patient;
