@@ -68,16 +68,14 @@ const NavItem = ({ icon: Icon, label, active, onClick, badge, roleColor }) => {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-        active
-          ? `${activeClasses[roleColor]} border shadow-sm`
-          : "text-slate-600 hover:bg-slate-50 hover:text-slate-800 border border-transparent"
-      }`}
+      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${active
+        ? `${activeClasses[roleColor]} border shadow-sm`
+        : "text-slate-600 hover:bg-slate-50 hover:text-slate-800 border border-transparent"
+        }`}
     >
       <Icon
-        className={`h-5 w-5 ${
-          active ? iconActiveClasses[roleColor] : "text-slate-400"
-        }`}
+        className={`h-5 w-5 ${active ? iconActiveClasses[roleColor] : "text-slate-400"
+          }`}
       />
       <span className="flex-1 text-left">{label}</span>
       {badge && (
@@ -115,8 +113,8 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
       {/* Logo & Brand */}
       <div className={`p-4 bg-gradient-to-r ${config.bgGradient}`}>
         <div className="flex items-center space-x-3">
-          <div className="h-10 w-10 bg-white rounded-xl flex items-center justify-center shadow-sm">
-            <img src="/logo.png" alt="Clinomic" className="h-8 w-8 object-contain" />
+          <div className="h-16 w-16 rounded-xl flex items-center justify-center">
+            <img src="/clean-logo.png?v=1" alt="Clinomic" className="h-full w-full object-contain p-0" />
           </div>
           <div>
             <h1 className="font-bold text-white text-lg">Clinomic</h1>
@@ -292,9 +290,8 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
 
       {/* Sidebar - Mobile */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col shadow-xl transform transition-transform duration-300 ease-in-out lg:hidden ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col shadow-xl transform transition-transform duration-300 ease-in-out lg:hidden ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
       >
         {/* Close button */}
         <button
@@ -334,7 +331,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
 
           {/* Mobile Logo */}
           <div className="flex items-center space-x-2 lg:hidden">
-            <img src="/logo.png" alt="Clinomic" className="h-8 w-8 object-contain" />
+            <img src="/clean-logo.png?v=1" alt="Clinomic" className="h-8 w-8 object-contain" />
             <span className="font-bold text-slate-800">Clinomic</span>
           </div>
 

@@ -167,7 +167,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     <div data-testid="login-page" className="min-h-screen bg-slate-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <img src="/logo.png" alt="Clinomic Labs Logo" className="h-20 w-auto" />
+          <img src="/logo.png?v=17" alt="Clinomic Labs Logo" className="w-auto" style={{ height: '200px' }} />
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900 tracking-tight">Clinomic Labs</h2>
         <p className="mt-2 text-center text-sm text-slate-600">B12 Screening Platform v3.0</p>
