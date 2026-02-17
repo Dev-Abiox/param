@@ -145,6 +145,10 @@ function extractValueFromLine(line, labelPattern) {
  */
 function normalizeValue(val, range) {
   if (val >= range[0] && val <= range[1]) return val;
+  // OCR may drop decimal point: 445 → 44.5, 954 → 95.4
+  if (val / 10 >= range[0] && val / 10 <= range[1]) {
+    return val / 10;
+  }
   // WBC: 8500 → 8.5 (×10³/µL)
   if (range[1] <= 50 && val > 100 && val / 1000 >= range[0] && val / 1000 <= range[1]) {
     return val / 1000;
@@ -221,6 +225,7 @@ const CBC_MAPPINGS = [
       /\b(?:Hematocrit|Haematocrit|HCT)\b/i,
       /\bP\s*\.?\s*C\s*\.?\s*V\s*\.?/i,
       /\bPacked\s*Cell\s*Volume/i,
+      /\bP[I1l][O0]N\b/i, // OCR garbles P.C.V → PION/P1ON
     ],
     range: [15, 65],
   },
@@ -229,6 +234,7 @@ const CBC_MAPPINGS = [
     patterns: [
       /\bMCV\b/i,
       /\bM\s*\.?\s*C\s*\.?\s*V\s*\.?/i,
+      /\bMC[:\s.]*V/i, // OCR garbles M.C.V. → MC: Vi:
       /\bMean\s*(?:Corpuscular|Cell)\s*Volume/i,
     ],
     range: [50, 150],
@@ -339,8 +345,8 @@ function extractCBCValues(lines, fullText) {
     }
   }
 
-  // Strategy 3: Flat text regex extraction (last resort)
-  if (Object.keys(cbc).length < 5) {
+  // Strategy 3: Flat text regex extraction
+  if (Object.keys(cbc).length < 8) {
     for (const { key, patterns, range } of CBC_MAPPINGS) {
       if (cbc[key] !== undefined) continue;
       for (const pattern of patterns) {
@@ -361,25 +367,58 @@ function extractCBCValues(lines, fullText) {
     }
   }
 
+  // Strategy 4: Section-based extraction for "Blood Indices"
+  // OCR often garbles labels in this section (e.g. P.C.V → PION)
+  // Expected order after "Blood Indices": PCV, MCV, MCH, MCHC, RDW
+  const BLOOD_INDICES_ORDER = ["hct", "mcv", "mch", "mchc", "rdw"];
+  const sectionIdx = lines.findIndex((l) => /blood\s*indic/i.test(l));
+  if (sectionIdx >= 0) {
+    let orderPos = 0;
+    for (let i = sectionIdx + 1; i < lines.length && orderPos < BLOOD_INDICES_ORDER.length; i++) {
+      const line = lines[i];
+      // Skip lines that are section headers or have no numbers
+      const nums = line.match(/\d+\.?\d*/g);
+      if (!nums || /^(blood|differential|complete|test\s*name|result)/i.test(line)) continue;
+
+      const key = BLOOD_INDICES_ORDER[orderPos];
+      if (cbc[key] === undefined) {
+        const mapping = CBC_MAPPINGS.find((m) => m.key === key);
+        if (mapping) {
+          for (const n of nums) {
+            const v = parseFloat(n);
+            const normalized = normalizeValue(v, mapping.range);
+            if (normalized !== undefined) {
+              cbc[key] = normalized;
+              console.log(`Section-based: ${key} = ${normalized} from line: "${line}"`);
+              break;
+            }
+          }
+        }
+      }
+      orderPos++;
+    }
+  }
+
   return cbc;
 }
 
 function extractPatientInfo(text) {
   const patient = {};
 
-  // Patient Name
+  // Patient Name — terminators stop the lazy capture
+  const NAME_TERMINATORS = /(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date|Ref\b|Reg\b|Sample|Lab\b|Barcode|Accession|Report|Bill|UHID|MRN)/i;
   const namePatterns = [
-    /Patient\s*(?:'s\s*)?(?:Name|name)\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date|Ref|Sample|Lab|Barcode)/i,
-    /Name\s+of\s+(?:the\s+)?Patient\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender)/i,
-    /(?:Client|Pt|Pat)\.?\s*Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender)/i,
-    /Name\s*[:\-]\s*(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Master|Baby)?\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date)/i,
-    /Name\s*[:\-]\s*([A-Za-z\s.,']+?)(?:\s{2,}|\n|Age|Sex|Gender|Patient\s*ID|DOB|Date)/i,
+    new RegExp("Patient\\s*(?:'s\\s*)?(?:Name|name)\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
+    new RegExp("Name\\s+of\\s+(?:the\\s+)?Patient\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
+    new RegExp("(?:Client|Pt|Pat)\\.?\\s*Name\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
+    new RegExp("Name\\s*[:\\-]\\s*(?:Mr\\.?|Mrs\\.?|Ms\\.?|Dr\\.?|Master|Baby)?\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
+    new RegExp("Name\\s*[:\\-]\\s*([A-Za-z\\s.,']+?)" + NAME_TERMINATORS.source, "i"),
   ];
   for (const regex of namePatterns) {
     const match = text.match(regex);
     if (match && match[1].trim().length > 1) {
       let name = match[1].trim();
-      name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Sample|Lab).*$/i, "").trim();
+      name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Reg|Sample|Lab).*$/i, "").trim();
       if (name.length > 1 && name.length < 80) {
         patient.name = name;
         break;
@@ -425,7 +464,7 @@ function extractPatientInfo(text) {
 
   // Patient ID
   const idPatterns = [
-    /(?:Patient\s*ID|MRN|Reg(?:istration)?\.?\s*(?:No\.?|ID)|UHID|Lab\s*(?:No\.?|ID)|Sample\s*(?:No\.?|ID)|Barcode\s*(?:No\.?)?|Accession\s*(?:No\.?)?|Bill\s*No\.?|SID|Report\s*(?:No\.?|ID)|OPD\s*No\.?|IPD\s*No\.?|Visit\s*(?:No\.?|ID))\s*[:\-#]?\s*([A-Za-z0-9\-/]+)/i,
+    /(?:Patient\s*ID|MRN|Reg\.?\s*ID|Reg(?:istration)?\.?\s*No\.?|UHID|Lab\s*(?:No\.?|ID)|Sample\s*(?:No\.?|ID)|Barcode\s*(?:No\.?)?|Accession\s*(?:No\.?)?|Bill\s*No\.?|SID|Report\s*(?:No\.?|ID)|OPD\s*No\.?|IPD\s*No\.?|Visit\s*(?:No\.?|ID))\s*[:\-#]?\s*([A-Za-z0-9\-/]+)/i,
   ];
   for (const regex of idPatterns) {
     const match = text.match(regex);
