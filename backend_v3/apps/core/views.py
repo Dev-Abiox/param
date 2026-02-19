@@ -137,7 +137,10 @@ class LoginView(APIView):
                 )
 
         # Create tokens
-        access_token = create_access_token(user, mfa_verified=mfa_status['enabled'])
+        # mfa_verified=True: if we reach this line the user either passed TOTP
+        # verification above (MFA enabled) or MFA is not set up — both cases
+        # mean the user is fully authenticated.
+        access_token = create_access_token(user, mfa_verified=True)
         refresh_token, _ = create_refresh_token(user)
 
         response = Response({
