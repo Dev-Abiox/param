@@ -38,6 +38,7 @@ class B12ClinicalEngine:
         self._load_error = None
         self._model_version = "unknown"
         self._model_artifact_hash = ""
+        self._validation_metrics = {}
 
         self._load_models()
 
@@ -60,6 +61,7 @@ class B12ClinicalEngine:
                 with open(version_path, "r", encoding="utf-8") as f:
                     version_info = json.load(f)
                     self._model_version = version_info.get("version", "1.0.0")
+                    self._validation_metrics = version_info.get("validation", {})
 
             # Compute artifact hash for reproducibility
             self._model_artifact_hash = self._compute_artifact_hash()
@@ -103,6 +105,7 @@ class B12ClinicalEngine:
             "thresholds_loaded": self.thresholds is not None,
             "version": self._model_version,
             "artifact_hash": self._model_artifact_hash,
+            "validation_metrics": self._validation_metrics,
             "error": self._load_error,
         }
 

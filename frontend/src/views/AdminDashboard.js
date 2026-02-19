@@ -5,11 +5,23 @@ import { LisService } from "../services/api";
 
 const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
+  const [latencyMs, setLatencyMs] = useState(null);
+  const [loadError, setLoadError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  useEffect(() => {
-    LisService.getStats().then(setStats).catch(() => setStats(null));
-  }, []);
+  const fetchStats = () => {
+    setLoadError(false);
+    setStats(null);
+    const t0 = performance.now();
+    LisService.getStats()
+      .then((data) => {
+        setLatencyMs(Math.round(performance.now() - t0));
+        setStats(data);
+      })
+      .catch(() => setLoadError(true));
+  };
+
+  useEffect(() => { fetchStats(); }, []);
 
   const handleExportCSV = () => {
     if (!stats || !stats.recentCases) return;
@@ -26,6 +38,18 @@ const AdminDashboard = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 text-slate-400" data-testid="admin-dashboard-error">
+        <AlertTriangle className="w-8 h-8 mb-4 text-red-400" />
+        <p className="mb-4">Failed to load analytics data.</p>
+        <button onClick={fetchStats} className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 text-sm">
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!stats) {
     return (
@@ -76,7 +100,7 @@ const AdminDashboard = () => {
           <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Model Accuracy</p>
             <h3 className="text-3xl font-extrabold text-slate-800 mt-1">{stats.modelMetrics?.accuracy}%</h3>
-            <p className="text-xs text-slate-500 mt-1">Validation Set #412</p>
+            <p className="text-xs text-slate-500 mt-1">{stats.modelMetrics?.validationDataset || "Validation set"}</p>
           </div>
           <div className="p-3 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
             <Brain className="w-6 h-6" />
@@ -97,8 +121,10 @@ const AdminDashboard = () => {
         <div className="bg-white p-5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-between" data-testid="stat-latency">
           <div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Backend API Latency</p>
-            <h3 className="text-3xl font-extrabold text-slate-800 mt-1">45ms</h3>
-            <p className="text-xs text-green-600 font-medium mt-1">Optimal Performance</p>
+            <h3 className="text-3xl font-extrabold text-slate-800 mt-1">{latencyMs !== null ? `${latencyMs}ms` : "—"}</h3>
+            <p className={`text-xs font-medium mt-1 ${latencyMs !== null && latencyMs < 200 ? "text-green-600" : "text-amber-600"}`}>
+              {latencyMs !== null ? (latencyMs < 200 ? "Optimal Performance" : "Elevated Latency") : "Measuring…"}
+            </p>
           </div>
           <div className="p-3 rounded-full bg-blue-50 text-blue-600 border border-blue-100">
             <Activity className="w-6 h-6" />
@@ -153,7 +179,7 @@ const AdminDashboard = () => {
               </div>
               <div>
                 <p className="text-xs text-slate-400">Training Loss</p>
-                <p className="text-xl font-bold text-slate-800">0.024</p>
+                <p className="text-xl font-bold text-slate-800">{stats.modelMetrics?.trainingLoss ?? "—"}</p>
               </div>
             </div>
           </div>

@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 from apps.core.audit import log_phi_access
 from apps.core.models import Role
 from apps.core.permissions import HasRole, IsMFAVerified
+from apps.screening.ml_engine import get_ml_engine
 from apps.screening.models import Doctor, Lab, Patient, Screening, ScreeningStatus
 from apps.screening.serializers import ScreeningSerializer
 
@@ -90,16 +91,22 @@ class SummaryView(APIView):
                 'result': result_str,
             })
 
+        ml_engine = get_ml_engine()
+        ml_status = ml_engine.get_status()
+        vm = ml_status.get('validation_metrics', {})
+
         payload = {
             'totalCases': total_cases,
             'dailyTests': daily_tests,
             'modelMetrics': {
-                'accuracy': 92,
-                'recall': 88,
-                'precision': 90,
-                'f1Score': 89,
-                'auc': 0.94,
-                'version': 'v1.0.0',
+                'accuracy': vm.get('accuracy', 0),
+                'recall': vm.get('recall', 0),
+                'precision': vm.get('precision', 0),
+                'f1Score': vm.get('f1_score', 0),
+                'auc': vm.get('auc_roc', 0),
+                'trainingLoss': vm.get('training_loss', 0),
+                'validationDataset': vm.get('dataset', ''),
+                'version': ml_status.get('version', 'unknown'),
             },
             'distribution': [
                 {'name': 'Normal', 'value': normal_count, 'fill': '#10b981'},
