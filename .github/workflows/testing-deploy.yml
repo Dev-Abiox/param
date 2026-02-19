@@ -111,9 +111,10 @@ jobs:
         docker-compose -f docker-compose.testing.yml up -d
 
         echo "=== RELOADING NGINX CONFIG ==="
+        # nginx.testing.conf is bind-mounted into the container as /etc/nginx/nginx.conf
+        # SCP already updated the file on the host — just signal nginx to reload it
         NGINX_CONTAINER=$(docker ps --filter 'name=nginx' --filter 'status=running' --format '{{.Names}}' | grep -v testing | head -1)
         if [ -n "$NGINX_CONTAINER" ]; then
-          docker cp $BASE/nginx.testing.conf ${NGINX_CONTAINER}:/etc/nginx/nginx.conf
           docker exec $NGINX_CONTAINER nginx -s reload
           echo "✓ nginx reloaded: $NGINX_CONTAINER"
         else
