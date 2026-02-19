@@ -25,12 +25,13 @@ class DoctorAdmin(admin.ModelAdmin):
 
 @admin.register(Patient)
 class PatientAdmin(admin.ModelAdmin):
-    list_display = ['patient_id', 'age', 'sex', 'lab', 'created_at']
-    list_filter = ['sex', 'lab']
+    list_display = ['patient_id', 'lab', 'created_at']
+    list_filter = ['lab']
     search_fields = ['patient_id']
     readonly_fields = ['id', 'created_at', 'updated_at']
 
-    # Note: name_encrypted is not shown to protect PHI
+    # age and sex are stored encrypted (age_encrypted, sex_encrypted) and
+    # are not shown in the list to protect PHI.
 
 
 @admin.register(Screening)
