@@ -45,7 +45,7 @@ services:
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
-      python manage.py migrate_schemas --shared &&
+      python manage.py migrate_schemas &&
       python manage.py ensure_domains &&
       gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
       "
