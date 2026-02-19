@@ -110,9 +110,12 @@ services:
       - "443:443"
     volumes:
       - static_volume:/app/staticfiles:ro
-      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - static_testing_volume:/app/testing-staticfiles:ro
+      - ./nginx.testing.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt/live/clinomiclabs.com/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
       - /etc/letsencrypt/live/clinomiclabs.com/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
+      - /etc/letsencrypt/live/testing.clinomiclabs.com/fullchain.pem:/etc/nginx/ssl/testing-fullchain.pem:ro
+      - /etc/letsencrypt/live/testing.clinomiclabs.com/privkey.pem:/etc/nginx/ssl/testing-privkey.pem:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -197,6 +200,8 @@ volumes:
   postgres_data:
   static_volume:
   redis_data:
+  static_testing_volume:
+    external: true
 
 networks:
   clinomic_network:
