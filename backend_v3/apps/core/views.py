@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 
 from .authentication import (
@@ -25,22 +25,62 @@ from .authentication import (
 from .crypto import get_crypto_status
 from .mfa import MFAManager
 from .models import User
+from .permissions import IsMFAVerified
 from .serializers import (
     LoginSerializer,
-    LogoutSerializer,
     MFACodeSerializer,
     MFASetupSerializer,
     MFAStatusSerializer,
     MFAVerifySerializer,
-    TokenRefreshSerializer,
     UserSerializer,
 )
 
 logger = logging.getLogger(__name__)
 
+_REFRESH_COOKIE = 'refresh_token'
+
+
+def _set_refresh_cookie(response, token: str) -> None:
+    """Set the refresh token as an httpOnly cookie restricted to auth endpoints."""
+    max_age = int(settings.JWT_REFRESH_TOKEN_LIFETIME.total_seconds())
+    response.set_cookie(
+        _REFRESH_COOKIE,
+        token,
+        max_age=max_age,
+        httponly=True,
+        secure=not settings.DEBUG,   # False only in local dev
+        samesite='Strict',
+        path='/api/auth/',
+    )
+
+
+def _delete_refresh_cookie(response) -> None:
+    response.delete_cookie(_REFRESH_COOKIE, path='/api/auth/')
+
 
 class LoginRateThrottle(AnonRateThrottle):
     rate = '5/minute'
+
+
+class MFATOTPThrottle(SimpleRateThrottle):
+    """
+    Strict rate limit for TOTP verification attempts.
+
+    Allows 5 attempts per 5 minutes keyed on IP + user-id (from the pending
+    MFA token body).  After the 5th failure the endpoint returns 429 with a
+    Retry-After header, preventing brute-force within the 30-second TOTP window.
+    """
+    scope = 'mfa_verify'
+
+    def get_cache_key(self, request, view):
+        # Key combines IP address and the user id embedded in the pending token
+        # so each user's counter is separate even behind a shared IP (e.g. NAT).
+        user_id = request.data.get('user_id', '') if hasattr(request, 'data') else ''
+        ident = f"{self.get_ident(request)}-{user_id}"
+        return self.cache_format % {
+            'scope': self.scope,
+            'ident': ident,
+        }
 
 
 class LoginView(APIView):
@@ -100,13 +140,14 @@ class LoginView(APIView):
         access_token = create_access_token(user, mfa_verified=mfa_status['enabled'])
         refresh_token, _ = create_refresh_token(user)
 
-        return Response({
+        response = Response({
             'access_token': access_token,
-            'refresh_token': refresh_token,
             'id': str(user.id),
             'name': user.name or user.username,
             'role': user.role,
         })
+        _set_refresh_cookie(response, refresh_token)
+        return response
 
 
 class MFAVerifyView(APIView):
@@ -114,8 +155,10 @@ class MFAVerifyView(APIView):
     Complete MFA verification after login.
 
     POST /api/auth/mfa/verify
+    Rate-limited to 5 attempts per 5 minutes per IP+user to prevent brute force.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [MFATOTPThrottle]
 
     def post(self, request):
         serializer = MFAVerifySerializer(data=request.data)
@@ -153,58 +196,62 @@ class MFAVerifyView(APIView):
         access_token = create_access_token(user, mfa_verified=True)
         refresh_token, _ = create_refresh_token(user)
 
-        return Response({
+        response = Response({
             'access_token': access_token,
-            'refresh_token': refresh_token,
             'id': str(user.id),
             'name': user.name or user.username,
             'role': user.role,
         })
+        _set_refresh_cookie(response, refresh_token)
+        return response
 
 
 class TokenRefreshView(APIView):
     """
-    Refresh access token using refresh token.
+    Refresh access token using the httpOnly refresh-token cookie.
 
     POST /api/auth/refresh
+    No body required — the refresh token is read from the cookie set at login.
     """
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = TokenRefreshSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        try:
-            access_token, new_refresh_token = refresh_tokens(
-                serializer.validated_data['refresh_token']
-            )
-        except Exception as e:
+        token = request.COOKIES.get(_REFRESH_COOKIE)
+        if not token:
             return Response(
-                {'error': str(e)},
+                {'error': 'No refresh token'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        return Response({
-            'access_token': access_token,
-            'refresh_token': new_refresh_token,
-        })
+        try:
+            access_token, new_refresh_token = refresh_tokens(token)
+        except Exception as e:
+            response = Response({'error': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+            _delete_refresh_cookie(response)
+            return response
+
+        response = Response({'access_token': access_token})
+        _set_refresh_cookie(response, new_refresh_token)
+        return response
 
 
 class LogoutView(APIView):
     """
-    Logout and revoke refresh token.
+    Logout and revoke the httpOnly refresh-token cookie.
 
     POST /api/auth/logout
+    No body required.
     """
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = LogoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        token = request.COOKIES.get(_REFRESH_COOKIE)
+        if token:
+            revoke_refresh_token(token)
 
-        revoke_refresh_token(serializer.validated_data['refresh_token'])
-
-        return Response({'status': 'logged out'})
+        response = Response({'status': 'logged out'})
+        _delete_refresh_cookie(response)
+        return response
 
 
 class MeView(APIView):
@@ -213,7 +260,7 @@ class MeView(APIView):
 
     GET /api/auth/me
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def get(self, request):
         serializer = UserSerializer(request.user)
@@ -226,7 +273,7 @@ class MFASetupView(APIView):
 
     POST /api/mfa/setup
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def post(self, request):
         serializer = MFASetupSerializer(data=request.data)
@@ -246,7 +293,7 @@ class MFAVerifySetupView(APIView):
 
     POST /api/mfa/verify-setup
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def post(self, request):
         serializer = MFACodeSerializer(data=request.data)
@@ -269,7 +316,7 @@ class MFAStatusView(APIView):
 
     GET /api/mfa/status
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def get(self, request):
         mfa_status = MFAManager.get_mfa_status(request.user)
@@ -283,7 +330,7 @@ class MFADisableView(APIView):
 
     POST /api/mfa/disable
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def post(self, request):
         serializer = MFACodeSerializer(data=request.data)
@@ -306,7 +353,7 @@ class MFABackupCodesView(APIView):
 
     POST /api/mfa/backup-codes/regenerate
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def post(self, request):
         serializer = MFACodeSerializer(data=request.data)
@@ -404,3 +451,200 @@ class HealthReadyView(APIView):
             'ml_engine': ml_status,
             'crypto': crypto_status,
         })
+
+
+# ── Password Reset ─────────────────────────────────────────────────────────────
+
+class PasswordResetRateThrottle(AnonRateThrottle):
+    rate = '3/hour'
+
+
+class ForgotPasswordView(APIView):
+    """
+    Initiate password reset.
+
+    POST /api/auth/forgot-password
+    Body: { "identifier": "<username or email>" }
+
+    Always returns 200 so as not to enumerate accounts.
+    Token is stored in the Redis cache for 15 minutes.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRateThrottle]
+
+    def post(self, request):
+        import secrets
+        from django.core.cache import cache
+
+        identifier = (request.data.get('identifier') or '').strip()
+        if not identifier:
+            return Response({'detail': 'If an account with that identifier exists, a reset link has been sent.'})
+
+        # Find user by username or email (case-insensitive)
+        user = (
+            User.objects.filter(username__iexact=identifier).first()
+            or User.objects.filter(email__iexact=identifier).first()
+        )
+
+        if user and user.is_active:
+            token = secrets.token_urlsafe(48)
+            cache.set(f'pwd_reset_{token}', str(user.id), timeout=900)  # 15 min
+            # In production, send email here. For now, log the token for debugging.
+            logger.info("Password reset token for %s: %s", user.username, token)
+
+        # Generic response regardless of whether user was found
+        return Response({'detail': 'If an account with that identifier exists, a reset link has been sent.'})
+
+
+class ResetPasswordView(APIView):
+    """
+    Complete password reset.
+
+    POST /api/auth/reset-password
+    Body: { "token": "<token>", "new_password": "<password>" }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.core.cache import cache
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+
+        token = (request.data.get('token') or '').strip()
+        new_password = request.data.get('new_password', '')
+
+        if not token or not new_password:
+            return Response(
+                {'error': 'token and new_password are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user_id = cache.get(f'pwd_reset_{token}')
+        if not user_id:
+            return Response(
+                {'error': 'Invalid or expired reset token'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Invalid reset token'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            validate_password(new_password, user)
+        except ValidationError as e:
+            return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+
+        # Revoke all existing refresh tokens on password change
+        from .models import RefreshToken as RT
+        RT.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
+
+        # Consume the token
+        cache.delete(f'pwd_reset_{token}')
+
+        return Response({'detail': 'Password has been reset successfully.'})
+
+
+# ── Active Session Management ──────────────────────────────────────────────────
+
+class SessionListView(APIView):
+    """
+    List the authenticated user's active refresh-token sessions.
+
+    GET /api/auth/sessions
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from datetime import datetime, timezone as tz
+        now = datetime.now(tz.utc)
+        tokens = (
+            request.user.refresh_tokens
+            .filter(is_revoked=False, expires_at__gt=now)
+            .order_by('-last_used_at')
+        )
+        result = []
+        for t in tokens:
+            result.append({
+                'id': str(t.id),
+                'created_at': t.created_at.isoformat(),
+                'last_used_at': t.last_used_at.isoformat() if t.last_used_at else None,
+                'expires_at': t.expires_at.isoformat(),
+                'device_info': t.device_info or {},
+            })
+        return Response(result)
+
+
+class SessionRevokeView(APIView):
+    """
+    Revoke a specific refresh-token session.
+
+    DELETE /api/auth/sessions/<token_id>
+    """
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, token_id):
+        from .models import RefreshToken as RT
+        try:
+            token = RT.objects.get(id=token_id, user=request.user)
+        except RT.DoesNotExist:
+            return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        token.is_revoked = True
+        token.save(update_fields=['is_revoked'])
+        return Response({'detail': 'Session revoked'})
+
+
+# ── Notifications ──────────────────────────────────────────────────────────────
+
+class NotificationListView(APIView):
+    """
+    List notifications for the authenticated user.
+
+    GET /api/notifications/
+    Returns the 20 most recent notifications plus an unread count.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import Notification
+        qs = Notification.objects.filter(user=request.user).order_by('-created_at')[:20]
+        unread_count = Notification.objects.filter(user=request.user, is_read=False).count()
+        notifications = [
+            {
+                'id': str(n.id),
+                'type': n.type,
+                'title': n.title,
+                'body': n.body,
+                'is_read': n.is_read,
+                'created_at': n.created_at.isoformat(),
+            }
+            for n in qs
+        ]
+        return Response({'unread_count': unread_count, 'notifications': notifications})
+
+
+class NotificationMarkReadView(APIView):
+    """
+    Mark a notification as read.
+
+    POST /api/notifications/<notification_id>/read
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, notification_id):
+        from .models import Notification
+        try:
+            n = Notification.objects.get(id=notification_id, user=request.user)
+        except Notification.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        n.is_read = True
+        n.save(update_fields=['is_read'])
+        return Response({'detail': 'Marked as read'})

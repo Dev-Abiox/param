@@ -79,12 +79,9 @@ class Patient(models.Model):
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     patient_id = models.CharField(max_length=100)  # External patient ID
-    name_encrypted = models.TextField()  # Encrypted patient name (PHI)
-    age = models.PositiveIntegerField()
-    sex = models.CharField(
-        max_length=1,
-        choices=[('M', 'Male'), ('F', 'Female')]
-    )
+    name_encrypted = models.TextField()   # Encrypted patient name (PHI)
+    age_encrypted = models.TextField(blank=True)  # Encrypted patient age (PHI)
+    sex_encrypted = models.TextField(blank=True)  # Encrypted patient sex (PHI)
 
     lab = models.ForeignKey(
         Lab,
@@ -121,12 +118,41 @@ class Patient(models.Model):
         """Encrypt and store patient name."""
         self.name_encrypted = encrypt_field(value)
 
+    @property
+    def age(self) -> int:
+        """Decrypt and return patient age as an integer."""
+        val = decrypt_field(self.age_encrypted)
+        try:
+            return int(val) if val else 0
+        except (ValueError, TypeError):
+            return 0
+
+    @age.setter
+    def age(self, value) -> None:
+        self.age_encrypted = encrypt_field(str(int(value)))
+
+    @property
+    def sex(self) -> str:
+        """Decrypt and return patient sex."""
+        return decrypt_field(self.sex_encrypted) or ''
+
+    @sex.setter
+    def sex(self, value: str) -> None:
+        self.sex_encrypted = encrypt_field(str(value))
+
 
 class RiskClass(models.IntegerChoices):
     """B12 deficiency risk classification."""
     NORMAL = 1, 'Normal'
     BORDERLINE = 2, 'Borderline'
     DEFICIENT = 3, 'Deficient'
+
+
+class ScreeningStatus(models.TextChoices):
+    """Lab work queue status for a screening record."""
+    PENDING = 'pending', 'Pending'
+    IN_PROGRESS = 'in_progress', 'In Progress'
+    COMPLETED = 'completed', 'Completed'
 
 
 class Screening(models.Model):
@@ -178,6 +204,19 @@ class Screening(models.Model):
     # Consent reference
     consent_id = models.CharField(max_length=100, blank=True, null=True)
 
+    # Work queue status (3.2)
+    status = models.CharField(
+        max_length=20,
+        choices=ScreeningStatus.choices,
+        default=ScreeningStatus.PENDING,
+    )
+
+    # Doctor review workflow (3.3)
+    is_reviewed = models.BooleanField(default=False)
+    clinical_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.CharField(max_length=255, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -187,10 +226,42 @@ class Screening(models.Model):
             models.Index(fields=['lab', '-created_at']),
             models.Index(fields=['doctor', '-created_at']),
             models.Index(fields=['patient', '-created_at']),
+            models.Index(fields=['status', '-created_at'], name='screening_status_idx'),
         ]
 
     def __str__(self):
         return f"Screening {self.id} - {self.label_text}"
+
+
+class BulkImportJob(models.Model):
+    """
+    Tracks a CSV bulk-import job submitted by a LAB or ADMIN user.
+
+    The Celery task processes rows asynchronously and updates this record.
+    Clients poll GET /api/screening/bulk-import/<id>/status for progress.
+    """
+    class JobStatus(models.TextChoices):
+        PENDING    = 'pending',    'Pending'
+        PROCESSING = 'processing', 'Processing'
+        DONE       = 'done',       'Done'
+        FAILED     = 'failed',     'Failed'
+
+    id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    submitted_by   = models.CharField(max_length=255)
+    status         = models.CharField(max_length=20, choices=JobStatus.choices, default=JobStatus.PENDING)
+    total_rows     = models.IntegerField(default=0)
+    processed_rows = models.IntegerField(default=0)
+    failed_rows    = models.IntegerField(default=0)
+    error_detail   = models.JSONField(default=list)   # [{row, error}, ...]
+    created_at     = models.DateTimeField(auto_now_add=True)
+    updated_at     = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'bulk_import_jobs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"BulkImportJob {self.id} [{self.status}]"
 
 
 class Consent(models.Model):

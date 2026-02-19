@@ -60,10 +60,16 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     setPendingUser(null);
   };
 
-  const handleResetSubmit = (e) => {
+  const handleResetSubmit = async (e) => {
     e.preventDefault();
     setResetStatus("loading");
-    setTimeout(() => setResetStatus("success"), 1500);
+    try {
+      await AuthService.forgotPassword(username);
+    } catch {
+      // Always show success to avoid account enumeration
+    } finally {
+      setResetStatus("success");
+    }
   };
 
   const toggleView = () => {

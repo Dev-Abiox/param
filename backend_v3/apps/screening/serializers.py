@@ -103,7 +103,11 @@ class ScreeningSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'patient_id', 'patient_name', 'risk_class', 'label_text',
             'probabilities', 'rules_fired', 'indices', 'cbc_snapshot',
-            'model_version', 'lab_name', 'doctor_name', 'created_at'
+            'model_version', 'lab_name', 'doctor_name', 'created_at',
+            # 3.2 work queue
+            'status',
+            # 3.3 review workflow
+            'is_reviewed', 'reviewed_at', 'reviewed_by', 'clinical_note',
         ]
 
     def get_patient_name(self, obj):

@@ -74,13 +74,14 @@ jobs:
     - name: Copy config files to server
       run: |
         SSH_OPTS="-o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
-        SERVER="root@${{ secrets.HOST_IP }}"
+        SERVER="deploy@${{ secrets.HOST_IP }}"
         BASE="/opt/clinomic-b12-platform"
 
         ssh $SSH_OPTS $SERVER "mkdir -p $BASE/ml/models"
         scp $SSH_OPTS docker-compose.prod.yml $SERVER:$BASE/docker-compose.prod.yml
         scp $SSH_OPTS docker-compose.testing.yml $SERVER:$BASE/docker-compose.testing.yml
         scp $SSH_OPTS nginx.testing.conf $SERVER:$BASE/nginx.testing.conf
+        scp $SSH_OPTS nginx.prod.conf $SERVER:$BASE/nginx.prod.conf
         scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:$BASE/ml/
 
     - name: Deploy testing stack
@@ -89,7 +90,7 @@ jobs:
           -o StrictHostKeyChecking=no \
           -o HostKeyAlgorithms=+ssh-rsa \
           -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-          root@${{ secrets.HOST_IP }} << 'EOF'
+          deploy@${{ secrets.HOST_IP }} << 'EOF'
 
         set -e
 
@@ -116,18 +117,12 @@ jobs:
         sleep 30
 
         echo "=== HEALTH CHECK ==="
-        if curl -f -H "Host: testing.clinomiclabs.com" http://localhost:8000/api/health/live 2>/dev/null; then
-          echo "Testing backend health check passed"
+        if curl -f -H "Host: testing.clinomiclabs.com" https://localhost/api/health/live -k; then
+          echo "✓ Testing health check passed"
         else
-          echo "Testing backend health check failed - checking logs..."
+          echo "✗ Testing health check failed — showing logs"
           docker-compose -f docker-compose.testing.yml logs --tail=50 backend_testing
-        fi
-
-        # Verify production still works
-        if curl -f -H "Host: clinomiclabs.com" https://localhost/api/health/live -k 2>/dev/null; then
-          echo "Production health check still passing"
-        else
-          echo "WARNING: Production health check failed after testing deploy"
+          exit 1
         fi
 
         echo "=== TESTING DEPLOYMENT COMPLETE ==="

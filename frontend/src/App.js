@@ -2,12 +2,15 @@ import React, { useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import "@/App.css";
 
+import { useSessionTimeout } from "@/hooks/useSessionTimeout";
+
 import Login from "@/views/Login";
 import Layout from "@/components/Layout";
 import UserWorkspace from "@/views/UserWorkspace";
 import AdminDashboard from "@/views/AdminDashboard";
 import DoctorDashboard from "@/views/DoctorDashboard";
 import PatientRecords from "@/views/PatientRecords";
+import WorkQueue from "@/views/WorkQueue";
 import DoctorList from "@/views/DoctorList";
 import LabList from "@/views/LabList";
 import Settings from "@/views/Settings";
@@ -23,6 +26,7 @@ const routeToView = {
   "/labs": "admin_labs",
   "/doctors": "lab_doctors",
   "/records": "records",
+  "/work-queue": "work_queue",
   "/settings": "settings",
 };
 
@@ -52,23 +56,33 @@ const App = () => {
   const [selectedDoctorId, setSelectedDoctorId] = useState(undefined);
   const [selectedDoctorName, setSelectedDoctorName] = useState(undefined);
 
-  // Check for existing session on app load
+  // On app load: attempt a silent token refresh using the httpOnly cookie.
+  // If the cookie is present and valid, we get a new access token and then
+  // fetch the user profile — no localStorage involved.
   useEffect(() => {
     const checkSession = async () => {
-      const token = localStorage.getItem("access_token");
-      if (token) {
-        try {
-          const userData = await AuthService.getMe();
-          setUser(userData);
-        } catch (err) {
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-        }
+      try {
+        await AuthService.refresh();
+        const userData = await AuthService.getMe();
+        setUser(userData);
+      } catch {
+        // Cookie absent or expired — stay on the login screen
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
     checkSession();
   }, []);
+
+  // Listen for the global session-expired event fired by the 401 interceptor
+  useEffect(() => {
+    const onExpired = () => {
+      setUser(null);
+      navigate("/login", { replace: true });
+    };
+    window.addEventListener("session-expired", onExpired);
+    return () => window.removeEventListener("session-expired", onExpired);
+  }, [navigate]);
 
   const resetSelection = () => {
     setSelectedLabId(undefined);
@@ -108,12 +122,18 @@ const App = () => {
     navigate(from || defaultRoute, { replace: true });
   };
 
-  const handleLogout = () => {
-    AuthService.logout();
+  const handleLogout = async () => {
+    await AuthService.logout();
     setUser(null);
     resetSelection();
     navigate("/login", { replace: true });
   };
+
+  // 15-minute inactivity session timeout (only active when logged in)
+  const { showWarning, resetTimer } = useSessionTimeout({
+    onTimeout: handleLogout,
+    enabled: !!user,
+  });
 
   const handleSelectLab = (labId, labName) => {
     setSelectedLabId(labId);
@@ -154,6 +174,7 @@ const App = () => {
       admin_labs: "/labs",
       lab_doctors: "/doctors",
       records: "/records",
+      work_queue: "/work-queue",
       settings: "/settings",
     };
 
@@ -202,6 +223,17 @@ const App = () => {
       activeView={activeView}
       onChangeView={handleChangeView}
     >
+      {showWarning && (
+        <div className="fixed top-0 inset-x-0 z-50 flex items-center justify-between bg-amber-500 px-4 py-2 text-sm font-medium text-white shadow-md">
+          <span>Your session will expire in 1 minute due to inactivity.</span>
+          <button
+            onClick={resetTimer}
+            className="ml-4 rounded bg-white px-3 py-1 text-amber-700 hover:bg-amber-100"
+          >
+            Stay signed in
+          </button>
+        </div>
+      )}
       <Routes>
         {/* Admin Dashboard */}
         <Route
@@ -293,15 +325,29 @@ const App = () => {
                 doctorId={selectedDoctorId}
                 doctorName={selectedDoctorName}
                 onBack={handleBackToDoctors}
+                userRole={user.role}
               />
             ) : user.role === Role.DOCTOR ? (
-              <PatientRecords doctorId={user.doctor_code} doctorName={user.name} />
+              <PatientRecords doctorId={user.doctor_code} doctorName={user.name} userRole={user.role} />
             ) : (
               <PatientRecords
                 doctorId={selectedDoctorId}
                 doctorName={selectedDoctorName}
                 onBack={selectedDoctorId ? handleBackToDoctors : undefined}
+                userRole={user.role}
               />
+            )
+          }
+        />
+
+        {/* Work Queue (LAB role) */}
+        <Route
+          path="/work-queue"
+          element={
+            user.role === Role.LAB || user.role === Role.ADMIN ? (
+              <WorkQueue />
+            ) : (
+              <Navigate to={getDefaultRoute(user.role)} replace />
             )
           }
         />

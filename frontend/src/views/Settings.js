@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { User, Shield, Key, Bell, Lock, CheckCircle, AlertTriangle, Smartphone, Monitor, RefreshCw, Server, Database, Activity } from "lucide-react";
 import MFASetup from "@/components/MFASetup";
-import { MFAService, AdminService } from "@/services/api";
+import { MFAService, AdminService, AuthService } from "@/services/api";
 import { Role } from "@/types";
 
 const Settings = ({ user }) => {
@@ -10,13 +10,16 @@ const Settings = ({ user }) => {
   const [systemHealth, setSystemHealth] = useState(null);
   const [showMFASetup, setShowMFASetup] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [revokingId, setRevokingId] = useState(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const status = await MFAService.getStatus();
       setMfaStatus(status);
-      
+
       if (user.role === Role.ADMIN) {
         const health = await AdminService.getSystemHealth();
         setSystemHealth(health);
@@ -28,9 +31,34 @@ const Settings = ({ user }) => {
     }
   }, [user.role]);
 
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const data = await AuthService.getSessions();
+      setSessions(data);
+    } catch (err) {
+      console.error("Failed to load sessions:", err);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  const handleRevokeSession = async (tokenId) => {
+    setRevokingId(tokenId);
+    try {
+      await AuthService.revokeSession(tokenId);
+      setSessions((prev) => prev.filter((s) => s.id !== tokenId));
+    } catch (err) {
+      console.error("Failed to revoke session:", err);
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    loadSessions();
+  }, [loadData, loadSessions]);
 
   const tabs = [
     { id: "security", label: "Security", icon: Shield },
@@ -121,24 +149,55 @@ const Settings = ({ user }) => {
       {/* Active Sessions */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 border-b border-slate-200 px-4 py-3">
-          <div className="flex items-center space-x-3">
-            <Monitor className="h-5 w-5 text-teal-600" />
-            <h3 className="font-semibold text-slate-800">Active Sessions</h3>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Monitor className="h-5 w-5 text-teal-600" />
+              <h3 className="font-semibold text-slate-800">Active Sessions</h3>
+            </div>
+            <button onClick={loadSessions} className="text-slate-400 hover:text-teal-600">
+              <RefreshCw className={`h-4 w-4 ${sessionsLoading ? "animate-spin" : ""}`} />
+            </button>
           </div>
         </div>
-        <div className="p-4">
-          <div className="flex items-center justify-between p-3 bg-green-50 border border-green-100 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="h-10 w-10 bg-green-100 rounded-full flex items-center justify-center">
-                <Monitor className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-700">Current Session</p>
-                <p className="text-xs text-slate-500">This device • Active now</p>
-              </div>
+        <div className="p-4 space-y-2">
+          {sessionsLoading ? (
+            <div className="text-center py-4 text-slate-400 text-sm">
+              <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-1" /> Loading sessions...
             </div>
-            <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-full">Current</span>
-          </div>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-4">No active sessions found.</p>
+          ) : (
+            sessions.map((session, idx) => (
+              <div key={session.id} className="flex items-center justify-between p-3 border border-slate-200 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="h-9 w-9 bg-slate-100 rounded-full flex items-center justify-center">
+                    <Monitor className="h-4 w-4 text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">
+                      {idx === 0 ? "Current session" : `Session ${idx + 1}`}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Last active: {session.last_used_at
+                        ? new Date(session.last_used_at).toLocaleString()
+                        : new Date(session.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                {idx === 0 ? (
+                  <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-full">Current</span>
+                ) : (
+                  <button
+                    onClick={() => handleRevokeSession(session.id)}
+                    disabled={revokingId === session.id}
+                    className="px-3 py-1 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {revokingId === session.id ? "Revoking..." : "Revoke"}
+                  </button>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 

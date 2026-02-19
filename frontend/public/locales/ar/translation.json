@@ -1,0 +1,70 @@
+{
+  "nav": {
+    "screening": "الفحص",
+    "workQueue": "قائمة الانتظار",
+    "records": "سجلات المرضى",
+    "doctors": "الأطباء",
+    "labs": "المختبرات",
+    "dashboard": "لوحة التحكم",
+    "settings": "الإعدادات",
+    "logout": "تسجيل الخروج"
+  },
+  "auth": {
+    "loginTitle": "تسجيل الدخول",
+    "username": "اسم المستخدم",
+    "password": "كلمة المرور",
+    "signIn": "دخول",
+    "signingIn": "جارٍ الدخول…",
+    "mfaTitle": "التحقق الثنائي",
+    "mfaCode": "رمز المصادقة",
+    "verify": "تحقق",
+    "invalidCredentials": "اسم المستخدم أو كلمة المرور غير صحيحة.",
+    "sessionExpired": "انتهت صلاحية جلستك. يرجى تسجيل الدخول مجدداً."
+  },
+  "screening": {
+    "title": "فحص جديد",
+    "patientId": "معرّف المريض",
+    "patientName": "اسم المريض",
+    "age": "العمر",
+    "sex": "الجنس",
+    "male": "ذكر",
+    "female": "أنثى",
+    "predict": "تشغيل الفحص",
+    "result": {
+      "normal": "طبيعي",
+      "borderline": "حدّي",
+      "deficient": "ناقص"
+    },
+    "recommendation": {
+      "normal": "نقص B12 غير محتمل بناءً على معايير صورة الدم الكاملة.",
+      "borderline": "يُنصح بقياس B12 في المصل إذا كانت هناك مؤشرات سريرية.",
+      "deficient": "يُوصى بقياس B12 في المصل. ينصح بالمقارنة السريرية."
+    }
+  },
+  "workQueue": {
+    "title": "قائمة الانتظار",
+    "pending": "قيد الانتظار",
+    "inProgress": "قيد التنفيذ",
+    "completed": "مكتمل",
+    "startReview": "بدء المراجعة",
+    "complete": "إكمال",
+    "refresh": "تحديث"
+  },
+  "records": {
+    "title": "سجلات المرضى",
+    "search": "بحث عن المرضى…",
+    "viewDetails": "عرض التفاصيل",
+    "download": "تحميل PDF",
+    "reviewed": "تمت المراجعة",
+    "markReviewed": "وضع علامة كمراجَع",
+    "clinicalNote": "ملاحظة سريرية اختيارية…"
+  },
+  "common": {
+    "loading": "جارٍ التحميل…",
+    "noData": "لا توجد بيانات.",
+    "error": "حدث خطأ.",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "back": "رجوع"
+  }
+}

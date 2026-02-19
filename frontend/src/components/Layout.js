@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Activity,
   LogOut,
@@ -17,6 +17,7 @@ import {
   UserCog,
 } from "lucide-react";
 import { Role } from "@/types";
+import { NotificationService } from "@/services/api";
 
 // Role-specific configurations
 const roleConfig = {
@@ -90,6 +91,48 @@ const NavItem = ({ icon: Icon, label, active, onClick, badge, roleColor }) => {
 
 const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef(null);
+
+  // Load notifications on mount and every 60 seconds
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      try {
+        const data = await NotificationService.getAll();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unread_count ?? 0);
+      } catch {
+        // silent — notifications are non-critical
+      }
+    };
+    load();
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const handleMarkRead = async (id) => {
+    try {
+      await NotificationService.markRead(id);
+      setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n));
+      setUnreadCount((c) => Math.max(0, c - 1));
+    } catch {
+      // silent
+    }
+  };
 
   if (!user) {
     return <>{children}</>;
@@ -193,6 +236,13 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               label="New Screening"
               active={activeView === "workspace"}
               onClick={() => handleNavClick("workspace")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={FileText}
+              label="Work Queue"
+              active={activeView === "work_queue"}
+              onClick={() => handleNavClick("work_queue")}
               roleColor={config.color}
             />
             <NavItem
@@ -323,6 +373,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               {activeView === "admin_labs" && "Lab Management"}
               {activeView === "lab_doctors" && "Doctors"}
               {activeView === "workspace" && "B12 Screening"}
+              {activeView === "work_queue" && "Work Queue"}
               {activeView === "records" && (isDoctor ? "My Patients" : "Patient Records")}
               {activeView === "settings" && "Settings"}
             </h2>
@@ -337,10 +388,63 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
 
           {/* Right Side Actions */}
           <div className="flex items-center space-x-3">
-            <button className="p-2 rounded-lg hover:bg-slate-100 relative">
-              <Bell className="h-5 w-5 text-slate-500" />
-              <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
-            </button>
+            {/* Notification Bell */}
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={() => setNotifOpen((o) => !o)}
+                className="p-2 rounded-lg hover:bg-slate-100 relative"
+              >
+                <Bell className="h-5 w-5 text-slate-500" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-0.5 right-0.5 h-4 w-4 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {notifOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-800">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="text-xs font-medium text-slate-500">{unreadCount} unread</span>
+                    )}
+                  </div>
+                  <ul className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                    {notifications.length === 0 ? (
+                      <li className="px-4 py-6 text-center text-sm text-slate-400">
+                        No notifications
+                      </li>
+                    ) : (
+                      notifications.map((n) => (
+                        <li
+                          key={n.id}
+                          className={`px-4 py-3 flex flex-col gap-0.5 ${n.is_read ? "opacity-60" : "bg-blue-50/40"}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-sm font-medium text-slate-800 leading-snug">
+                              {n.title}
+                            </span>
+                            {!n.is_read && (
+                              <button
+                                onClick={() => handleMarkRead(n.id)}
+                                className="shrink-0 text-xs text-blue-600 hover:underline mt-0.5"
+                              >
+                                Mark read
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 leading-snug">{n.body}</p>
+                          <span className="text-[10px] text-slate-400 mt-0.5">
+                            {new Date(n.created_at).toLocaleString()}
+                          </span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
             <div className={`hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-lg ${config.lightBg}`}>
               <div className={`h-8 w-8 bg-gradient-to-br ${config.bgGradient} rounded-lg flex items-center justify-center`}>
                 <span className="text-sm font-bold text-white">

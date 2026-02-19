@@ -1,0 +1,70 @@
+{
+  "nav": {
+    "screening": "Screening",
+    "workQueue": "Work Queue",
+    "records": "Patient Records",
+    "doctors": "Doctors",
+    "labs": "Labs",
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "logout": "Sign Out"
+  },
+  "auth": {
+    "loginTitle": "Sign In",
+    "username": "Username",
+    "password": "Password",
+    "signIn": "Sign In",
+    "signingIn": "Signing in…",
+    "mfaTitle": "Two-Factor Authentication",
+    "mfaCode": "Authenticator Code",
+    "verify": "Verify",
+    "invalidCredentials": "Invalid username or password.",
+    "sessionExpired": "Your session has expired. Please sign in again."
+  },
+  "screening": {
+    "title": "New Screening",
+    "patientId": "Patient ID",
+    "patientName": "Patient Name",
+    "age": "Age",
+    "sex": "Sex",
+    "male": "Male",
+    "female": "Female",
+    "predict": "Run Screening",
+    "result": {
+      "normal": "Normal",
+      "borderline": "Borderline",
+      "deficient": "Deficient"
+    },
+    "recommendation": {
+      "normal": "B12 deficiency unlikely based on CBC parameters.",
+      "borderline": "Consider serum B12 measurement if clinically indicated.",
+      "deficient": "Serum B12 measurement recommended. Clinical correlation advised."
+    }
+  },
+  "workQueue": {
+    "title": "Work Queue",
+    "pending": "Pending",
+    "inProgress": "In Progress",
+    "completed": "Completed",
+    "startReview": "Start Review",
+    "complete": "Complete",
+    "refresh": "Refresh"
+  },
+  "records": {
+    "title": "Patient Records",
+    "search": "Search patients…",
+    "viewDetails": "View Details",
+    "download": "Download PDF",
+    "reviewed": "Reviewed",
+    "markReviewed": "Mark as Reviewed",
+    "clinicalNote": "Optional clinical note…"
+  },
+  "common": {
+    "loading": "Loading…",
+    "noData": "No data found.",
+    "error": "An error occurred.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back"
+  }
+}

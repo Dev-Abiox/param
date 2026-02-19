@@ -1,0 +1,213 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { LisService } from "../services/api";
+import {
+  Activity,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  ChevronRight,
+  User,
+  Loader2,
+} from "lucide-react";
+
+const RISK_BADGE = {
+  1: <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800 border border-green-200">Normal</span>,
+  2: <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800 border border-amber-200">Borderline</span>,
+  3: <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-800 border border-red-200">Deficient</span>,
+};
+
+const TABS = [
+  { key: "pending",     label: "Pending",     icon: Clock,         color: "amber" },
+  { key: "in_progress", label: "In Progress", icon: Activity,      color: "blue"  },
+  { key: "completed",   label: "Completed",   icon: CheckCircle2,  color: "green" },
+];
+
+const tabActive = {
+  amber: "border-amber-500 text-amber-700",
+  blue:  "border-blue-500  text-blue-700",
+  green: "border-green-500 text-green-700",
+};
+const tabBadge = {
+  amber: "bg-amber-100 text-amber-700",
+  blue:  "bg-blue-100  text-blue-700",
+  green: "bg-green-100 text-green-700",
+};
+
+const WorkQueue = () => {
+  const [activeTab, setActiveTab]   = useState("pending");
+  const [queueData, setQueueData]   = useState({ counts: {}, items: [] });
+  const [loading, setLoading]       = useState(true);
+  const [transitioning, setTransitioning] = useState(null); // screeningId being updated
+
+  const load = useCallback(async (tab = activeTab) => {
+    setLoading(true);
+    try {
+      const data = await LisService.getWorkQueue(tab);
+      setQueueData(data);
+    } catch (e) {
+      console.error("WorkQueue load failed", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => { load(activeTab); }, [activeTab, load]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+  };
+
+  const handleTransition = async (screeningId, newStatus) => {
+    setTransitioning(screeningId);
+    try {
+      await LisService.updateScreeningStatus(screeningId, newStatus);
+      // Refresh current tab
+      await load(activeTab);
+    } catch (e) {
+      console.error("Status transition failed", e);
+    } finally {
+      setTransitioning(null);
+    }
+  };
+
+  const counts = queueData.counts || {};
+  const items  = queueData.items  || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Work Queue</h2>
+          <p className="text-sm text-slate-500">Triage and manage screening results</p>
+        </div>
+        <button
+          onClick={() => load(activeTab)}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg bg-white hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex border-b border-slate-200">
+          {TABS.map(({ key, label, icon: Icon, color }) => {
+            const isActive = activeTab === key;
+            const count = counts[key] ?? 0;
+            return (
+              <button
+                key={key}
+                onClick={() => handleTabChange(key)}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-medium border-b-2 transition-colors ${
+                  isActive
+                    ? `${tabActive[color]} bg-slate-50`
+                    : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+                {count > 0 && (
+                  <span className={`px-1.5 py-0.5 text-xs font-bold rounded-full ${isActive ? tabBadge[color] : "bg-slate-100 text-slate-600"}`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Table */}
+        {loading ? (
+          <div className="py-16 flex flex-col items-center gap-3 text-slate-400">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <p className="text-sm">Loading queue...</p>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="py-16 flex flex-col items-center gap-3 text-slate-400">
+            <CheckCircle2 className="h-10 w-10 text-slate-200" />
+            <p className="text-sm font-medium">No {activeTab.replace("_", " ")} screenings</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-100 text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Patient</th>
+                  <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Lab / Performed By</th>
+                  <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Risk</th>
+                  <th className="px-5 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Received</th>
+                  <th className="px-5 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Action</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-100">
+                {items.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
+                          <User className="h-4 w-4 text-slate-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-800">{item.patientName || "—"}</p>
+                          <p className="text-xs font-mono text-slate-400">{item.patientId}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="font-mono text-slate-700">{item.labId || "—"}</p>
+                      <p className="text-xs text-slate-400">{item.performedBy}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      {RISK_BADGE[item.riskClass] ?? <span className="text-slate-400">—</span>}
+                      {item.riskClass === 3 && (
+                        <AlertTriangle className="inline h-3.5 w-3.5 text-red-500 ml-1" />
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-slate-500 text-xs">
+                      {new Date(item.createdAt).toLocaleString()}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      {activeTab === "pending" && (
+                        <button
+                          disabled={transitioning === item.id}
+                          onClick={() => handleTransition(item.id, "in_progress")}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {transitioning === item.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <ChevronRight className="h-3 w-3" />}
+                          Start Review
+                        </button>
+                      )}
+                      {activeTab === "in_progress" && (
+                        <button
+                          disabled={transitioning === item.id}
+                          onClick={() => handleTransition(item.id, "completed")}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {transitioning === item.id
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <CheckCircle2 className="h-3 w-3" />}
+                          Complete
+                        </button>
+                      )}
+                      {activeTab === "completed" && (
+                        <span className="text-xs text-slate-400 italic">Done</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default WorkQueue;

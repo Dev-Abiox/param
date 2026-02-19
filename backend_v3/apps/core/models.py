@@ -220,3 +220,30 @@ class AuditLogEntry(models.Model):
 
     def __str__(self):
         return f"[{self.sequence}] {self.actor}: {self.action}"
+
+
+class Notification(models.Model):
+    """
+    User-facing notification (high-risk alerts, system messages, etc.).
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notifications'
+    )
+    type = models.CharField(max_length=50, default='info')   # 'high_risk', 'info', 'alert'
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notifications'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read']),
+        ]
+
+    def __str__(self):
+        return f"Notification({self.type}) for {self.user.username}: {self.title}"

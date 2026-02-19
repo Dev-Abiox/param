@@ -18,13 +18,29 @@ services:
     networks:
       - clinomic_network
 
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: always
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-clinomic}
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=200
+      - DEFAULT_POOL_SIZE=20
+      - SERVER_IDLE_TIMEOUT=30
+      - LOG_CONNECTIONS=0
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - clinomic_network
+
   backend:
     image: ghcr.io/dev-abiox/param:latest
     restart: always
     environment:
       - DEBUG=False
       - APP_ENV=production
-      - POSTGRES_HOST=db
+      - POSTGRES_HOST=pgbouncer
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-clinomic}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
@@ -33,19 +49,27 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS}
       - CORS_ORIGINS=${FRONTEND_URL}
+      - REDIS_URL=redis://redis:6379/1
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-db-backups/}
+      - AWS_BACKUP_ACCESS_KEY_ID=${AWS_BACKUP_ACCESS_KEY_ID:-}
+      - AWS_BACKUP_SECRET_ACCESS_KEY=${AWS_BACKUP_SECRET_ACCESS_KEY:-}
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
       python manage.py migrate_schemas --shared &&
-      python manage.py seed_demo_data --skip-screenings &&
       python manage.py ensure_domains &&
       gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
       "
     expose:
       - "8000"
     depends_on:
+      pgbouncer:
+        condition: service_started
       db:
         condition: service_healthy
     volumes:
@@ -86,12 +110,9 @@ services:
       - "443:443"
     volumes:
       - static_volume:/app/staticfiles:ro
-      - static_testing_volume:/app/testing-staticfiles:ro
-      - ./nginx.testing.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt/live/clinomiclabs.com/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
       - /etc/letsencrypt/live/clinomiclabs.com/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
-      - /etc/letsencrypt/live/testing.clinomiclabs.com/fullchain.pem:/etc/nginx/ssl/testing-fullchain.pem:ro
-      - /etc/letsencrypt/live/testing.clinomiclabs.com/privkey.pem:/etc/nginx/ssl/testing-privkey.pem:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -100,11 +121,82 @@ services:
     networks:
       - clinomic_network
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinomic_network
+
+  celery_worker:
+    image: ghcr.io/dev-abiox/param:latest
+    restart: always
+    command: celery -A clinomic worker --loglevel=info --concurrency=2
+    environment:
+      - DEBUG=False
+      - APP_ENV=production
+      - POSTGRES_HOST=pgbouncer
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-clinomic}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-db-backups/}
+      - AWS_BACKUP_ACCESS_KEY_ID=${AWS_BACKUP_ACCESS_KEY_ID:-}
+      - AWS_BACKUP_SECRET_ACCESS_KEY=${AWS_BACKUP_SECRET_ACCESS_KEY:-}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ml/models:/app/ml/models:ro
+    networks:
+      - clinomic_network
+
+  celery_beat:
+    image: ghcr.io/dev-abiox/param:latest
+    restart: always
+    command: celery -A clinomic beat --loglevel=info
+    environment:
+      - DEBUG=False
+      - APP_ENV=production
+      - POSTGRES_HOST=pgbouncer
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-clinomic}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - clinomic_network
+
 volumes:
   postgres_data:
   static_volume:
-  static_testing_volume:
-    external: true
+  redis_data:
 
 networks:
   clinomic_network:
