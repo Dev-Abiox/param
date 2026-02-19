@@ -34,6 +34,7 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - ALLOWED_HOSTS=testing.clinomiclabs.com,localhost
       - CORS_ORIGINS=https://testing.clinomiclabs.com
     command: >
@@ -106,6 +107,7 @@ services:
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - REDIS_URL=redis://redis_testing:6379/0
     depends_on:
       db_testing:
