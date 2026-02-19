@@ -19,6 +19,14 @@ const API = axios.create({
   withCredentials: true,   // send the httpOnly refresh-token cookie on every request
 });
 
+// Plain instance with NO interceptors — used only for token refresh so that
+// a 401 from the refresh endpoint propagates directly without triggering
+// another refresh attempt and looping.
+const _refreshAPI = axios.create({
+  baseURL: `${BACKEND_URL}/api`,
+  withCredentials: true,
+});
+
 // Attach access token and a cache-busting request ID to every outbound request
 API.interceptors.request.use((config) => {
   config.params = config.params || {};
@@ -98,7 +106,7 @@ export const AuthService = {
   // Silently exchange the httpOnly refresh cookie for a new access token.
   // Called on app startup and by the 401 interceptor.
   refresh: async () => {
-    const res = await API.post("/auth/refresh");   // cookie is sent automatically
+    const res = await _refreshAPI.post("/auth/refresh");   // plain instance — no interceptor loop
     setAccessToken(res.data.access_token);
     return res.data.access_token;
   },
