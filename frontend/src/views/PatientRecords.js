@@ -156,7 +156,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
               className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white dark:bg-slate-800 shadow-sm"
             />
           </div>
-          <button data-testid="records-filter-button" className="p-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
+          <button data-testid="records-filter-button" aria-label="Filter records" className="p-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
             <Filter className="w-4 h-4" />
           </button>
         </div>
@@ -220,6 +220,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                             data-testid={`record-view-${record.id}`}
                             onClick={() => handleViewDetails(record)}
                             className="text-slate-400 dark:text-slate-500 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors"
+                            aria-label="View details"
                             title="View Details"
                           >
                             <Eye className="w-4 h-4" />
@@ -229,6 +230,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                             onClick={() => handleDownload(record)}
                             disabled={downloadingId === record.id}
                             className="text-slate-400 dark:text-slate-500 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors disabled:opacity-40"
+                            aria-label="Download report"
                             title="Download Report"
                           >
                             {downloadingId === record.id
@@ -285,6 +287,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
               <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">Screening Details</h3>
               <button
                 onClick={() => setDetailRecord(null)}
+                aria-label="Close details panel"
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
               >
                 <X className="w-5 h-5" />

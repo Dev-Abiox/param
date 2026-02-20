@@ -243,6 +243,16 @@ MASTER_ENCRYPTION_KEY = os.environ.get('MASTER_ENCRYPTION_KEY', '')
 AUDIT_SIGNING_KEY = os.environ.get('AUDIT_SIGNING_KEY', '')
 AUDITLOG_INCLUDE_ALL_MODELS = True
 
+# Email (SMTP for password reset)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if APP_ENV == 'production' else 'django.core.mail.backends.console.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Clinomic <noreply@clinomiclabs.com>')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+
 # ML Engine Settings
 ML_MODEL_DIR = BASE_DIR / 'ml' / 'models'
 ML_EXECUTOR_WORKERS = int(os.environ.get('ML_EXECUTOR_WORKERS', '4'))

@@ -10,6 +10,7 @@ Security:
 - No PHI transmitted: only screening IDs, status, and risk_class
 """
 
+import asyncio
 import logging
 
 from channels.db import database_sync_to_async
@@ -17,8 +18,34 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 logger = logging.getLogger(__name__)
 
+HEARTBEAT_INTERVAL_S = 30
 
-class WorkQueueConsumer(AsyncJsonWebsocketConsumer):
+
+class _HeartbeatMixin:
+    """Mixin that sends a periodic {"type":"ping"} to keep the connection alive."""
+
+    async def _start_heartbeat(self):
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _stop_heartbeat(self):
+        task = getattr(self, '_heartbeat_task', None)
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def _heartbeat_loop(self):
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL_S)
+                await self.send_json({'type': 'ping'})
+        except asyncio.CancelledError:
+            pass
+
+
+class WorkQueueConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
     """
     WebSocket for LAB work queue real-time updates.
 
@@ -50,6 +77,7 @@ class WorkQueueConsumer(AsyncJsonWebsocketConsumer):
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        await self._start_heartbeat()
 
         logger.info(
             "ws_queue_connect",
@@ -57,11 +85,12 @@ class WorkQueueConsumer(AsyncJsonWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
+        await self._stop_heartbeat()
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive_json(self, content, **kwargs):
-        # Clients should not send data; ignore gracefully
+        # Respond to client pong (or ignore other messages)
         pass
 
     async def screening_status_change(self, event):
@@ -109,7 +138,7 @@ class WorkQueueConsumer(AsyncJsonWebsocketConsumer):
         })
 
 
-class DoctorAlertConsumer(AsyncJsonWebsocketConsumer):
+class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
     """
     WebSocket for DOCTOR high-risk alert notifications.
 
@@ -153,8 +182,10 @@ class DoctorAlertConsumer(AsyncJsonWebsocketConsumer):
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        await self._start_heartbeat()
 
     async def disconnect(self, close_code):
+        await self._stop_heartbeat()
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 

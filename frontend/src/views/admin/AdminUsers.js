@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { UserPlus, Edit2, UserX, X, Check } from "lucide-react";
+import { UserPlus, Edit2, UserX, Check, RefreshCw } from "lucide-react";
 import { AdminService } from "@/services/api";
+import Modal from "@/components/common/Modal";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 const ROLE_LABELS = { ADMIN: "Admin", LAB: "Lab Tech", DOCTOR: "Doctor" };
 const ROLE_COLORS = {
@@ -9,36 +11,26 @@ const ROLE_COLORS = {
   DOCTOR: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
 };
 
-const Modal = ({ title, onClose, children }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-    <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
-        <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
-          <X className="h-5 w-5 text-slate-400 dark:text-slate-500" />
-        </button>
-      </div>
-      {children}
-    </div>
-  </div>
-);
-
 const AdminUsers = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createError, setCreateError] = useState(null);
   const [createLoading, setCreateLoading] = useState(false);
+
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null);
 
   const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: "LAB" });
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await AdminService.getUsers();
       setUsers(data);
     } catch {
-      // silent
+      setError("Failed to load users.");
     } finally {
       setLoading(false);
     }
@@ -62,10 +54,10 @@ const AdminUsers = () => {
     }
   };
 
-  const handleDeactivate = async (userId) => {
-    if (!window.confirm("Deactivate this user? They will no longer be able to sign in.")) return;
+  const handleDeactivate = async (user) => {
     try {
-      await AdminService.deactivateUser(userId);
+      await AdminService.deactivateUser(user.id);
+      setConfirmDeactivate(null);
       load();
     } catch {
       // silent
@@ -91,7 +83,24 @@ const AdminUsers = () => {
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">Loading...</div>
+          <div className="p-4 space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse flex items-center gap-4 px-4 py-3">
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-28" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-20" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-36" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-16" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-14" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="p-8 text-center">
+            <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>
+            <button onClick={load} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-teal-700 dark:text-teal-400 border border-teal-300 dark:border-teal-700 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/30">
+              <RefreshCw className="h-4 w-4" /> Retry
+            </button>
+          </div>
         ) : users.length === 0 ? (
           <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">No users found.</div>
         ) : (
@@ -129,9 +138,9 @@ const AdminUsers = () => {
                   <td className="px-4 py-3 text-right">
                     {u.is_active && (
                       <button
-                        onClick={() => handleDeactivate(u.id)}
+                        onClick={() => setConfirmDeactivate(u)}
+                        aria-label={`Deactivate ${u.name || u.username}`}
                         className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors"
-                        title="Deactivate"
                       >
                         <UserX className="h-4 w-4" />
                       </button>
@@ -186,6 +195,16 @@ const AdminUsers = () => {
             </div>
           </form>
         </Modal>
+      )}
+      {confirmDeactivate && (
+        <ConfirmDialog
+          title="Deactivate User"
+          message={`Are you sure you want to deactivate "${confirmDeactivate.name || confirmDeactivate.username}"? They will no longer be able to sign in.`}
+          confirmText="Deactivate"
+          destructive
+          onConfirm={() => handleDeactivate(confirmDeactivate)}
+          onCancel={() => setConfirmDeactivate(null)}
+        />
       )}
     </div>
   );

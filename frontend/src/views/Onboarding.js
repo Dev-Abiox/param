@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useReducer } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle, Building2, Stethoscope, UserPlus, PartyPopper } from "lucide-react";
+import { CheckCircle, Building2, Stethoscope, UserPlus, PartyPopper, ArrowLeft } from "lucide-react";
 import { AdminService, BillingService } from "@/services/api";
 
 const STEPS = [
@@ -29,32 +29,41 @@ const StepIndicator = ({ current }) => (
   </div>
 );
 
+const initialState = {
+  step: 1,
+  loading: false,
+  error: null,
+  createdLabId: null,
+  lab: { code: "", name: "", tier: "standard" },
+  doctor: { code: "", name: "", department: "", email: "", lab_id: "" },
+  user: { name: "", email: "", username: "", password: "", role: "LAB" },
+};
+
+function reducer(state, action) {
+  switch (action.type) {
+    case "SET_FIELD":
+      return { ...state, [action.form]: { ...state[action.form], [action.field]: action.value } };
+    case "SET_LOADING":
+      return { ...state, loading: action.value };
+    case "SET_ERROR":
+      return { ...state, error: action.value };
+    case "ADVANCE":
+      return { ...state, step: state.step + 1, error: null };
+    case "GO_BACK":
+      return { ...state, step: Math.max(1, state.step - 1), error: null };
+    case "SET_CREATED_LAB":
+      return { ...state, createdLabId: action.value };
+    default:
+      return state;
+  }
+}
+
 const Onboarding = ({ user }) => {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const { step, loading, error, createdLabId, lab, doctor, user: userForm } = state;
 
-  // Lab form
-  const [labCode, setLabCode] = useState("");
-  const [labName, setLabName] = useState("");
-  const [labTier, setLabTier] = useState("standard");
-
-  // Doctor form
-  const [labId, setLabId] = useState("");
-  const [doctorCode, setDoctorCode] = useState("");
-  const [doctorName, setDoctorName] = useState("");
-  const [doctorDept, setDoctorDept] = useState("");
-  const [doctorEmail, setDoctorEmail] = useState("");
-
-  // User form
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [userUsername, setUserUsername] = useState("");
-  const [userPassword, setUserPassword] = useState("");
-  const [userRole, setUserRole] = useState("LAB");
-
-  const [createdLabId, setCreatedLabId] = useState(null);
+  const setField = (form, field, value) => dispatch({ type: "SET_FIELD", form, field, value });
 
   const markFlag = async (flag) => {
     try {
@@ -64,10 +73,7 @@ const Onboarding = ({ user }) => {
     }
   };
 
-  const advanceStep = () => {
-    setError(null);
-    setStep((s) => s + 1);
-  };
+  const advanceStep = () => dispatch({ type: "ADVANCE" });
 
   const handleSkip = async (flag) => {
     await markFlag(flag);
@@ -76,59 +82,50 @@ const Onboarding = ({ user }) => {
 
   const handleLabSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
+    dispatch({ type: "SET_ERROR", value: null });
+    dispatch({ type: "SET_LOADING", value: true });
     try {
-      const lab = await AdminService.createLab({ code: labCode, name: labName, tier: labTier });
-      setCreatedLabId(lab.id);
+      const created = await AdminService.createLab(lab);
+      dispatch({ type: "SET_CREATED_LAB", value: created.id });
       await markFlag("lab_added");
       advanceStep();
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to create lab.");
+      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create lab." });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", value: false });
     }
   };
 
   const handleDoctorSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
+    dispatch({ type: "SET_ERROR", value: null });
+    dispatch({ type: "SET_LOADING", value: true });
     try {
       await AdminService.createDoctor({
-        code: doctorCode,
-        name: doctorName,
-        department: doctorDept,
-        email: doctorEmail,
-        lab_id: labId || createdLabId,
+        ...doctor,
+        lab_id: doctor.lab_id || createdLabId,
       });
       await markFlag("doctor_added");
       advanceStep();
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to create doctor.");
+      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create doctor." });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", value: false });
     }
   };
 
   const handleUserSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
+    dispatch({ type: "SET_ERROR", value: null });
+    dispatch({ type: "SET_LOADING", value: true });
     try {
-      await AdminService.createUser({
-        username: userUsername,
-        name: userName,
-        email: userEmail,
-        password: userPassword,
-        role: userRole,
-      });
+      await AdminService.createUser(userForm);
       await markFlag("user_invited");
       advanceStep();
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to create user.");
+      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create user." });
     } finally {
-      setLoading(false);
+      dispatch({ type: "SET_LOADING", value: false });
     }
   };
 
@@ -177,15 +174,15 @@ const Onboarding = ({ user }) => {
             <form onSubmit={handleLabSubmit} className="space-y-4">
               <div>
                 <label className={labelCls}>Lab Code</label>
-                <input type="text" required value={labCode} onChange={(e) => setLabCode(e.target.value)} placeholder="LAB-001" className={inputCls} />
+                <input type="text" required value={lab.code} onChange={(e) => setField("lab", "code", e.target.value)} placeholder="LAB-001" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Lab Name</label>
-                <input type="text" required value={labName} onChange={(e) => setLabName(e.target.value)} placeholder="City General Hospital" className={inputCls} />
+                <input type="text" required value={lab.name} onChange={(e) => setField("lab", "name", e.target.value)} placeholder="City General Hospital" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Tier</label>
-                <select value={labTier} onChange={(e) => setLabTier(e.target.value)} className={inputCls}>
+                <select value={lab.tier} onChange={(e) => setField("lab", "tier", e.target.value)} className={inputCls}>
                   <option value="standard">Standard</option>
                   <option value="enterprise">Enterprise</option>
                   <option value="pilot">Pilot</option>
@@ -202,24 +199,24 @@ const Onboarding = ({ user }) => {
             <form onSubmit={handleDoctorSubmit} className="space-y-4">
               <div>
                 <label className={labelCls}>Doctor Code</label>
-                <input type="text" required value={doctorCode} onChange={(e) => setDoctorCode(e.target.value)} placeholder="D001" className={inputCls} />
+                <input type="text" required value={doctor.code} onChange={(e) => setField("doctor", "code", e.target.value)} placeholder="D001" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Full Name</label>
-                <input type="text" required value={doctorName} onChange={(e) => setDoctorName(e.target.value)} placeholder="Dr. John Doe" className={inputCls} />
+                <input type="text" required value={doctor.name} onChange={(e) => setField("doctor", "name", e.target.value)} placeholder="Dr. John Doe" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Department</label>
-                <input type="text" value={doctorDept} onChange={(e) => setDoctorDept(e.target.value)} placeholder="Haematology" className={inputCls} />
+                <input type="text" value={doctor.department} onChange={(e) => setField("doctor", "department", e.target.value)} placeholder="Haematology" className={inputCls} />
               </div>
               <div>
                 <label className={labelCls}>Email</label>
-                <input type="email" value={doctorEmail} onChange={(e) => setDoctorEmail(e.target.value)} placeholder="doctor@hospital.com" className={inputCls} />
+                <input type="email" value={doctor.email} onChange={(e) => setField("doctor", "email", e.target.value)} placeholder="doctor@hospital.com" className={inputCls} />
               </div>
               {!createdLabId && (
                 <div>
                   <label className={labelCls}>Lab ID</label>
-                  <input type="text" required value={labId} onChange={(e) => setLabId(e.target.value)} placeholder="Lab UUID" className={inputCls} />
+                  <input type="text" required value={doctor.lab_id} onChange={(e) => setField("doctor", "lab_id", e.target.value)} placeholder="Lab UUID" className={inputCls} />
                 </div>
               )}
               <button type="submit" disabled={loading} className={btnCls}>
@@ -234,24 +231,24 @@ const Onboarding = ({ user }) => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Full Name</label>
-                  <input type="text" required value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Jane Doe" className={inputCls} />
+                  <input type="text" required value={userForm.name} onChange={(e) => setField("user", "name", e.target.value)} placeholder="Jane Doe" className={inputCls} />
                 </div>
                 <div>
                   <label className={labelCls}>Email</label>
-                  <input type="email" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="jane@hospital.com" className={inputCls} />
+                  <input type="email" value={userForm.email} onChange={(e) => setField("user", "email", e.target.value)} placeholder="jane@hospital.com" className={inputCls} />
                 </div>
                 <div>
                   <label className={labelCls}>Username</label>
-                  <input type="text" required value={userUsername} onChange={(e) => setUserUsername(e.target.value)} placeholder="jane.doe" className={inputCls} />
+                  <input type="text" required value={userForm.username} onChange={(e) => setField("user", "username", e.target.value)} placeholder="jane.doe" className={inputCls} />
                 </div>
                 <div>
                   <label className={labelCls}>Password</label>
-                  <input type="password" required value={userPassword} onChange={(e) => setUserPassword(e.target.value)} placeholder="Min 8 chars" className={inputCls} />
+                  <input type="password" required value={userForm.password} onChange={(e) => setField("user", "password", e.target.value)} placeholder="Min 8 chars" className={inputCls} />
                 </div>
               </div>
               <div>
                 <label className={labelCls}>Role</label>
-                <select value={userRole} onChange={(e) => setUserRole(e.target.value)} className={inputCls}>
+                <select value={userForm.role} onChange={(e) => setField("user", "role", e.target.value)} className={inputCls}>
                   <option value="LAB">Lab Technician</option>
                   <option value="DOCTOR">Doctor</option>
                   <option value="ADMIN">Admin</option>
@@ -280,13 +277,26 @@ const Onboarding = ({ user }) => {
           )}
 
           {step < 4 && (
-            <button
-              type="button"
-              onClick={() => handleSkip(currentStep.flag)}
-              className="w-full mt-3 py-2 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-            >
-              Skip this step
-            </button>
+            <div className="flex items-center justify-between mt-3">
+              {step > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: "GO_BACK" })}
+                  className="inline-flex items-center gap-1 py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Back
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                onClick={() => handleSkip(currentStep.flag)}
+                className="py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                Skip this step
+              </button>
+            </div>
           )}
         </div>
       </div>

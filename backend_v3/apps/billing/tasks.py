@@ -24,8 +24,7 @@ logger = structlog.get_logger(__name__)
 @shared_task(
     name='billing.increment_usage',
     max_retries=3,
-    retry_backoff=True,
-    retry_backoff_max=60,
+    default_retry_delay=5,
     acks_late=True,
 )
 def increment_usage(org_id: str, screening_id: str) -> None:
@@ -33,8 +32,17 @@ def increment_usage(org_id: str, screening_id: str) -> None:
     Atomically increment current_period_count for the given organisation.
     Uses F() expression to avoid race conditions when multiple workers fire
     this task concurrently.
+
+    Idempotency: uses a cache lock keyed on screening_id to prevent
+    Celery at-least-once delivery from double-counting.
     """
-    if not org_id:
+    if not org_id or not screening_id:
+        return
+
+    # Idempotency guard — prevent double-increment from Celery retries
+    dedup_key = f'billing_increment:{screening_id}'
+    if not cache.add(dedup_key, '1', timeout=3600):
+        logger.debug('billing.usage_increment_deduplicated', screening_id=screening_id)
         return
 
     from django.db.models import F
@@ -58,9 +66,7 @@ def increment_usage(org_id: str, screening_id: str) -> None:
 @shared_task(
     name='billing.compute_monthly_rollups',
     max_retries=2,
-    retry_backoff=True,
-    retry_backoff_max=120,
-    acks_late=True,
+    default_retry_delay=60,
 )
 def compute_monthly_rollups() -> int:
     """
@@ -71,6 +77,12 @@ def compute_monthly_rollups() -> int:
     """
     from django.db import transaction
     from apps.billing.models import TenantSubscription, UsageRecord
+
+    # Distributed lock — prevent duplicate execution on rolling deploys
+    lock_key = f'billing_rollup_lock:{date.today().isoformat()}'
+    if not cache.add(lock_key, '1', timeout=3600):
+        logger.info('billing.monthly_rollup_skipped_lock_held')
+        return 0
 
     today = date.today()
     # Last day of the previous month

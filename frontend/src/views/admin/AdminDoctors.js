@@ -1,35 +1,26 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Edit2, Power, X } from "lucide-react";
+import { Plus, Edit2, Power, RefreshCw } from "lucide-react";
 import { AdminService } from "@/services/api";
-
-const Modal = ({ title, onClose, children }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-    <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
-        <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
-          <X className="h-5 w-5 text-slate-400 dark:text-slate-500" />
-        </button>
-      </div>
-      {children}
-    </div>
-  </div>
-);
+import Modal from "@/components/common/Modal";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 const AdminDoctors = () => {
   const [doctors, setDoctors] = useState([]);
   const [labs, setLabs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editDoctor, setEditDoctor] = useState(null);
   const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null);
 
   const emptyForm = { code: "", name: "", department: "", specialization: "", email: "", lab_id: "" };
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [docData, labData] = await Promise.all([
         AdminService.getDoctors(),
@@ -38,7 +29,7 @@ const AdminDoctors = () => {
       setDoctors(docData);
       setLabs(labData.filter((l) => l.is_active));
     } catch {
-      // silent
+      setError("Failed to load doctors.");
     } finally {
       setLoading(false);
     }
@@ -76,9 +67,9 @@ const AdminDoctors = () => {
   };
 
   const handleDeactivate = async (doc) => {
-    if (!window.confirm(`Deactivate Dr. ${doc.name}?`)) return;
     try {
       await AdminService.deactivateDoctor(doc.id);
+      setConfirmDeactivate(null);
       load();
     } catch {
       // silent
@@ -146,7 +137,24 @@ const AdminDoctors = () => {
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">Loading...</div>
+          <div className="p-4 space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse flex items-center gap-4 px-4 py-3">
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-16" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-36" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-24" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-24" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-14" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="p-8 text-center">
+            <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>
+            <button onClick={load} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-teal-700 dark:text-teal-400 border border-teal-300 dark:border-teal-700 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/30">
+              <RefreshCw className="h-4 w-4" /> Retry
+            </button>
+          </div>
         ) : doctors.length === 0 ? (
           <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">No doctors found.</div>
         ) : (
@@ -175,11 +183,11 @@ const AdminDoctors = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
-                      <button onClick={() => openEdit(doc)} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-teal-600">
+                      <button onClick={() => openEdit(doc)} aria-label={`Edit ${doc.name}`} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-teal-600">
                         <Edit2 className="h-4 w-4" />
                       </button>
                       {doc.is_active && (
-                        <button onClick={() => handleDeactivate(doc)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500">
+                        <button onClick={() => setConfirmDeactivate(doc)} aria-label={`Deactivate ${doc.name}`} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500">
                           <Power className="h-4 w-4" />
                         </button>
                       )}
@@ -201,6 +209,16 @@ const AdminDoctors = () => {
         <Modal title="Edit Doctor" onClose={() => setEditDoctor(null)}>
           <DoctorForm isEdit={true} />
         </Modal>
+      )}
+      {confirmDeactivate && (
+        <ConfirmDialog
+          title="Deactivate Doctor"
+          message={`Are you sure you want to deactivate "${confirmDeactivate.name}"? They will no longer be able to sign in.`}
+          confirmText="Deactivate"
+          destructive
+          onConfirm={() => handleDeactivate(confirmDeactivate)}
+          onCancel={() => setConfirmDeactivate(null)}
+        />
       )}
     </div>
   );

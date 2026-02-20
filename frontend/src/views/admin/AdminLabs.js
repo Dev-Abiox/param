@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Edit2, Power, X } from "lucide-react";
+import { Plus, Edit2, Power, RefreshCw } from "lucide-react";
 import { AdminService } from "@/services/api";
+import Modal from "@/components/common/Modal";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 const TIER_COLORS = {
   standard: "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300",
@@ -8,38 +10,27 @@ const TIER_COLORS = {
   pilot: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
 };
 
-const Modal = ({ title, onClose, children }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-    <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
-        <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
-          <X className="h-5 w-5 text-slate-400 dark:text-slate-500" />
-        </button>
-      </div>
-      {children}
-    </div>
-  </div>
-);
-
 const AdminLabs = () => {
   const [labs, setLabs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editLab, setEditLab] = useState(null);
   const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null);
 
   const emptyForm = { code: "", name: "", tier: "standard", contact_email: "" };
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await AdminService.getLabs();
       setLabs(data);
     } catch {
-      // silent
+      setError("Failed to load labs.");
     } finally {
       setLoading(false);
     }
@@ -71,9 +62,9 @@ const AdminLabs = () => {
   };
 
   const handleDeactivate = async (lab) => {
-    if (!window.confirm(`Deactivate lab "${lab.name}"?`)) return;
     try {
       await AdminService.deactivateLab(lab.id);
+      setConfirmDeactivate(null);
       load();
     } catch {
       // silent
@@ -132,7 +123,24 @@ const AdminLabs = () => {
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">Loading...</div>
+          <div className="p-4 space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse flex items-center gap-4 px-4 py-3">
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-20" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-36" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-20" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-32" />
+                <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-14" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="p-8 text-center">
+            <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>
+            <button onClick={load} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-teal-700 dark:text-teal-400 border border-teal-300 dark:border-teal-700 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/30">
+              <RefreshCw className="h-4 w-4" /> Retry
+            </button>
+          </div>
         ) : labs.length === 0 ? (
           <div className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">No labs found.</div>
         ) : (
@@ -165,11 +173,11 @@ const AdminLabs = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
-                      <button onClick={() => openEdit(lab)} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-teal-600">
+                      <button onClick={() => openEdit(lab)} aria-label={`Edit ${lab.name}`} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-teal-600">
                         <Edit2 className="h-4 w-4" />
                       </button>
                       {lab.is_active && (
-                        <button onClick={() => handleDeactivate(lab)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500">
+                        <button onClick={() => setConfirmDeactivate(lab)} aria-label={`Deactivate ${lab.name}`} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500">
                           <Power className="h-4 w-4" />
                         </button>
                       )}
@@ -191,6 +199,16 @@ const AdminLabs = () => {
         <Modal title="Edit Lab" onClose={() => setEditLab(null)}>
           <LabForm isEdit={true} />
         </Modal>
+      )}
+      {confirmDeactivate && (
+        <ConfirmDialog
+          title="Deactivate Lab"
+          message={`Are you sure you want to deactivate "${confirmDeactivate.name}"? This action cannot be undone.`}
+          confirmText="Deactivate"
+          destructive
+          onConfirm={() => handleDeactivate(confirmDeactivate)}
+          onCancel={() => setConfirmDeactivate(null)}
+        />
       )}
     </div>
   );

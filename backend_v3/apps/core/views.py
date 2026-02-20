@@ -494,7 +494,25 @@ class ForgotPasswordView(APIView):
         if user and user.is_active:
             token = secrets.token_urlsafe(48)
             cache.set(f'pwd_reset_{token}', str(user.id), timeout=900)  # 15 min
-            # In production, send email here.
+
+            reset_url = f'{settings.FRONTEND_URL}/reset-password?token={token}'
+            try:
+                from django.core.mail import send_mail
+                send_mail(
+                    subject='Password Reset — Clinomic',
+                    message=(
+                        f'You requested a password reset for your Clinomic account.\n\n'
+                        f'Click to reset your password:\n{reset_url}\n\n'
+                        f'This link expires in 15 minutes.\n'
+                        f'If you did not request this, ignore this email.'
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception:
+                logger.exception('Failed to send password reset email for user: %s', user.username)
+
             logger.info("Password reset requested for user: %s", user.username)
 
         # Generic response regardless of whether user was found

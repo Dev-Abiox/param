@@ -5,11 +5,14 @@ All models are in SHARED_APPS (public schema) — they are organisation-level,
 not per-tenant-schema.
 """
 
+import logging
 import uuid
 from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class SubscriptionPlan(models.Model):
@@ -84,6 +87,28 @@ class TenantSubscription(models.Model):
 
     def __str__(self):
         return f"{self.organization.name} — {self.plan.display_name} ({self.status})"
+
+    ALLOWED_TRANSITIONS = {
+        Status.TRIAL:     {Status.ACTIVE, Status.CANCELLED, Status.EXPIRED},
+        Status.ACTIVE:    {Status.CANCELLED, Status.PAST_DUE, Status.EXPIRED},
+        Status.PAST_DUE:  {Status.ACTIVE, Status.CANCELLED, Status.EXPIRED},
+        Status.CANCELLED: {Status.ACTIVE},   # only via confirmed payment
+        Status.EXPIRED:   {Status.ACTIVE},   # only via confirmed payment
+    }
+
+    def transition_to(self, new_status: str) -> None:
+        """Validate and set a new subscription status.
+
+        Raises ValueError if the transition is not allowed.
+        """
+        allowed = self.ALLOWED_TRANSITIONS.get(self.status, set())
+        if new_status not in allowed:
+            raise ValueError(
+                f'Invalid status transition: {self.status} → {new_status}'
+            )
+        old = self.status
+        self.status = new_status
+        logger.info('subscription.transition org=%s %s→%s', self.organization_id, old, new_status)
 
     @property
     def is_over_limit(self) -> bool:

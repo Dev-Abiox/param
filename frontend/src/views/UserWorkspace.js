@@ -196,6 +196,7 @@ const UserWorkspace = ({ user }) => {
             {/* Close Button */}
             <button
               onClick={() => setShowConsentCapture(false)}
+              aria-label="Close consent capture"
               className="absolute top-4 right-4 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 z-10"
             >
               <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />

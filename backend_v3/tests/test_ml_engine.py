@@ -125,25 +125,48 @@ class TestMLEnginePrediction:
 
 
 class TestMLEngineValidation:
-    """Tests for CBC data validation."""
+    """Tests for CBC data validation — engine handles missing/bad data gracefully."""
 
-    def test_validate_cbc_ranges(self, sample_cbc_data):
-        """Test CBC value range validation."""
-        # This test is disabled as validate_cbc method doesn't exist in the actual implementation
-        assert True  # Placeholder to pass test
+    def test_predict_with_missing_fields(self, mock_engine):
+        """Engine should handle prediction even with sparse input."""
+        sparse_cbc = {'Hb': 12.0, 'MCV': 85.0, 'Sex': 'M', 'Age': 40}
+        result = mock_engine.predict(sparse_cbc)
+        assert 'riskClass' in result
+        assert 'label' in result
 
-    def test_validate_cbc_out_of_range(self):
-        """Test validation fails for out-of-range values."""
-        # This test is disabled as validate_cbc method doesn't exist in the actual implementation
-        assert True  # Placeholder to pass test
+    def test_predict_with_zero_values(self, mock_engine):
+        """Engine should handle zero CBC values without crashing."""
+        zero_cbc = {'Hb': 0, 'MCV': 0, 'RBC': 0, 'WBC': 0, 'Platelets': 0, 'Sex': 'M', 'Age': 0}
+        result = mock_engine.predict(zero_cbc)
+        assert 'riskClass' in result
 
 
 class TestMLEngineAsync:
     """Tests for async prediction functionality."""
 
+    def test_predict_async_is_coroutine_function(self):
+        """Verify predict_async is an async callable."""
+        import asyncio
+        from apps.screening.ml_engine import predict_async
+
+        assert callable(predict_async)
+        assert asyncio.iscoroutinefunction(predict_async)
+
     @pytest.mark.asyncio
-    async def test_async_predict_returns_result(self, sample_cbc_data):
-        """Test async prediction returns result."""
-        # This test is disabled as predict_async doesn't exist as an instance method in the actual implementation
-        # The actual method is predict_async() which is a standalone function, not an instance method
-        assert True  # Placeholder to pass test
+    async def test_async_predict_calls_engine(self, sample_cbc_data):
+        """Test that predict_async delegates to the engine via a thread pool."""
+        from apps.screening.ml_engine import predict_async
+
+        mock_result = {
+            'riskClass': 1,
+            'label': 'Normal',
+            'probabilities': {'normal': 0.85, 'borderline': 0.1, 'deficient': 0.05},
+        }
+        with patch('apps.screening.ml_engine.get_ml_engine') as mock_get_engine:
+            mock_engine = MagicMock()
+            mock_engine.predict.return_value = mock_result
+            mock_get_engine.return_value = mock_engine
+
+            result = await predict_async(sample_cbc_data)
+            assert result == mock_result
+            mock_engine.predict.assert_called_once_with(sample_cbc_data)

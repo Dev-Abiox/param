@@ -3,6 +3,9 @@ Channel layer broadcast helpers.
 
 Sends messages to WebSocket consumers without any PHI.
 All functions are synchronous (use async_to_sync internally).
+
+Tenant schema is passed explicitly to avoid relying on thread-local
+``connection.schema_name`` which is unreliable in async contexts.
 """
 
 import logging
@@ -16,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_schema_name() -> str:
+    """Fallback: read from thread-local connection (sync context only)."""
     return getattr(connection, 'schema_name', 'public')
 
 
@@ -24,6 +28,8 @@ def broadcast_status_change(
     old_status: str,
     new_status: str,
     risk_class: int,
+    *,
+    schema_name: str | None = None,
 ):
     """Broadcast a screening status change to the work queue group."""
     try:
@@ -31,7 +37,7 @@ def broadcast_status_change(
         if channel_layer is None:
             return
 
-        schema = _get_schema_name()
+        schema = schema_name or _get_schema_name()
         group = f'wq_{schema}'
 
         async_to_sync(channel_layer.group_send)(
@@ -49,14 +55,20 @@ def broadcast_status_change(
         logger.warning("WebSocket broadcast failed: %s", e)
 
 
-def broadcast_new_screening(screening_id: str, risk_class: int, status: str):
+def broadcast_new_screening(
+    screening_id: str,
+    risk_class: int,
+    status: str,
+    *,
+    schema_name: str | None = None,
+):
     """Broadcast a new screening creation to the work queue group."""
     try:
         channel_layer = get_channel_layer()
         if channel_layer is None:
             return
 
-        schema = _get_schema_name()
+        schema = schema_name or _get_schema_name()
         group = f'wq_{schema}'
 
         async_to_sync(channel_layer.group_send)(
@@ -78,6 +90,8 @@ def broadcast_high_risk_alert(
     risk_class: int,
     label_text: str,
     doctor_id: str | None = None,
+    *,
+    schema_name: str | None = None,
 ):
     """
     Send high-risk alert to the doctor's alert group and the tenant-wide admin group.
@@ -91,29 +105,32 @@ def broadcast_high_risk_alert(
         if channel_layer is None:
             return
 
-        schema = _get_schema_name()
+        schema = schema_name or _get_schema_name()
         timestamp = datetime.now(timezone.utc).isoformat()
-
-        def _make_message():
-            return {
-                'type': 'screening.high_risk',
-                'screening_id': str(screening_id),
-                'risk_class': risk_class,
-                'label_text': label_text,
-                'timestamp': timestamp,
-            }
 
         # Send to doctor-specific group
         if doctor_id:
             async_to_sync(channel_layer.group_send)(
                 f'alerts_{schema}_{doctor_id}',
-                _make_message(),
+                {
+                    'type': 'screening.high_risk',
+                    'screening_id': str(screening_id),
+                    'risk_class': risk_class,
+                    'label_text': label_text,
+                    'timestamp': timestamp,
+                },
             )
 
-        # Also send to admin-wide group
+        # Also send to admin-wide group (separate dict to avoid shared mutation)
         async_to_sync(channel_layer.group_send)(
             f'alerts_{schema}_all',
-            _make_message(),
+            {
+                'type': 'screening.high_risk',
+                'screening_id': str(screening_id),
+                'risk_class': risk_class,
+                'label_text': label_text,
+                'timestamp': timestamp,
+            },
         )
     except Exception as e:
         logger.warning("WebSocket high-risk broadcast failed: %s", e)

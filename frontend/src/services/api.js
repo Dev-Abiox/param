@@ -10,11 +10,6 @@ export const setAccessToken = (token) => { _accessToken = token; };
 export const clearAccessToken = () => { _accessToken = null; };
 export const getAccessToken = () => _accessToken;
 
-// Generate a unique request ID
-const generateRequestId = () => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
-
 const API = axios.create({
   baseURL: `${BACKEND_URL}/api`,
   withCredentials: true,   // send the httpOnly refresh-token cookie on every request
@@ -28,13 +23,12 @@ const _refreshAPI = axios.create({
   withCredentials: true,
 });
 
-// Attach access token and a cache-busting request ID to every outbound request
+// Attach access token and cache-control header to every outbound request
 API.interceptors.request.use((config) => {
-  config.params = config.params || {};
-  config.params.r = generateRequestId();
+  config.headers = config.headers || {};
+  config.headers['Cache-Control'] = 'no-cache';
 
   if (_accessToken) {
-    config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${_accessToken}`;
   }
   return config;
@@ -153,13 +147,14 @@ export const AuthService = {
     return res.data;
   },
 
-  signup: async ({ orgName, adminEmail, adminPassword, plan, adminName }) => {
+  signup: async ({ orgName, adminEmail, adminPassword, plan, adminName, tosAccepted }) => {
     const res = await API.post("/v1/signup/", {
       org_name: orgName,
       admin_email: adminEmail,
       admin_password: adminPassword,
       plan,
       admin_name: adminName,
+      tos_accepted: tosAccepted,
     });
     if (res.data.access_token) {
       setAccessToken(res.data.access_token);
@@ -201,7 +196,8 @@ export const ConsentService = {
       const res = await API.get(`/screening/consent/status/${patientId}`);
       return res.data;
     } catch (e) {
-      return { hasConsent: false };
+      if (e.response?.status === 404) return { hasConsent: false };
+      throw e;
     }
   },
 
@@ -350,71 +346,71 @@ export const AdminService = {
 
   // ── User Management ──────────────────────────────────────────────────────────
   getUsers: async () => {
-    const res = await API.get("/admin/users");
+    const res = await API.get("/v1/admin/users");
     return res.data;
   },
   createUser: async (data) => {
-    const res = await API.post("/admin/users", data);
+    const res = await API.post("/v1/admin/users", data);
     return res.data;
   },
   updateUser: async (userId, data) => {
-    const res = await API.patch(`/admin/users/${userId}`, data);
+    const res = await API.patch(`/v1/admin/users/${userId}`, data);
     return res.data;
   },
   deactivateUser: async (userId) => {
-    const res = await API.delete(`/admin/users/${userId}`);
+    const res = await API.delete(`/v1/admin/users/${userId}`);
     return res.data;
   },
 
   // ── Lab Management ───────────────────────────────────────────────────────────
   getLabs: async () => {
-    const res = await API.get("/screening/admin/labs");
+    const res = await API.get("/v1/admin/labs");
     return res.data;
   },
   createLab: async (data) => {
-    const res = await API.post("/screening/admin/labs", data);
+    const res = await API.post("/v1/admin/labs", data);
     return res.data;
   },
   updateLab: async (labId, data) => {
-    const res = await API.patch(`/screening/admin/labs/${labId}`, data);
+    const res = await API.patch(`/v1/admin/labs/${labId}`, data);
     return res.data;
   },
   deactivateLab: async (labId) => {
-    const res = await API.delete(`/screening/admin/labs/${labId}`);
+    const res = await API.delete(`/v1/admin/labs/${labId}`);
     return res.data;
   },
 
   // ── Doctor Management ────────────────────────────────────────────────────────
   getDoctors: async (labId = null) => {
     const params = labId ? { labId } : {};
-    const res = await API.get("/screening/admin/doctors", { params });
+    const res = await API.get("/v1/admin/doctors", { params });
     return res.data;
   },
   createDoctor: async (data) => {
-    const res = await API.post("/screening/admin/doctors", data);
+    const res = await API.post("/v1/admin/doctors", data);
     return res.data;
   },
   updateDoctor: async (doctorId, data) => {
-    const res = await API.patch(`/screening/admin/doctors/${doctorId}`, data);
+    const res = await API.patch(`/v1/admin/doctors/${doctorId}`, data);
     return res.data;
   },
   deactivateDoctor: async (doctorId) => {
-    const res = await API.delete(`/screening/admin/doctors/${doctorId}`);
+    const res = await API.delete(`/v1/admin/doctors/${doctorId}`);
     return res.data;
   },
 };
 
 export const BillingService = {
   getUsage: async () => {
-    const res = await API.get("/v1/billing/admin/usage");
+    const res = await API.get("/v1/admin/usage/");
     return res.data;
   },
   getPlan: async () => {
-    const res = await API.get("/v1/billing/admin/billing");
+    const res = await API.get("/v1/admin/billing/");
     return res.data;
   },
-  upgradePlan: async (planName) => {
-    const res = await API.post("/v1/billing/admin/billing/upgrade", { plan: planName });
+  initiateUpgrade: async (planName) => {
+    const res = await API.post("/v1/admin/billing/upgrade/", { plan: planName });
     return res.data;
   },
   getOnboardingStatus: async () => {

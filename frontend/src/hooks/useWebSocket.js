@@ -5,7 +5,12 @@ const RECONNECT_CAP_MS = 30000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
 /**
- * Custom hook for WebSocket connections with auto-reconnect.
+ * Custom hook for WebSocket connections with first-message auth.
+ *
+ * Protocol:
+ *   1. Opens ws://host/ws/queue/ (no token in URL)
+ *   2. On open, sends {"type": "auth", "token": "<JWT>"}
+ *   3. Waits for {"type": "auth_ok"} before forwarding messages
  *
  * @param {string}   path       - WebSocket path (e.g. "/ws/queue/")
  * @param {Function} onMessage  - Callback invoked with parsed JSON messages
@@ -22,10 +27,16 @@ export default function useWebSocket(path, onMessage, { enabled = true, token } 
   const attemptRef = useRef(0);
   const timerRef = useRef(null);
   const onMessageRef = useRef(onMessage);
+  const authedRef = useRef(false);
+  const prevTokenRef = useRef(null);
   onMessageRef.current = onMessage;
 
   const connect = useCallback(() => {
     if (!enabled || !token) return;
+
+    // Skip reconnect if the token hasn't actually changed and we're already connected
+    if (token === prevTokenRef.current && wsRef.current?.readyState === WebSocket.OPEN) return;
+    prevTokenRef.current = token;
 
     const backendUrl = process.env.REACT_APP_BACKEND_URL || "";
     // Convert http(s) to ws(s)
@@ -33,20 +44,42 @@ export default function useWebSocket(path, onMessage, { enabled = true, token } 
       .replace(/^https:\/\//, "wss://")
       .replace(/^http:\/\//, "ws://");
 
-    const url = `${wsBase}${path}?token=${encodeURIComponent(token)}`;
+    // No token in URL — auth happens via first message (H9)
+    const url = `${wsBase}${path}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
+    authedRef.current = false;
 
     ws.onopen = () => {
-      attemptRef.current = 0;
-      setConnected(true);
-      setReconnecting(false);
+      // Send auth as first message instead of query parameter
+      ws.send(JSON.stringify({ type: "auth", token }));
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle auth handshake messages
+        if (!authedRef.current) {
+          if (data.type === "auth_ok") {
+            authedRef.current = true;
+            attemptRef.current = 0;
+            setConnected(true);
+            setReconnecting(false);
+          } else if (data.type === "auth_error") {
+            // Auth failed — server will close the connection
+            console.warn("WebSocket auth failed:", data.detail);
+          }
+          return;
+        }
+
+        // Respond to server heartbeat pings
+        if (data.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
+
         onMessageRef.current(data);
       } catch {
         // ignore non-JSON frames
@@ -56,6 +89,7 @@ export default function useWebSocket(path, onMessage, { enabled = true, token } 
     ws.onclose = (event) => {
       setConnected(false);
       wsRef.current = null;
+      authedRef.current = false;
 
       // Don't reconnect on intentional close or auth failure
       if (event.code === 1000 || event.code === 4001 || event.code === 4003) {

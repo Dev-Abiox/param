@@ -24,9 +24,9 @@ urlpatterns = [
     path('onboarding/', OnboardingStatusView.as_view(), name='billing-onboarding'),
 
     # Admin portal — usage & billing
-    path('admin/usage', AdminUsageView.as_view(), name='billing-admin-usage'),
-    path('admin/billing', AdminBillingView.as_view(), name='billing-admin-billing'),
-    path('admin/billing/upgrade', AdminBillingUpgradeView.as_view(), name='billing-admin-upgrade'),
+    path('admin/usage/', AdminUsageView.as_view(), name='billing-admin-usage'),
+    path('admin/billing/', AdminBillingView.as_view(), name='billing-admin-billing'),
+    path('admin/upgrade/', AdminBillingUpgradeView.as_view(), name='billing-admin-upgrade'),
 ]
 
 # Standalone signup (also included at /api/signup/ in the root urls.py)

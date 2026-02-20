@@ -154,7 +154,7 @@ const Settings = ({ user }) => {
               <Monitor className="h-5 w-5 text-teal-600" />
               <h3 className="font-semibold text-slate-800 dark:text-slate-100">Active Sessions</h3>
             </div>
-            <button onClick={loadSessions} className="text-slate-400 dark:text-slate-500 hover:text-teal-600">
+            <button onClick={loadSessions} aria-label="Refresh sessions" className="text-slate-400 dark:text-slate-500 hover:text-teal-600">
               <RefreshCw className={`h-4 w-4 ${sessionsLoading ? "animate-spin" : ""}`} />
             </button>
           </div>
@@ -300,6 +300,7 @@ const Settings = ({ user }) => {
             </div>
             <button
               onClick={loadData}
+              aria-label="Refresh system health"
               className="text-slate-400 dark:text-slate-500 hover:text-teal-600"
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />

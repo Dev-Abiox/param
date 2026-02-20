@@ -171,6 +171,17 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
             </div>
           </div>
 
+          {shapLoading && !shapData && (
+            <div className="border border-slate-200 rounded p-4 bg-white">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-4 text-center">
+                Feature Importance (SHAP)
+              </h4>
+              <div className="flex items-center justify-center h-48">
+                <div className="animate-pulse w-full h-full bg-slate-100 rounded" />
+              </div>
+            </div>
+          )}
+
           {shapData && shapData.length > 0 && (
             <div className="border border-slate-200 dark:border-slate-700 rounded p-4 bg-white dark:bg-slate-900">
               <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-4 text-center">
@@ -185,20 +196,37 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
                   >
                     <XAxis type="number" />
                     <YAxis dataKey="feature" type="category" tick={{ fontSize: 11 }} width={80} />
-                    <Tooltip contentStyle={{ fontSize: "12px" }} />
+                    <Tooltip
+                      contentStyle={{ fontSize: "12px" }}
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const entry = payload[0].payload;
+                        const cbcValue = cbcRows?.find(r => r.label === entry.feature || r.key === entry.feature);
+                        return (
+                          <div className="bg-white border border-slate-200 rounded px-3 py-2 shadow text-xs">
+                            <p className="font-semibold text-slate-700">{entry.feature}</p>
+                            <p className="text-slate-500">SHAP: {entry.shap_value.toFixed(4)}</p>
+                            {cbcValue && <p className="text-slate-500">Value: {cbcValue.value}</p>}
+                          </div>
+                        );
+                      }}
+                    />
                     <Bar dataKey="shap_value" barSize={18} radius={[0, 4, 4, 0]}>
                       {shapData.slice(0, 10).map((entry, index) => (
                         <Cell
                           key={`shap-${index}`}
-                          fill={entry.shap_value > 0 ? "#ef4444" : "#22c55e"}
+                          fill={
+                            entry.shap_value === 0 ? "#94a3b8" :
+                            entry.shap_value > 0 ? "#ef4444" : "#22c55e"
+                          }
                         />
                       ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 text-center mt-2">
-                Red = increases risk, Green = decreases risk
+              <p className="text-xs text-slate-400 text-center mt-2">
+                Red = increases risk, Green = decreases risk, Grey = neutral
               </p>
             </div>
           )}

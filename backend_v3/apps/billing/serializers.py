@@ -41,6 +41,12 @@ class SignupSerializer(serializers.Serializer):
         choices=['starter', 'professional', 'enterprise'],
         default='starter',
     )
+    tos_accepted = serializers.BooleanField()
+
+    def validate_tos_accepted(self, value):
+        if not value:
+            raise serializers.ValidationError('You must accept the Terms of Service and Privacy Policy.')
+        return value
 
 
 class OnboardingStatusSerializer(serializers.Serializer):

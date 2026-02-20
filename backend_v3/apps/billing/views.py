@@ -224,6 +224,10 @@ class OnboardingStatusView(APIView):
 
 # ── Razorpay Webhook ───────────────────────────────────────────────────────────
 
+class WebhookRateThrottle(AnonRateThrottle):
+    rate = '60/min'
+
+
 class WebhookView(APIView):
     """
     POST /api/billing/webhook/
@@ -232,6 +236,7 @@ class WebhookView(APIView):
     All raw events are stored in PaymentEvent for idempotency + audit.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [WebhookRateThrottle]
 
     def post(self, request):
         sig = request.headers.get('X-Razorpay-Signature', '')
@@ -289,8 +294,18 @@ class WebhookView(APIView):
             now = timezone.now()
             try:
                 if event_type == 'subscription.activated':
-                    sub.status = TenantSubscription.Status.ACTIVE
-                    sub.save(update_fields=['status', 'updated_at'])
+                    sub.transition_to(TenantSubscription.Status.ACTIVE)
+                    # If this activation is for a plan upgrade, update the plan FK.
+                    rz_plan_id = sub_entity.get('plan_id', '')
+                    if rz_plan_id:
+                        new_plan = SubscriptionPlan.objects.filter(
+                            razorpay_plan_id=rz_plan_id, is_active=True
+                        ).first()
+                        if new_plan and new_plan.pk != sub.plan_id:
+                            sub.plan = new_plan
+                    sub.save(update_fields=['status', 'plan', 'updated_at'])
+                    from django.core.cache import cache
+                    cache.delete(f'plan_limit_over:{sub.organization_id}')
 
                 elif event_type == 'subscription.charged':
                     sub.current_period_count = 0
@@ -306,12 +321,12 @@ class WebhookView(APIView):
                     cache.delete(f'plan_limit_over:{sub.organization_id}')
 
                 elif event_type == 'subscription.cancelled':
-                    sub.status = TenantSubscription.Status.CANCELLED
+                    sub.transition_to(TenantSubscription.Status.CANCELLED)
                     sub.cancelled_at = now
                     sub.save(update_fields=['status', 'cancelled_at', 'updated_at'])
 
                 elif event_type == 'payment.failed':
-                    sub.status = TenantSubscription.Status.PAST_DUE
+                    sub.transition_to(TenantSubscription.Status.PAST_DUE)
                     sub.save(update_fields=['status', 'updated_at'])
 
                 pe.processed = True
@@ -398,7 +413,12 @@ class AdminBillingUpgradeView(APIView):
     """
     POST /api/billing/admin/billing/upgrade
     Body: { "plan": "professional" }
-    Updates the plan in the DB (scaffold — no real Razorpay checkout).
+
+    Creates a Razorpay subscription for the new plan and returns the
+    subscription_id + key so the frontend can open Razorpay Checkout.
+
+    The DB is NOT updated here — the plan change is only committed when
+    the Razorpay `subscription.activated` webhook arrives.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
     required_roles = [Role.ADMIN]
@@ -413,6 +433,12 @@ class AdminBillingUpgradeView(APIView):
         except SubscriptionPlan.DoesNotExist:
             return Response({'error': f'Unknown plan: {plan_name}'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not new_plan.razorpay_plan_id:
+            return Response(
+                {'error': f'Plan "{plan_name}" is not linked to a Razorpay plan.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         org = getattr(request.user, 'organization', None)
         if not org:
             return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
@@ -422,20 +448,46 @@ class AdminBillingUpgradeView(APIView):
         except TenantSubscription.DoesNotExist:
             return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
 
-        old_plan = sub.plan.name
-        sub.plan = new_plan
-        if sub.status not in (TenantSubscription.Status.ACTIVE, TenantSubscription.Status.TRIAL):
-            sub.status = TenantSubscription.Status.ACTIVE
-        sub.save(update_fields=['plan', 'status', 'updated_at'])
+        if sub.plan.name == plan_name:
+            return Response({'error': 'Already on this plan.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Bust limit cache in case the new plan has a higher/lower limit
-        from django.core.cache import cache
-        cache.delete(f'plan_limit_over:{org.id}')
+        # Create a Razorpay subscription for the new plan
+        import razorpay
+        try:
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            rz_sub = client.subscription.create({
+                'plan_id': new_plan.razorpay_plan_id,
+                'total_count': 12,  # 12 billing cycles
+                'notes': {
+                    'org_id': str(org.id),
+                    'org_name': org.name,
+                    'old_plan': sub.plan.name,
+                    'new_plan': plan_name,
+                },
+            })
+        except Exception as exc:
+            logger.error('billing.razorpay_create_sub_failed', error=str(exc), org=org.name)
+            return Response(
+                {'error': 'Failed to create payment subscription. Please try again.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        logger.info('billing.plan_changed', org=org.name, old=old_plan, new=plan_name)
+        # Store the Razorpay subscription ID so the webhook can match it
+        sub.razorpay_sub_id = rz_sub['id']
+        sub.save(update_fields=['razorpay_sub_id', 'updated_at'])
+
+        logger.info(
+            'billing.upgrade_initiated',
+            org=org.name,
+            old=sub.plan.name,
+            new=plan_name,
+            razorpay_sub_id=rz_sub['id'],
+        )
         return Response({
-            'plan': new_plan.name,
+            'subscription_id': rz_sub['id'],
+            'razorpay_key_id': settings.RAZORPAY_KEY_ID,
+            'plan': plan_name,
             'display_name': new_plan.display_name,
-            'monthly_limit': new_plan.monthly_limit,
-            'status': sub.status,
         })

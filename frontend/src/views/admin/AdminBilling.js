@@ -29,13 +29,35 @@ const AdminBilling = () => {
     if (!selectedPlan || selectedPlan === data?.subscription?.plan?.name) return;
     setUpgradeLoading(true);
     try {
-      await BillingService.upgradePlan(selectedPlan);
-      setToast({ type: "success", msg: `Plan updated to ${selectedPlan}.` });
-      load();
+      const result = await BillingService.initiateUpgrade(selectedPlan);
+
+      // Open Razorpay Checkout
+      const options = {
+        key: result.razorpay_key_id,
+        subscription_id: result.subscription_id,
+        name: "Clinomic",
+        description: `Upgrade to ${result.display_name}`,
+        handler: () => {
+          setToast({ type: "success", msg: `Payment successful! Upgrading to ${result.display_name}.` });
+          // Refresh billing data — webhook will finalize the plan change
+          setTimeout(() => load(), 2000);
+        },
+        modal: {
+          ondismiss: () => {
+            setToast({ type: "error", msg: "Payment cancelled." });
+            setUpgradeLoading(false);
+            setTimeout(() => setToast(null), 4000);
+          },
+        },
+        theme: { color: "#0D9488" },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
     } catch (err) {
-      setToast({ type: "error", msg: err?.response?.data?.error || "Failed to update plan." });
-    } finally {
+      setToast({ type: "error", msg: err?.response?.data?.error || "Failed to initiate upgrade." });
       setUpgradeLoading(false);
+    } finally {
       setTimeout(() => setToast(null), 4000);
     }
   };
@@ -143,13 +165,31 @@ const AdminBilling = () => {
             })}
           </div>
 
-          <button
-            onClick={handleUpgrade}
-            disabled={upgradeLoading || !selectedPlan || selectedPlan === currentPlan}
-            className="px-6 py-2.5 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {upgradeLoading ? "Updating..." : selectedPlan === currentPlan ? "No Change" : `Switch to ${selectedPlan || "…"}`}
-          </button>
+          {(() => {
+            const selectedPlanObj = availablePlans.find(p => p.name === selectedPlan);
+            const isEnterprise = selectedPlanObj && (Number(selectedPlanObj.price_monthly) === 0);
+            const isChanged = selectedPlan && selectedPlan !== currentPlan;
+
+            if (isChanged && isEnterprise) {
+              return (
+                <a
+                  href="mailto:sales@clinomiclabs.com?subject=Enterprise Plan Inquiry"
+                  className="inline-block px-6 py-2.5 bg-purple-700 text-white rounded-lg text-sm font-medium hover:bg-purple-800 transition-colors"
+                >
+                  Contact Sales
+                </a>
+              );
+            }
+            return (
+              <button
+                onClick={handleUpgrade}
+                disabled={upgradeLoading || !selectedPlan || selectedPlan === currentPlan}
+                className="px-6 py-2.5 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {upgradeLoading ? "Updating..." : selectedPlan === currentPlan ? "No Change" : `Switch to ${selectedPlan || "…"}`}
+              </button>
+            );
+          })()}
           {selectedPlan !== currentPlan && (
             <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">Changes take effect immediately. Billing adjusted on next cycle.</p>
           )}

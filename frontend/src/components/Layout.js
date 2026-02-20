@@ -112,7 +112,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
       }
     };
     load();
-    const interval = setInterval(load, 60000);
+    const interval = setInterval(load, 300000); // 5 min fallback (WebSocket handles real-time)
     return () => clearInterval(interval);
   }, [user]);
 
@@ -210,14 +210,14 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
             />
             <NavItem
               icon={Building2}
-              label="Labs"
+              label="Lab Overview"
               active={activeView === "admin_labs"}
               onClick={() => handleNavClick("admin_labs")}
               roleColor={config.color}
             />
             <NavItem
               icon={Users}
-              label="Doctors"
+              label="Doctor Overview"
               active={activeView === "lab_doctors"}
               onClick={() => handleNavClick("lab_doctors")}
               roleColor={config.color}
@@ -392,6 +392,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
         {/* Close button */}
         <button
           onClick={closeSidebar}
+          aria-label="Close sidebar"
           className="absolute top-4 right-4 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
         >
           <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
@@ -406,6 +407,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation menu"
             className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
           >
             <Menu className="h-5 w-5 text-slate-600 dark:text-slate-400" />
@@ -444,6 +446,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setNotifOpen((o) => !o)}
+                aria-label="Notifications"
                 className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 relative"
               >
                 <Bell className="h-5 w-5 text-slate-500 dark:text-slate-400" />

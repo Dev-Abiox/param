@@ -343,7 +343,7 @@ async def predict_async(cbc_dict: dict[str, Any]) -> dict[str, Any]:
     """
     engine = get_ml_engine()
     executor = get_ml_executor()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(executor, engine.predict, cbc_dict)
 
 

@@ -1,13 +1,23 @@
 """
-WebSocket JWT authentication middleware.
+WebSocket JWT authentication middleware — first-message auth pattern.
 
-Extracts the JWT from the query string (?token=xxx), validates it,
-attaches the user and tenant to the scope. Rejects unauthenticated
-connections with a close code.
+The client opens the connection without a token in the URL, then sends:
+
+    {"type": "auth", "token": "<JWT access token>"}
+
+The middleware validates the token, attaches user/tenant to scope, sends
+back {"type": "auth_ok"}, then delegates to the inner consumer.
+
+If no valid auth message arrives within AUTH_TIMEOUT_S (5 s) the
+connection is closed with code 4001.
+
+This avoids placing the JWT in the query string where it would appear in
+server logs, browser history, and proxy logs (H9).
 """
 
+import asyncio
+import json
 import logging
-from urllib.parse import parse_qs
 
 import jwt
 from channels.db import database_sync_to_async
@@ -17,26 +27,50 @@ from django.db import connection
 
 logger = logging.getLogger(__name__)
 
+AUTH_TIMEOUT_S = 5
+
+
+class _AuthError(Exception):
+    """Raised when auth fails during the first-message handshake."""
+    def __init__(self, code: int):
+        self.code = code
+
 
 class JWTWebSocketMiddleware(BaseMiddleware):
     """
-    Authenticate WebSocket connections via JWT query parameter.
+    First-message JWT authentication for WebSocket connections.
 
-    Usage: ws://host/ws/queue/?token=<access_token>
+    Protocol:
+        1. Client opens ws://host/ws/queue/ (no token in URL)
+        2. Client sends: {"type": "auth", "token": "<access_token>"}
+        3. Server responds: {"type": "auth_ok"} or closes with 4001/4003
 
     Populates scope['user'], scope['tenant'], and scope['token_payload'].
-    Closes connection if token is invalid or missing.
     """
 
     async def __call__(self, scope, receive, send):
-        query_string = scope.get('query_string', b'').decode('utf-8')
-        params = parse_qs(query_string)
-        token = params.get('token', [None])[0]
+        # Accept the WebSocket connection first
+        await send({'type': 'websocket.accept'})
 
-        if not token:
+        # Wait for the auth message within the timeout
+        try:
+            token = await asyncio.wait_for(
+                self._wait_for_auth(receive, send),
+                timeout=AUTH_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            await self._send_auth_error(send, 'Auth timeout')
             await send({'type': 'websocket.close', 'code': 4001})
             return
+        except _AuthError as exc:
+            await send({'type': 'websocket.close', 'code': exc.code})
+            return
 
+        if token is None:
+            # Client disconnected before sending auth
+            return
+
+        # Validate the JWT
         try:
             payload = jwt.decode(
                 token,
@@ -44,9 +78,11 @@ class JWTWebSocketMiddleware(BaseMiddleware):
                 algorithms=[settings.JWT_ALGORITHM],
             )
         except jwt.ExpiredSignatureError:
+            await self._send_auth_error(send, 'Token expired')
             await send({'type': 'websocket.close', 'code': 4001})
             return
         except jwt.InvalidTokenError:
+            await self._send_auth_error(send, 'Invalid token')
             await send({'type': 'websocket.close', 'code': 4001})
             return
 
@@ -81,7 +117,49 @@ class JWTWebSocketMiddleware(BaseMiddleware):
         scope['tenant'] = tenant
         await self._set_tenant_schema(tenant)
 
-        return await super().__call__(scope, receive, send)
+        # Confirm auth success
+        await send({
+            'type': 'websocket.send',
+            'text': json.dumps({'type': 'auth_ok'}),
+        })
+
+        # Delegate to the inner application (consumer).
+        # Wrap send so the consumer's accept() is a no-op (already accepted).
+        async def wrapped_send(message):
+            if message['type'] == 'websocket.accept':
+                return  # swallow — already accepted by middleware
+            await send(message)
+
+        return await self.inner(scope, receive, wrapped_send)
+
+    async def _wait_for_auth(self, receive, send):
+        """Wait for the first websocket.receive with type=auth."""
+        while True:
+            message = await receive()
+
+            if message['type'] == 'websocket.disconnect':
+                return None
+
+            if message['type'] == 'websocket.receive':
+                text = message.get('text', '')
+                try:
+                    data = json.loads(text)
+                except (json.JSONDecodeError, TypeError):
+                    await self._send_auth_error(send, 'Expected JSON auth message')
+                    raise _AuthError(4001)
+
+                if data.get('type') == 'auth' and data.get('token'):
+                    return data['token']
+
+                await self._send_auth_error(send, 'Send {"type":"auth","token":"..."} first')
+                raise _AuthError(4001)
+
+    @staticmethod
+    async def _send_auth_error(send, detail):
+        await send({
+            'type': 'websocket.send',
+            'text': json.dumps({'type': 'auth_error', 'detail': detail}),
+        })
 
     @database_sync_to_async
     def _get_user(self, user_id):

@@ -38,6 +38,7 @@ const Signup = ({ onSignup }) => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
+  const [tosAccepted, setTosAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const slug = orgName.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").slice(0, 40);
@@ -63,6 +64,7 @@ const Signup = ({ onSignup }) => {
         adminPassword,
         plan: selectedPlan,
         adminName,
+        tosAccepted,
       });
       if (onSignup) {
         onSignup(data);
@@ -199,6 +201,7 @@ const Signup = ({ onSignup }) => {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
                       className="absolute inset-y-0 right-0 pr-3 flex items-center"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4 text-slate-400 dark:text-slate-500" /> : <Eye className="h-4 w-4 text-slate-400 dark:text-slate-500" />}
@@ -219,19 +222,49 @@ const Signup = ({ onSignup }) => {
               </div>
             </div>
 
+            {/* Terms of Service */}
+            <div className="flex items-start gap-2">
+              <input
+                id="tos"
+                type="checkbox"
+                checked={tosAccepted}
+                onChange={(e) => setTosAccepted(e.target.checked)}
+                className="mt-1 h-4 w-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500"
+              />
+              <label htmlFor="tos" className="text-sm text-slate-600">
+                I agree to the{" "}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+                  Privacy Policy
+                </a>
+              </label>
+            </div>
+
             {error && (
               <div className="text-red-600 text-sm bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
                 {error}
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading || !orgName || !adminEmail || !adminPassword}
-              className="w-full py-3 px-4 bg-teal-700 text-white rounded-lg font-medium text-sm hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? "Creating organisation..." : "Create Organisation & Sign In"}
-            </button>
+            {selectedPlan === "enterprise" ? (
+              <a
+                href="mailto:sales@clinomiclabs.com?subject=Enterprise%20Plan%20Inquiry"
+                className="block w-full py-3 px-4 bg-purple-700 text-white rounded-lg font-medium text-sm hover:bg-purple-800 text-center transition-colors"
+              >
+                Contact Sales for Enterprise
+              </a>
+            ) : (
+              <button
+                type="submit"
+                disabled={loading || !orgName || !adminEmail || !adminPassword || !tosAccepted}
+                className="w-full py-3 px-4 bg-teal-700 text-white rounded-lg font-medium text-sm hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? "Creating organisation..." : "Create Organisation & Sign In"}
+              </button>
+            )}
           </form>
         </div>
       </div>

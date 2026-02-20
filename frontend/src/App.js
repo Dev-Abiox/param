@@ -135,10 +135,13 @@ const App = () => {
   };
 
   const handleLogout = async () => {
-    await AuthService.logout();
-    setUser(null);
-    resetSelection();
-    navigate("/login", { replace: true });
+    try {
+      await AuthService.logout();
+    } finally {
+      setUser(null);
+      resetSelection();
+      navigate("/login", { replace: true });
+    }
   };
 
   // 15-minute inactivity session timeout (only active when logged in)

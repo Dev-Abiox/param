@@ -80,8 +80,12 @@ class PlanLimitMiddleware:
     When the tenant's current_period_count has reached or exceeded the plan
     limit, returns HTTP 402 immediately — the view is never called.
 
-    The over-limit flag is cached per org for 5 minutes; it is busted by the
+    The over-limit flag is cached per org for 60 seconds; it is busted by the
     billing.increment_usage Celery task whenever the counter changes.
+
+    On DB errors the middleware fails closed (blocks the request) and does NOT
+    cache the error result, so a transient DB issue does not persist as a
+    5-minute outage.
     """
 
     PREDICT_PATHS = frozenset([
@@ -89,11 +93,14 @@ class PlanLimitMiddleware:
         '/api/v1/screening/predict',
     ])
 
+    CACHE_TTL = 60  # seconds
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.method == 'POST' and request.path in self.PREDICT_PATHS:
+        path = request.path.rstrip('/').lower()
+        if request.method == 'POST' and path in self.PREDICT_PATHS:
             org = getattr(request, 'tenant', None)
             if org and getattr(org, 'schema_name', 'public') != 'public':
                 over = self._is_over_limit(org)
@@ -110,14 +117,16 @@ class PlanLimitMiddleware:
         if cached is not None:
             return cached
 
-        over = False
+        from apps.billing.models import TenantSubscription
         try:
-            from apps.billing.models import TenantSubscription
             sub = TenantSubscription.objects.select_related('plan').get(organization=org)
             lim = sub.plan.monthly_limit
             over = lim != -1 and sub.current_period_count >= lim
-        except Exception:
+        except TenantSubscription.DoesNotExist:
             over = False
+        except Exception:
+            logger.error('PlanLimitMiddleware: DB error checking limit for org %s', org.id, exc_info=True)
+            return True  # fail closed — do NOT cache error state
 
-        cache.set(cache_key, over, timeout=300)
+        cache.set(cache_key, over, timeout=self.CACHE_TTL)
         return over
