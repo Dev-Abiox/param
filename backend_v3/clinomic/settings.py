@@ -43,6 +43,7 @@ SHARED_APPS = [
     'auditlog',
     'drf_spectacular',
     # Our shared apps
+    'apps.billing',
     'apps.core',
 ]
 
@@ -61,6 +62,8 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 # Middleware
 MIDDLEWARE = [
     'django_tenants.middleware.main.TenantMainMiddleware',
+    'apps.billing.middleware.JWTTenantMiddleware',   # JWT-based tenant override
+    'apps.billing.middleware.PlanLimitMiddleware',   # 402 when quota exceeded
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'apps.core.middleware.CorrelationIdMiddleware',   # request_id in every log line
@@ -217,6 +220,12 @@ SPECTACULAR_SETTINGS = {
 
 # JWT Settings
 JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', SECRET_KEY)
+
+# Razorpay billing
+RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
+RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
+BASE_DOMAIN = os.environ.get('BASE_DOMAIN', 'clinomiclabs.com')
 JWT_ALGORITHM = 'HS256'
 JWT_ACCESS_TOKEN_LIFETIME = timedelta(minutes=int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', '60')))
 JWT_REFRESH_TOKEN_LIFETIME = timedelta(days=int(os.environ.get('REFRESH_TOKEN_EXPIRE_DAYS', '30')))
@@ -299,6 +308,11 @@ CELERY_BEAT_SCHEDULE = {
     'backup-database': {
         'task': 'core.backup_database',
         'schedule': crontab(hour=3, minute=0),
+    },
+    # Monthly 00:05 UTC on the 1st: archive usage records + reset counters
+    'compute-monthly-usage-rollups': {
+        'task': 'billing.compute_monthly_rollups',
+        'schedule': crontab(hour=0, minute=5, day_of_month=1),
     },
 }
 

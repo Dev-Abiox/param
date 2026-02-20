@@ -18,6 +18,8 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from apps.billing.urls import signup_urlpatterns
+
 urlpatterns = [
     path('admin/', admin.site.urls),
 
@@ -25,11 +27,15 @@ urlpatterns = [
     path('api/v1/', include('apps.core.urls')),
     path('api/v1/screening/', include('apps.screening.urls')),
     path('api/v1/analytics/', include('apps.analytics.urls')),
+    path('api/v1/billing/', include('apps.billing.urls')),
+    path('api/v1/', include(signup_urlpatterns)),
 
     # ── API legacy (unversioned — backward-compatible) ─────────────────────────
     path('api/', include('apps.core.urls')),
     path('api/screening/', include('apps.screening.urls')),
     path('api/analytics/', include('apps.analytics.urls')),
+    path('api/billing/', include('apps.billing.urls')),
+    path('api/', include(signup_urlpatterns)),
 
     # ── OpenAPI / Docs ─────────────────────────────────────────────────────────
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
