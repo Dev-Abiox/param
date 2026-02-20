@@ -37,6 +37,7 @@ services:
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - ALLOWED_HOSTS=testing.clinomiclabs.com,localhost
       - CORS_ORIGINS=https://testing.clinomiclabs.com
+      - CSRF_TRUSTED_ORIGINS=https://testing.clinomiclabs.com
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
