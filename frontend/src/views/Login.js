@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Lock, User, ArrowLeft, Mail, CheckCircle, Shield, Smartphone, Key, Eye, EyeOff } from "lucide-react";
 import { AuthService } from "@/services/api";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
   const [username, setUsername] = useState("");
@@ -80,7 +81,10 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
   // MFA Challenge View
   if (view === "mfa_challenge") {
     return (
-      <div data-testid="mfa-challenge-page" className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div data-testid="mfa-challenge-page" className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
           <div className="flex justify-center">
             <div className="h-16 w-16 bg-teal-600 rounded-xl flex items-center justify-center shadow-lg">
@@ -170,7 +174,10 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
   }
 
   return (
-    <div data-testid="login-page" className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div data-testid="login-page" className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <img src="/logo.png?v=17" alt="Clinomic Labs Logo" className="w-auto" style={{ height: '200px' }} />
