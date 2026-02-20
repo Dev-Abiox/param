@@ -35,11 +35,11 @@ const routeToView = {
   "/records": "records",
   "/work-queue": "work_queue",
   "/settings": "settings",
-  "/admin/users": "admin_users",
-  "/admin/labs": "admin_labs_mgmt",
-  "/admin/doctors": "admin_doctors_mgmt",
-  "/admin/usage": "admin_usage",
-  "/admin/billing": "admin_billing",
+  "/portal/users": "admin_users",
+  "/portal/labs": "admin_labs_mgmt",
+  "/portal/doctors": "admin_doctors_mgmt",
+  "/portal/usage": "admin_usage",
+  "/portal/billing": "admin_billing",
 };
 
 // Get default route based on user role
@@ -188,11 +188,11 @@ const App = () => {
       records: "/records",
       work_queue: "/work-queue",
       settings: "/settings",
-      admin_users: "/admin/users",
-      admin_labs_mgmt: "/admin/labs",
-      admin_doctors_mgmt: "/admin/doctors",
-      admin_usage: "/admin/usage",
-      admin_billing: "/admin/billing",
+      admin_users: "/portal/users",
+      admin_labs_mgmt: "/portal/labs",
+      admin_doctors_mgmt: "/portal/doctors",
+      admin_usage: "/portal/usage",
+      admin_billing: "/portal/billing",
     };
 
     navigate(viewToRoute[view] || "/");
@@ -390,23 +390,23 @@ const App = () => {
 
         {/* Admin Portal — Management section (ADMIN only) */}
         <Route
-          path="/admin/users"
+          path="/portal/users"
           element={user.role === Role.ADMIN ? <AdminUsers /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
-          path="/admin/labs"
+          path="/portal/labs"
           element={user.role === Role.ADMIN ? <AdminLabs /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
-          path="/admin/doctors"
+          path="/portal/doctors"
           element={user.role === Role.ADMIN ? <AdminDoctors /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
-          path="/admin/usage"
+          path="/portal/usage"
           element={user.role === Role.ADMIN ? <AdminUsage /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
-          path="/admin/billing"
+          path="/portal/billing"
           element={user.role === Role.ADMIN ? <AdminBilling /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
