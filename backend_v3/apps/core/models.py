@@ -11,6 +11,10 @@ from django.db import models
 from django_tenants.models import DomainMixin, TenantMixin
 
 
+def _default_onboarding_status():
+    return {'lab_added': False, 'doctor_added': False, 'user_invited': False, 'completed': False}
+
+
 class Organization(TenantMixin):
     """
     Multi-tenant organization model.
@@ -32,6 +36,8 @@ class Organization(TenantMixin):
     updated_at = models.DateTimeField(auto_now=True)
 
     auto_create_schema = True
+
+    onboarding_status = models.JSONField(default=_default_onboarding_status)
 
     class Meta:
         db_table = 'organizations'
