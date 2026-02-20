@@ -49,7 +49,7 @@ const UserWorkspace = ({ user }) => {
   const [result, setResult] = useState(null);
   const [uploadStatus, setUploadStatus] = useState("");
   const [screeningError, setScreeningError] = useState(null);
-  
+
   // Consent state
   const [showConsentCapture, setShowConsentCapture] = useState(false);
   const [consentId, setConsentId] = useState(null);
@@ -153,7 +153,7 @@ const UserWorkspace = ({ user }) => {
 
   const runScreening = async () => {
     setScreeningError(null);
-    
+
     if (!patient.id) {
       setScreeningError("Patient ID is required to run screening.");
       return;
@@ -161,7 +161,7 @@ const UserWorkspace = ({ user }) => {
 
     // Check for existing consent
     const hasConsent = await checkExistingConsent();
-    
+
     if (hasConsent) {
       // Run with existing consent
       runScreeningWithConsent(consentId);
@@ -192,13 +192,13 @@ const UserWorkspace = ({ user }) => {
             onClick={() => setShowConsentCapture(false)}
           />
           {/* Modal Content */}
-          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl animate-in fade-in zoom-in duration-200">
+          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-xl shadow-2xl animate-in fade-in zoom-in duration-200">
             {/* Close Button */}
             <button
               onClick={() => setShowConsentCapture(false)}
-              className="absolute top-4 right-4 p-1 rounded-lg hover:bg-slate-100 z-10"
+              className="absolute top-4 right-4 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 z-10"
             >
-              <X className="h-5 w-5 text-slate-500" />
+              <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
             </button>
             <ConsentCapture
               patient={patient}
@@ -213,18 +213,18 @@ const UserWorkspace = ({ user }) => {
       <div data-testid="workspace-page" className="w-full space-y-6">
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-6 space-y-6">
-          <section className="bg-white border border-slate-300 rounded-sm shadow-sm overflow-hidden">
-            <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-              <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wide">Patient Registration</h3>
-              <span className="text-xs font-mono text-slate-500">{patient.labId}</span>
+          <section className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-sm shadow-sm overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between">
+              <h3 className="font-bold text-slate-700 dark:text-slate-300 text-sm uppercase tracking-wide">Patient Registration</h3>
+              <span className="text-xs font-mono text-slate-500 dark:text-slate-400">{patient.labId}</span>
             </div>
             <div className="p-4 grid grid-cols-2 gap-4">
               <div className="col-span-2">
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Full Name</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Full Name</label>
                 <input
                   data-testid="patient-name-input"
                   type="text"
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-white text-black"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm focus:ring-1 focus:ring-teal-500 focus:border-teal-500 bg-white dark:bg-slate-800 text-black dark:text-white"
                   placeholder="Doe, Jane"
                   value={patient.name}
                   onChange={(e) => setPatient({ ...patient, name: e.target.value })}
@@ -233,12 +233,12 @@ const UserWorkspace = ({ user }) => {
               {/* Referring Doctor - Only show for LAB role, auto-set for DOCTOR role */}
               {user?.role === Role.LAB ? (
                 <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Referring Doctor</label>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Referring Doctor</label>
                   <div className="relative">
-                    <Stethoscope className="w-4 h-4 absolute left-2 top-2 text-slate-400" />
+                    <Stethoscope className="w-4 h-4 absolute left-2 top-2 text-slate-400 dark:text-slate-500" />
                     <select
                       data-testid="referring-doctor-select"
-                      className="w-full border border-slate-300 rounded pl-8 pr-2 py-1.5 text-sm bg-white text-black"
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded pl-8 pr-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-black dark:text-white"
                       value={patient.referringDoctor}
                       onChange={(e) => setPatient({ ...patient, referringDoctor: e.target.value })}
                       disabled={loadingDoctors}
@@ -254,28 +254,28 @@ const UserWorkspace = ({ user }) => {
                 </div>
               ) : user?.role === Role.DOCTOR ? (
                 <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Referring Doctor</label>
-                  <div className="flex items-center p-2 bg-blue-50 border border-blue-100 rounded text-sm text-blue-700">
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Referring Doctor</label>
+                  <div className="flex items-center p-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 rounded text-sm text-blue-700 dark:text-blue-400">
                     <Stethoscope className="h-4 w-4 mr-2" />
                     <span>Dr. {user?.name} (You)</span>
                   </div>
                 </div>
               ) : null}
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Age</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Age</label>
                 <input
                   data-testid="patient-age-input"
                   type="number"
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white text-black"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-black dark:text-white"
                   value={patient.age || ""}
                   onChange={(e) => setPatient({ ...patient, age: parseInt(e.target.value || "0", 10) })}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Sex</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Sex</label>
                 <select
                   data-testid="patient-sex-select"
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-800 dark:text-white"
                   value={patient.sex}
                   onChange={(e) => setPatient({ ...patient, sex: e.target.value })}
                 >
@@ -284,11 +284,11 @@ const UserWorkspace = ({ user }) => {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Patient ID</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Patient ID</label>
                 <input
                   data-testid="patient-id-input"
                   type="text"
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm font-mono bg-white text-black"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm font-mono bg-white dark:bg-slate-800 text-black dark:text-white"
                   value={patient.id}
                   onChange={(e) => {
                     setPatient({ ...patient, id: e.target.value });
@@ -298,26 +298,26 @@ const UserWorkspace = ({ user }) => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">Date</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Date</label>
                 <input
                   data-testid="patient-date-input"
                   type="date"
-                  className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm bg-white text-black"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-800 text-black dark:text-white"
                   value={patient.date}
                   onChange={(e) => setPatient({ ...patient, date: e.target.value })}
                 />
               </div>
-              
+
               {/* Consent Status Indicator */}
               {patient.id && (
                 <div className="col-span-2">
                   {hasValidConsent ? (
-                    <div className="flex items-center p-2 bg-green-50 border border-green-100 rounded text-sm text-green-700">
+                    <div className="flex items-center p-2 bg-green-50 dark:bg-green-900/30 border border-green-100 dark:border-green-800 rounded text-sm text-green-700 dark:text-green-400">
                       <CheckCircle className="h-4 w-4 mr-2" />
                       <span>Consent recorded (ID: {consentId?.slice(0, 8)}...)</span>
                     </div>
                   ) : (
-                    <div className="flex items-center p-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-600">
+                    <div className="flex items-center p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-600 dark:text-slate-300">
                       <FileCheck className="h-4 w-4 mr-2" />
                       <span>Consent will be captured before screening</span>
                     </div>
@@ -327,13 +327,13 @@ const UserWorkspace = ({ user }) => {
             </div>
           </section>
 
-          <div className="bg-white border border-slate-300 rounded-sm shadow-sm overflow-hidden">
-            <div className="border-b border-slate-200 flex">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-sm shadow-sm overflow-hidden">
+            <div className="border-b border-slate-200 dark:border-slate-700 flex">
               <button
                 data-testid="tab-manual"
                 onClick={() => setActiveTab("manual")}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center ${
-                  activeTab === "manual" ? "text-teal-700 border-b-2 border-teal-600 bg-teal-50/50" : "text-slate-500 hover:bg-slate-50"
+                  activeTab === "manual" ? "text-teal-700 border-b-2 border-teal-600 bg-teal-50/50" : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                 }`}
               >
                 <FileText className="w-4 h-4 mr-2" />
@@ -343,7 +343,7 @@ const UserWorkspace = ({ user }) => {
                 data-testid="tab-pdf"
                 onClick={() => setActiveTab("pdf")}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center ${
-                  activeTab === "pdf" ? "text-teal-700 border-b-2 border-teal-600 bg-teal-50/50" : "text-slate-500 hover:bg-slate-50"
+                  activeTab === "pdf" ? "text-teal-700 border-b-2 border-teal-600 bg-teal-50/50" : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                 }`}
               >
                 <Upload className="w-4 h-4 mr-2" />
@@ -352,7 +352,7 @@ const UserWorkspace = ({ user }) => {
             </div>
 
             {activeTab === "pdf" && (
-              <div className="p-6 bg-slate-50">
+              <div className="p-6 bg-slate-50 dark:bg-slate-800">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -362,7 +362,7 @@ const UserWorkspace = ({ user }) => {
                   data-testid="pdf-file-input"
                 />
                 <div
-                  className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center bg-white hover:border-teal-400 hover:bg-teal-50/30 transition-colors cursor-pointer"
+                  className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center bg-white dark:bg-slate-900 hover:border-teal-400 hover:bg-teal-50/30 transition-colors cursor-pointer"
                   onClick={() => fileInputRef.current?.click()}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={(e) => {
@@ -382,10 +382,10 @@ const UserWorkspace = ({ user }) => {
                   ) : (
                     <>
                       <Upload className="w-10 h-10 text-teal-500 mx-auto mb-3" />
-                      <p className="text-sm text-slate-700 font-medium">
+                      <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">
                         Click to upload or drag & drop a CBC report PDF
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                         Supports standard lab report formats. Values will be extracted and shown for verification.
                       </p>
                     </>
@@ -402,13 +402,13 @@ const UserWorkspace = ({ user }) => {
             </div>
 
             {screeningError && (
-              <div data-testid="screening-error" className="px-4 py-3 bg-red-50 border-t border-red-100 text-sm text-red-700">
+              <div data-testid="screening-error" className="px-4 py-3 bg-red-50 dark:bg-red-900/30 border-t border-red-100 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
                 {screeningError}
               </div>
             )}
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center gap-2">
-              <button data-testid="reset-form-button" onClick={resetForm} className="px-4 py-2 border border-slate-300 rounded bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 flex items-center">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center gap-2">
+              <button data-testid="reset-form-button" onClick={resetForm} className="px-4 py-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center">
                 <RotateCcw className="w-4 h-4 mr-2" /> Reset
               </button>
 
@@ -434,11 +434,11 @@ const UserWorkspace = ({ user }) => {
           {result ? (
             <ResultPanel result={result} patient={patient} cbcRows={rows} />
           ) : (
-            <div className="h-full min-h-[500px] border-2 border-dashed border-slate-300 rounded-sm bg-slate-50 flex flex-col items-center justify-center text-slate-400" data-testid="no-results-empty">
-              <div className="bg-white p-6 rounded-full shadow-sm mb-4">
-                <Activity className="w-12 h-12 text-slate-300" />
+            <div className="h-full min-h-[500px] border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-sm bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500" data-testid="no-results-empty">
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-full shadow-sm mb-4">
+                <Activity className="w-12 h-12 text-slate-300 dark:text-slate-600" />
               </div>
-              <h3 className="text-lg font-medium text-slate-500">No Analysis Results Yet</h3>
+              <h3 className="text-lg font-medium text-slate-500 dark:text-slate-400">No Analysis Results Yet</h3>
               <p className="max-w-xs text-center text-sm mt-2">Enter CBC values manually or upload a report, then click "Run Screening" to see B12 deficiency risk analysis.</p>
             </div>
           )}

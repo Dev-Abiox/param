@@ -20,15 +20,16 @@ import {
 } from "lucide-react";
 import { Role } from "@/types";
 import { NotificationService } from "@/services/api";
+import ThemeToggle from "@/components/ThemeToggle";
 
 // Role-specific configurations
 const roleConfig = {
   [Role.ADMIN]: {
     color: "purple",
     bgGradient: "from-purple-600 to-purple-700",
-    lightBg: "bg-purple-50",
-    textColor: "text-purple-700",
-    borderColor: "border-purple-200",
+    lightBg: "bg-purple-50 dark:bg-purple-900/30",
+    textColor: "text-purple-700 dark:text-purple-400",
+    borderColor: "border-purple-200 dark:border-purple-700",
     icon: UserCog,
     title: "Administrator",
     subtitle: "System Management",
@@ -36,9 +37,9 @@ const roleConfig = {
   [Role.DOCTOR]: {
     color: "blue",
     bgGradient: "from-blue-600 to-blue-700",
-    lightBg: "bg-blue-50",
-    textColor: "text-blue-700",
-    borderColor: "border-blue-200",
+    lightBg: "bg-blue-50 dark:bg-blue-900/30",
+    textColor: "text-blue-700 dark:text-blue-400",
+    borderColor: "border-blue-200 dark:border-blue-700",
     icon: Stethoscope,
     title: "Physician Portal",
     subtitle: "Patient Care",
@@ -46,9 +47,9 @@ const roleConfig = {
   [Role.LAB]: {
     color: "teal",
     bgGradient: "from-teal-600 to-teal-700",
-    lightBg: "bg-teal-50",
-    textColor: "text-teal-700",
-    borderColor: "border-teal-200",
+    lightBg: "bg-teal-50 dark:bg-teal-900/30",
+    textColor: "text-teal-700 dark:text-teal-400",
+    borderColor: "border-teal-200 dark:border-teal-700",
     icon: TestTube,
     title: "Lab Technician",
     subtitle: "Screening & Analysis",
@@ -57,15 +58,15 @@ const roleConfig = {
 
 const NavItem = ({ icon: Icon, label, active, onClick, badge, roleColor }) => {
   const activeClasses = {
-    purple: "bg-purple-50 text-purple-700 border-purple-200",
-    blue: "bg-blue-50 text-blue-700 border-blue-200",
-    teal: "bg-teal-50 text-teal-700 border-teal-200",
+    purple: "bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-700",
+    blue: "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-700",
+    teal: "bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 border-teal-200 dark:border-teal-700",
   };
 
   const iconActiveClasses = {
-    purple: "text-purple-600",
-    blue: "text-blue-600",
-    teal: "text-teal-600",
+    purple: "text-purple-600 dark:text-purple-400",
+    blue: "text-blue-600 dark:text-blue-400",
+    teal: "text-teal-600 dark:text-teal-400",
   };
 
   return (
@@ -73,16 +74,16 @@ const NavItem = ({ icon: Icon, label, active, onClick, badge, roleColor }) => {
       onClick={onClick}
       className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${active
         ? `${activeClasses[roleColor]} border shadow-sm`
-        : "text-slate-600 hover:bg-slate-50 hover:text-slate-800 border border-transparent"
+        : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200 border border-transparent"
         }`}
     >
       <Icon
-        className={`h-5 w-5 ${active ? iconActiveClasses[roleColor] : "text-slate-400"
+        className={`h-5 w-5 ${active ? iconActiveClasses[roleColor] : "text-slate-400 dark:text-slate-500"
           }`}
       />
       <span className="flex-1 text-left">{label}</span>
       {badge && (
-        <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
+        <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full">
           {badge}
         </span>
       )}
@@ -169,7 +170,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
       </div>
 
       {/* User Info Card */}
-      <div className="p-4 border-b border-slate-200">
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700">
         <div className={`p-3 rounded-xl ${config.lightBg} ${config.borderColor} border`}>
           <div className="flex items-center space-x-3">
             <div className={`h-12 w-12 bg-gradient-to-br ${config.bgGradient} rounded-xl flex items-center justify-center shadow-sm`}>
@@ -178,7 +179,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-800 truncate">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
                 {user.name || user.id}
               </p>
               <div className="flex items-center space-x-1 mt-0.5">
@@ -194,7 +195,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
+        <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 px-3">
           Main Menu
         </p>
 
@@ -291,8 +292,8 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
         )}
 
         {isAdmin && (
-          <div className="pt-4 mt-4 border-t border-slate-200">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
+          <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 px-3">
               Management
             </p>
             <NavItem
@@ -333,8 +334,8 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           </div>
         )}
 
-        <div className="pt-4 mt-4 border-t border-slate-200">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
+        <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
+          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 px-3">
             Account
           </p>
           <NavItem
@@ -348,20 +349,20 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-slate-200 bg-slate-50">
+      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
         <button
           onClick={onLogout}
-          className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 border border-transparent hover:border-red-200"
+          className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all duration-200 border border-transparent hover:border-red-200 dark:hover:border-red-800"
         >
           <LogOut className="h-4 w-4" />
           <span>Sign Out</span>
         </button>
 
         <div className="mt-3 text-center">
-          <p className="text-xs text-slate-400">v3.0 • Clinomic Platform</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">v3.0 • Clinomic Platform</p>
           <div className="flex items-center justify-center space-x-1 mt-1">
             <Shield className="h-3 w-3 text-green-500" />
-            <span className="text-xs text-green-600 font-medium">HIPAA Compliant</span>
+            <span className="text-xs text-green-600 dark:text-green-400 font-medium">HIPAA Compliant</span>
           </div>
         </div>
       </div>
@@ -369,7 +370,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
   );
 
   return (
-    <div className="flex h-screen bg-slate-100">
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-950">
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
@@ -379,21 +380,21 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
       )}
 
       {/* Sidebar - Desktop */}
-      <aside className="hidden lg:flex lg:w-72 bg-white border-r border-slate-200 flex-col shadow-sm">
+      <aside className="hidden lg:flex lg:w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 flex-col shadow-sm">
         <SidebarContent />
       </aside>
 
       {/* Sidebar - Mobile */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 flex flex-col shadow-xl transform transition-transform duration-300 ease-in-out lg:hidden ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 flex flex-col shadow-xl transform transition-transform duration-300 ease-in-out lg:hidden ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
         {/* Close button */}
         <button
           onClick={closeSidebar}
-          className="absolute top-4 right-4 p-1 rounded-lg hover:bg-slate-100 lg:hidden"
+          className="absolute top-4 right-4 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
         >
-          <X className="h-5 w-5 text-slate-500" />
+          <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
         </button>
         <SidebarContent />
       </aside>
@@ -401,18 +402,18 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between lg:px-6">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between lg:px-6">
           {/* Mobile Menu Button */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 rounded-lg hover:bg-slate-100 lg:hidden"
+            className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
           >
-            <Menu className="h-5 w-5 text-slate-600" />
+            <Menu className="h-5 w-5 text-slate-600 dark:text-slate-400" />
           </button>
 
           {/* Page Title - Desktop */}
           <div className="hidden lg:block">
-            <h2 className="text-lg font-semibold text-slate-800">
+            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
               {activeView === "admin_dashboard" && "Dashboard"}
               {activeView === "doctor_dashboard" && "Dashboard"}
               {activeView === "admin_labs" && "Lab Management"}
@@ -427,24 +428,25 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               {activeView === "admin_usage" && "Usage"}
               {activeView === "admin_billing" && "Billing"}
             </h2>
-            <p className="text-sm text-slate-500">{config.subtitle}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{config.subtitle}</p>
           </div>
 
           {/* Mobile Logo */}
           <div className="flex items-center space-x-2 lg:hidden">
             <img src="/clean-logo.png?v=1" alt="Clinomic" className="h-8 w-8 object-contain" />
-            <span className="font-bold text-slate-800">Clinomic</span>
+            <span className="font-bold text-slate-800 dark:text-slate-100">Clinomic</span>
           </div>
 
           {/* Right Side Actions */}
           <div className="flex items-center space-x-3">
+            <ThemeToggle />
             {/* Notification Bell */}
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setNotifOpen((o) => !o)}
-                className="p-2 rounded-lg hover:bg-slate-100 relative"
+                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 relative"
               >
-                <Bell className="h-5 w-5 text-slate-500" />
+                <Bell className="h-5 w-5 text-slate-500 dark:text-slate-400" />
                 {unreadCount > 0 && (
                   <span className="absolute top-0.5 right-0.5 h-4 w-4 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full">
                     {unreadCount > 9 ? "9+" : unreadCount}
@@ -453,39 +455,39 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               </button>
 
               {notifOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 z-50 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-800">Notifications</span>
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Notifications</span>
                     {unreadCount > 0 && (
-                      <span className="text-xs font-medium text-slate-500">{unreadCount} unread</span>
+                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{unreadCount} unread</span>
                     )}
                   </div>
-                  <ul className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                  <ul className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
                     {notifications.length === 0 ? (
-                      <li className="px-4 py-6 text-center text-sm text-slate-400">
+                      <li className="px-4 py-6 text-center text-sm text-slate-400 dark:text-slate-500">
                         No notifications
                       </li>
                     ) : (
                       notifications.map((n) => (
                         <li
                           key={n.id}
-                          className={`px-4 py-3 flex flex-col gap-0.5 ${n.is_read ? "opacity-60" : "bg-blue-50/40"}`}
+                          className={`px-4 py-3 flex flex-col gap-0.5 ${n.is_read ? "opacity-60" : "bg-blue-50/40 dark:bg-blue-900/20"}`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <span className="text-sm font-medium text-slate-800 leading-snug">
+                            <span className="text-sm font-medium text-slate-800 dark:text-slate-100 leading-snug">
                               {n.title}
                             </span>
                             {!n.is_read && (
                               <button
                                 onClick={() => handleMarkRead(n.id)}
-                                className="shrink-0 text-xs text-blue-600 hover:underline mt-0.5"
+                                className="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:underline mt-0.5"
                               >
                                 Mark read
                               </button>
                             )}
                           </div>
-                          <p className="text-xs text-slate-500 leading-snug">{n.body}</p>
-                          <span className="text-[10px] text-slate-400 mt-0.5">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">{n.body}</p>
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                             {new Date(n.created_at).toLocaleString()}
                           </span>
                         </li>
@@ -502,7 +504,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
                 </span>
               </div>
               <div className="hidden md:block">
-                <p className="text-sm font-medium text-slate-700">{user.name || user.id}</p>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{user.name || user.id}</p>
                 <p className={`text-xs ${config.textColor}`}>{user.role}</p>
               </div>
             </div>

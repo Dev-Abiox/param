@@ -15,10 +15,10 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
       setError("Patient consent is required to proceed with screening.");
       return;
     }
-    
+
     setIsSubmitting(true);
     setError(null);
-    
+
     try {
       // Build consent text from the form data
       const consentTextParts = [
@@ -49,26 +49,26 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-      <div className="bg-slate-50 border-b border-slate-200 px-4 py-3">
+    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3">
         <div className="flex items-center space-x-3">
-          <FileCheck className="h-5 w-5 text-teal-600" />
-          <h3 className="font-semibold text-slate-800">Patient Consent</h3>
+          <FileCheck className="h-5 w-5 text-teal-600 dark:text-teal-400" />
+          <h3 className="font-semibold text-slate-800 dark:text-slate-100">Patient Consent</h3>
         </div>
       </div>
-      
+
       <form onSubmit={handleSubmit} className="p-4 space-y-4">
         {/* Patient Info Summary */}
-        <div className="bg-slate-50 rounded-lg p-3">
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
           <div className="flex items-center space-x-4 text-sm">
-            <div className="flex items-center text-slate-600">
+            <div className="flex items-center text-slate-600 dark:text-slate-300">
               <User className="h-4 w-4 mr-1" />
               <span className="font-medium">{patient.name || "Unknown Patient"}</span>
             </div>
-            <div className="text-slate-400">|</div>
-            <div className="text-slate-500">ID: {patient.id || "Not assigned"}</div>
-            <div className="text-slate-400">|</div>
-            <div className="flex items-center text-slate-500">
+            <div className="text-slate-400 dark:text-slate-500">|</div>
+            <div className="text-slate-500 dark:text-slate-400">ID: {patient.id || "Not assigned"}</div>
+            <div className="text-slate-400 dark:text-slate-500">|</div>
+            <div className="flex items-center text-slate-500 dark:text-slate-400">
               <Calendar className="h-4 w-4 mr-1" />
               {new Date().toLocaleDateString()}
             </div>
@@ -76,12 +76,12 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
         </div>
 
         {/* Consent Information */}
-        <div className="border border-slate-200 rounded-lg p-4">
-          <h4 className="font-medium text-slate-800 mb-2 flex items-center">
-            <Shield className="h-4 w-4 mr-2 text-teal-600" />
+        <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+          <h4 className="font-medium text-slate-800 dark:text-slate-100 mb-2 flex items-center">
+            <Shield className="h-4 w-4 mr-2 text-teal-600 dark:text-teal-400" />
             Screening Consent Information
           </h4>
-          <div className="text-sm text-slate-600 space-y-2">
+          <div className="text-sm text-slate-600 dark:text-slate-300 space-y-2">
             <p>By providing consent, the patient acknowledges:</p>
             <ul className="list-disc list-inside space-y-1 ml-2">
               <li>Complete Blood Count (CBC) data will be used for B12 deficiency screening</li>
@@ -94,12 +94,12 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
 
         {/* Consent Type */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">Consent Method</label>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Consent Method</label>
           <div className="grid grid-cols-3 gap-2">
             {[
-              { value: "verbal", label: "Verbal", icon: "🗣️" },
-              { value: "written", label: "Written", icon: "✍️" },
-              { value: "electronic", label: "Electronic", icon: "📱" },
+              { value: "verbal", label: "Verbal", icon: "\u{1F5E3}\u{FE0F}" },
+              { value: "written", label: "Written", icon: "\u{270D}\u{FE0F}" },
+              { value: "electronic", label: "Electronic", icon: "\u{1F4F1}" },
             ].map((option) => (
               <button
                 key={option.value}
@@ -108,7 +108,7 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
                 className={`px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
                   consentType === option.value
                     ? "border-teal-500 bg-teal-50 text-teal-700"
-                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                 }`}
               >
                 <span className="mr-1">{option.icon}</span> {option.label}
@@ -120,14 +120,14 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
         {/* Witness Name (for verbal/written) */}
         {consentType !== "electronic" && (
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               Witness / Staff Name
             </label>
             <input
               type="text"
               value={witnessName}
               onChange={(e) => setWitnessName(e.target.value)}
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500"
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-teal-500 focus:border-teal-500"
               placeholder="Enter name of staff obtaining consent"
             />
           </div>
@@ -135,14 +135,14 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
 
         {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             Additional Notes (Optional)
           </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500"
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-teal-500 focus:border-teal-500"
             placeholder="Any additional notes about consent..."
           />
         </div>
@@ -154,16 +154,16 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
               type="checkbox"
               checked={consented}
               onChange={(e) => setConsented(e.target.checked)}
-              className="mt-1 h-4 w-4 text-teal-600 border-slate-300 rounded focus:ring-teal-500"
+              className="mt-1 h-4 w-4 text-teal-600 border-slate-300 dark:border-slate-600 rounded focus:ring-teal-500"
             />
-            <span className="ml-3 text-sm text-slate-700">
+            <span className="ml-3 text-sm text-slate-700 dark:text-slate-300">
               <span className="font-medium">I confirm</span> that the patient (or their authorized representative) has been informed about the B12 screening process and has provided consent to proceed.
             </span>
           </label>
         </div>
 
         {error && (
-          <div className="flex items-center p-3 bg-red-50 border border-red-100 rounded-md text-sm text-red-600">
+          <div className="flex items-center p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded-md text-sm text-red-600 dark:text-red-400">
             <AlertCircle className="h-4 w-4 mr-2" />
             {error}
           </div>
@@ -174,7 +174,7 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 px-4 py-2 border border-slate-300 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-50"
+            className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             Cancel
           </button>

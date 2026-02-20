@@ -17,12 +17,12 @@ const StepIndicator = ({ current }) => (
         <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold transition-colors ${
           s.id < current ? "bg-teal-500 text-white" :
           s.id === current ? "bg-teal-700 text-white ring-2 ring-teal-200" :
-          "bg-slate-200 text-slate-500"
+          "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
         }`}>
           {s.id < current ? <CheckCircle className="h-4 w-4" /> : s.id}
         </div>
         {i < STEPS.length - 1 && (
-          <div className={`h-0.5 w-8 ${s.id < current ? "bg-teal-400" : "bg-slate-200"}`} />
+          <div className={`h-0.5 w-8 ${s.id < current ? "bg-teal-400" : "bg-slate-200 dark:bg-slate-700"}`} />
         )}
       </React.Fragment>
     ))}
@@ -137,37 +137,37 @@ const Onboarding = ({ user }) => {
     navigate("/dashboard");
   };
 
-  const inputCls = "block w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white text-slate-900";
-  const labelCls = "block text-sm font-medium text-slate-700 mb-1";
+  const inputCls = "block w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
+  const labelCls = "block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1";
   const btnCls = "w-full py-2.5 px-4 bg-teal-700 text-white rounded-lg font-medium text-sm hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
   const currentStep = STEPS[step - 1];
   const StepIcon = currentStep.icon;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-12 px-4">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center py-12 px-4">
       <div className="sm:mx-auto sm:w-full sm:max-w-lg">
         <div className="flex justify-center mb-2">
           <img src="/logo.png?v=17" alt="Clinomic" className="h-12 w-auto" />
         </div>
-        <h2 className="text-center text-2xl font-bold text-slate-900 mb-1">Welcome to Clinomic</h2>
-        <p className="text-center text-sm text-slate-500 mb-6">Let's set up your organisation in a few steps.</p>
+        <h2 className="text-center text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">Welcome to Clinomic</h2>
+        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-6">Let's set up your organisation in a few steps.</p>
 
         <StepIndicator current={step} />
 
-        <div className="bg-white rounded-xl shadow border border-slate-200 p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow border border-slate-200 dark:border-slate-700 p-6">
           <div className="flex items-center gap-3 mb-6">
-            <div className="h-10 w-10 bg-teal-50 rounded-lg flex items-center justify-center">
+            <div className="h-10 w-10 bg-teal-50 dark:bg-teal-900/30 rounded-lg flex items-center justify-center">
               <StepIcon className="h-5 w-5 text-teal-600" />
             </div>
             <div>
-              <p className="text-xs text-slate-400 font-medium">Step {step} of 4</p>
-              <h3 className="text-lg font-semibold text-slate-800">{currentStep.title}</h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Step {step} of 4</p>
+              <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{currentStep.title}</h3>
             </div>
           </div>
 
           {error && (
-            <div className="mb-4 text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+            <div className="mb-4 text-red-600 text-sm bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
               {error}
             </div>
           )}
@@ -267,12 +267,12 @@ const Onboarding = ({ user }) => {
           {step === 4 && (
             <div className="text-center py-4">
               <div className="flex justify-center mb-4">
-                <div className="h-16 w-16 bg-teal-50 rounded-full flex items-center justify-center">
+                <div className="h-16 w-16 bg-teal-50 dark:bg-teal-900/30 rounded-full flex items-center justify-center">
                   <CheckCircle className="h-10 w-10 text-teal-500" />
                 </div>
               </div>
-              <h3 className="text-xl font-semibold text-slate-800 mb-2">You're all set!</h3>
-              <p className="text-sm text-slate-500 mb-6">Your organisation is ready. Head to the dashboard to start screening.</p>
+              <h3 className="text-xl font-semibold text-slate-800 dark:text-slate-100 mb-2">You're all set!</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Your organisation is ready. Head to the dashboard to start screening.</p>
               <button onClick={handleFinish} className={btnCls}>
                 Go to Dashboard
               </button>
@@ -283,7 +283,7 @@ const Onboarding = ({ user }) => {
             <button
               type="button"
               onClick={() => handleSkip(currentStep.flag)}
-              className="w-full mt-3 py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
+              className="w-full mt-3 py-2 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
             >
               Skip this step
             </button>

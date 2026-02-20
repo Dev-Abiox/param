@@ -121,11 +121,11 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
   const getStatusBadge = (status) => {
     switch (status) {
       case ScreeningLabel.NORMAL:
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">Normal</span>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">Normal</span>;
       case ScreeningLabel.BORDERLINE:
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">Borderline</span>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Borderline</span>;
       case ScreeningLabel.DEFICIENT:
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">Deficient</span>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800">Deficient</span>;
       default:
         return null;
     }
@@ -134,76 +134,76 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
   return (
     <div className="space-y-6" data-testid="patient-records">
       {onBack && (
-        <button data-testid="back-to-doctors" onClick={onBack} className="flex items-center text-sm text-slate-500 hover:text-teal-600 mb-2 transition-colors">
+        <button data-testid="back-to-doctors" onClick={onBack} className="flex items-center text-sm text-slate-500 dark:text-slate-400 hover:text-teal-600 mb-2 transition-colors">
           <ArrowLeft className="w-4 h-4 mr-1" /> Back to Doctor Registry
         </button>
       )}
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">{doctorName ? `Records: ${doctorName}` : "Patient Records"}</h2>
-          <p className="text-sm text-slate-500">History of screening results and reports</p>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{doctorName ? `Records: ${doctorName}` : "Patient Records"}</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">History of screening results and reports</p>
         </div>
         <div className="flex items-center space-x-2 w-full sm:w-auto">
           <div className="relative flex-1 sm:flex-none sm:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               data-testid="records-search-input"
               type="text"
               placeholder="Search Name, ID, or Lab Ref..."
               value={searchTerm}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white shadow-sm"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white dark:bg-slate-800 shadow-sm"
             />
           </div>
-          <button data-testid="records-filter-button" className="p-2 border border-slate-300 rounded-md bg-white hover:bg-slate-50 text-slate-600">
+          <button data-testid="records-filter-button" className="p-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
             <Filter className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-sm shadow-sm overflow-hidden" data-testid="records-table">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-sm shadow-sm overflow-hidden" data-testid="records-table">
         {loading ? (
-          <div className="p-12 text-center text-slate-500" data-testid="records-loading">
+          <div className="p-12 text-center text-slate-500 dark:text-slate-400" data-testid="records-loading">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 mx-auto mb-3" />
             Loading records...
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-800">
                 <tr>
-                  <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider text-xs w-32">Patient ID</th>
-                  <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider text-xs">Patient Details</th>
-                  <th className="px-6 py-3 text-left font-bold text-slate-500 uppercase tracking-wider text-xs">Lab Ref / Date</th>
-                  <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase tracking-wider text-xs">Screening Result</th>
-                  <th className="px-6 py-3 text-center font-bold text-slate-500 uppercase tracking-wider text-xs">Review</th>
-                  <th className="px-6 py-3 text-right font-bold text-slate-500 uppercase tracking-wider text-xs">Actions</th>
+                  <th className="px-6 py-3 text-left font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs w-32">Patient ID</th>
+                  <th className="px-6 py-3 text-left font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Patient Details</th>
+                  <th className="px-6 py-3 text-left font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Lab Ref / Date</th>
+                  <th className="px-6 py-3 text-center font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Screening Result</th>
+                  <th className="px-6 py-3 text-center font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Review</th>
+                  <th className="px-6 py-3 text-right font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-100">
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-700">
                 {filteredRecords.length > 0 ? (
                   filteredRecords.map((record) => (
-                    <tr key={record.id} className="hover:bg-slate-50 transition-colors group" data-testid={`record-row-${record.id}`}
+                    <tr key={record.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors group" data-testid={`record-row-${record.id}`}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-mono font-medium text-slate-700">{record.patientId}</div>
-                        <div className="text-xs text-slate-400">Case: {record.id}</div>
+                        <div className="text-sm font-mono font-medium text-slate-700 dark:text-slate-300">{record.patientId}</div>
+                        <div className="text-xs text-slate-400 dark:text-slate-500">Case: {record.id}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 mr-3">
+                          <div className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 mr-3">
                             <User className="w-4 h-4" />
                           </div>
                           <div>
-                            <div className="text-sm font-bold text-slate-900">{record.name || ""}</div>
-                            <div className="text-xs text-slate-500">{record.age} Y / {record.sex}</div>
+                            <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{record.name || ""}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">{record.age} Y / {record.sex}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-slate-600 font-mono">{record.labId}</div>
-                        <div className="flex items-center text-xs text-slate-400 mt-0.5">
+                        <div className="text-sm text-slate-600 dark:text-slate-300 font-mono">{record.labId}</div>
+                        <div className="flex items-center text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                           <Calendar className="w-3 h-3 mr-1" />
                           {record.date}
                         </div>
@@ -219,7 +219,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                           <button
                             data-testid={`record-view-${record.id}`}
                             onClick={() => handleViewDetails(record)}
-                            className="text-slate-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors"
+                            className="text-slate-400 dark:text-slate-500 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors"
                             title="View Details"
                           >
                             <Eye className="w-4 h-4" />
@@ -228,7 +228,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                             data-testid={`record-download-${record.id}`}
                             onClick={() => handleDownload(record)}
                             disabled={downloadingId === record.id}
-                            className="text-slate-400 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors disabled:opacity-40"
+                            className="text-slate-400 dark:text-slate-500 hover:text-teal-600 p-1 rounded hover:bg-teal-50 transition-colors disabled:opacity-40"
                             title="Download Report"
                           >
                             {downloadingId === record.id
@@ -241,7 +241,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-slate-400" data-testid="no-records">
+                    <td colSpan={6} className="px-6 py-10 text-center text-slate-400 dark:text-slate-500" data-testid="no-records">
                       <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                       <p>No records found matching "{searchTerm}"</p>
                     </td>
@@ -251,18 +251,18 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
             </table>
           </div>
         )}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-500 flex justify-between items-center">
+        <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-500 dark:text-slate-400 flex justify-between items-center">
           <span data-testid="records-total">Total Records: {totalCount} (Page {page} of {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))})</span>
           <div className="flex space-x-2">
             <button
-              className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
+              className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
               disabled={page <= 1 || loading}
               onClick={() => setPage((p) => p - 1)}
             >
               Previous
             </button>
             <button
-              className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
+              className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
               disabled={page >= Math.ceil(totalCount / PAGE_SIZE) || loading}
               onClick={() => setPage((p) => p + 1)}
             >
@@ -280,12 +280,12 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
             onClick={() => setDetailRecord(null)}
           />
           {/* Panel */}
-          <div className="relative z-50 w-full max-w-lg bg-white shadow-xl overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-base font-bold text-slate-800">Screening Details</h3>
+          <div className="relative z-50 w-full max-w-lg bg-white dark:bg-slate-900 shadow-xl overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">Screening Details</h3>
               <button
                 onClick={() => setDetailRecord(null)}
-                className="p-1 rounded hover:bg-slate-200 text-slate-500"
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -299,26 +299,26 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
               <div className="p-6 space-y-5 text-sm">
                 {/* Patient */}
                 <section>
-                  <p className="text-xs font-bold uppercase text-slate-400 mb-2">Patient</p>
+                  <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Patient</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <div><span className="text-slate-500">Name</span><p className="font-medium text-slate-800">{detailRecord.patient_name || "—"}</p></div>
-                    <div><span className="text-slate-500">ID</span><p className="font-mono font-medium text-slate-800">{detailRecord.patient_id}</p></div>
-                    <div><span className="text-slate-500">Lab</span><p className="font-medium text-slate-800">{detailRecord.lab_name || "—"}</p></div>
-                    <div><span className="text-slate-500">Doctor</span><p className="font-medium text-slate-800">{detailRecord.doctor_name || "—"}</p></div>
-                    <div><span className="text-slate-500">Date</span><p className="font-medium text-slate-800">{new Date(detailRecord.created_at).toLocaleDateString()}</p></div>
-                    <div><span className="text-slate-500">Model</span><p className="font-mono text-slate-800">{detailRecord.model_version}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Name</span><p className="font-medium text-slate-800 dark:text-slate-100">{detailRecord.patient_name || "—"}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">ID</span><p className="font-mono font-medium text-slate-800 dark:text-slate-100">{detailRecord.patient_id}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Lab</span><p className="font-medium text-slate-800 dark:text-slate-100">{detailRecord.lab_name || "—"}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Doctor</span><p className="font-medium text-slate-800 dark:text-slate-100">{detailRecord.doctor_name || "—"}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Date</span><p className="font-medium text-slate-800 dark:text-slate-100">{new Date(detailRecord.created_at).toLocaleDateString()}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Model</span><p className="font-mono text-slate-800 dark:text-slate-100">{detailRecord.model_version}</p></div>
                   </div>
                 </section>
 
                 {/* Result */}
                 <section>
-                  <p className="text-xs font-bold uppercase text-slate-400 mb-2">Result</p>
-                  <p className="font-bold text-slate-800">{detailRecord.label_text}</p>
+                  <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Result</p>
+                  <p className="font-bold text-slate-800 dark:text-slate-100">{detailRecord.label_text}</p>
                   {detailRecord.probabilities && (
                     <div className="mt-1 flex gap-3 text-xs">
-                      <span className="text-green-700">Normal {(detailRecord.probabilities.normal * 100).toFixed(1)}%</span>
-                      <span className="text-amber-700">Borderline {(detailRecord.probabilities.borderline * 100).toFixed(1)}%</span>
-                      <span className="text-red-700">Deficient {(detailRecord.probabilities.deficient * 100).toFixed(1)}%</span>
+                      <span className="text-green-700 dark:text-green-400">Normal {(detailRecord.probabilities.normal * 100).toFixed(1)}%</span>
+                      <span className="text-amber-700 dark:text-amber-400">Borderline {(detailRecord.probabilities.borderline * 100).toFixed(1)}%</span>
+                      <span className="text-red-700 dark:text-red-400">Deficient {(detailRecord.probabilities.deficient * 100).toFixed(1)}%</span>
                     </div>
                   )}
                 </section>
@@ -326,15 +326,15 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                 {/* Indices */}
                 {detailRecord.indices && (
                   <section>
-                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Hematological Indices</p>
-                    <table className="w-full text-xs border border-slate-200 rounded">
-                      <thead className="bg-slate-50">
+                    <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Hematological Indices</p>
+                    <table className="w-full text-xs border border-slate-200 dark:border-slate-700 rounded">
+                      <thead className="bg-slate-50 dark:bg-slate-800">
                         <tr>
-                          <th className="px-3 py-1.5 text-left text-slate-500 font-medium">Index</th>
-                          <th className="px-3 py-1.5 text-right text-slate-500 font-medium">Value</th>
+                          <th className="px-3 py-1.5 text-left text-slate-500 dark:text-slate-400 font-medium">Index</th>
+                          <th className="px-3 py-1.5 text-right text-slate-500 dark:text-slate-400 font-medium">Value</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         <tr><td className="px-3 py-1.5">Mentzer</td><td className="px-3 py-1.5 text-right font-mono">{detailRecord.indices.mentzer}</td></tr>
                         <tr><td className="px-3 py-1.5">Green &amp; King</td><td className="px-3 py-1.5 text-right font-mono">{detailRecord.indices.greenKing}</td></tr>
                         <tr><td className="px-3 py-1.5">NLR</td><td className="px-3 py-1.5 text-right font-mono">{detailRecord.indices.nlr}</td></tr>
@@ -346,8 +346,8 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                 {/* Rules fired */}
                 {detailRecord.rules_fired?.length > 0 && (
                   <section>
-                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Clinical Interpretation</p>
-                    <ul className="list-disc list-inside space-y-1 text-slate-700">
+                    <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Clinical Interpretation</p>
+                    <ul className="list-disc list-inside space-y-1 text-slate-700 dark:text-slate-300">
                       {detailRecord.rules_fired.map((r, i) => <li key={i}>{r}</li>)}
                     </ul>
                   </section>
@@ -356,7 +356,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                 {/* 3.4 — Trend chart */}
                 {(trendLoading || (trend && trend.length > 1)) && (
                   <section>
-                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Patient CBC Trend</p>
+                    <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Patient CBC Trend</p>
                     {trendLoading ? (
                       <div className="flex items-center justify-center h-32">
                         <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
@@ -380,17 +380,17 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
 
                 {/* 3.3 — Doctor review */}
                 <section>
-                  <p className="text-xs font-bold uppercase text-slate-400 mb-2">Clinical Review</p>
+                  <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Clinical Review</p>
                   {detailRecord.is_reviewed ? (
-                    <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800">
                       <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                      <div className="text-xs text-green-800">
+                      <div className="text-xs text-green-800 dark:text-green-300">
                         <p className="font-semibold">Reviewed by {detailRecord.reviewed_by}</p>
                         {detailRecord.reviewed_at && (
                           <p className="text-green-600 mt-0.5">{new Date(detailRecord.reviewed_at).toLocaleString()}</p>
                         )}
                         {detailRecord.clinical_note && (
-                          <p className="mt-1 text-green-800 italic">"{detailRecord.clinical_note}"</p>
+                          <p className="mt-1 text-green-800 dark:text-green-300 italic">"{detailRecord.clinical_note}"</p>
                         )}
                       </div>
                     </div>
@@ -402,7 +402,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                           placeholder="Optional clinical note..."
                           value={reviewNote}
                           onChange={(e) => setReviewNote(e.target.value)}
-                          className="w-full text-xs border border-slate-300 rounded px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none"
+                          className="w-full text-xs border border-slate-300 dark:border-slate-600 rounded px-2.5 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none bg-white dark:bg-slate-800"
                         />
                         <button
                           onClick={handleMarkReviewed}
