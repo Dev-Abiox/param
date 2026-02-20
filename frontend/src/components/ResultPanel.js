@@ -69,13 +69,23 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
           </div>
         );
       case ScreeningLabel.DEFICIENT:
-      default:
         return (
           <div className="flex items-center space-x-2 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-md shadow-sm" data-testid="result-badge-deficient">
             <AlertOctagon className="w-6 h-6 text-red-600" />
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-red-600">Screening Result</p>
               <h3 className="text-xl font-bold">High Risk (Deficiency)</h3>
+              {breakdown}
+            </div>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center space-x-2 bg-slate-50 border border-slate-200 text-slate-800 px-4 py-3 rounded-md shadow-sm" data-testid="result-badge-unknown">
+            <AlertTriangle className="w-6 h-6 text-slate-500" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Screening Result</p>
+              <h3 className="text-xl font-bold">Unknown</h3>
               {breakdown}
             </div>
           </div>

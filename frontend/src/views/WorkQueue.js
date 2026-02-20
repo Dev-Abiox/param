@@ -172,7 +172,7 @@ const WorkQueue = () => {
                           <User className="h-4 w-4 text-slate-400" />
                         </div>
                         <div>
-                          <p className="font-medium text-slate-800">{item.patientName || "—"}</p>
+                          <p className="font-medium text-slate-800">{item.patientInitials || "—"}</p>
                           <p className="text-xs font-mono text-slate-400">{item.patientId}</p>
                         </div>
                       </div>

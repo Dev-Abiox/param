@@ -67,13 +67,19 @@ class JWTWebSocketMiddleware(BaseMiddleware):
         scope['user'] = user
         scope['token_payload'] = payload
 
-        # Set tenant from org_id
+        # Set tenant from org_id — reject if missing or invalid
         org_id = payload.get('org_id')
-        if org_id:
-            tenant = await self._get_tenant(org_id)
-            if tenant:
-                scope['tenant'] = tenant
-                await self._set_tenant_schema(tenant)
+        if not org_id:
+            await send({'type': 'websocket.close', 'code': 4003})
+            return
+
+        tenant = await self._get_tenant(org_id)
+        if not tenant:
+            await send({'type': 'websocket.close', 'code': 4003})
+            return
+
+        scope['tenant'] = tenant
+        await self._set_tenant_schema(tenant)
 
         return await super().__call__(scope, receive, send)
 

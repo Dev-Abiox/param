@@ -15,6 +15,9 @@ from datetime import timedelta
 
 import structlog
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -39,11 +42,19 @@ logger = structlog.get_logger(__name__)
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
+RESERVED_SCHEMAS = frozenset({
+    'public', 'pg_catalog', 'pg_toast', 'information_schema',
+})
+
+
 def _slugify_org(name: str) -> str:
     """Convert an org name to a safe PostgreSQL schema name."""
     slug = re.sub(r'[^a-z0-9]', '_', name.strip().lower())
     slug = re.sub(r'_+', '_', slug).strip('_')
-    return slug[:40] or 'org'
+    slug = slug[:40] or 'org'
+    if slug in RESERVED_SCHEMAS:
+        slug = f'tenant_{slug}'
+    return slug
 
 
 # ── Signup ─────────────────────────────────────────────────────────────────────
@@ -70,6 +81,12 @@ class SignupView(APIView):
         admin_password = data['admin_password']
         plan_name = data['plan']
 
+        # Validate password strength (matches ResetPasswordView rules)
+        try:
+            validate_password(admin_password)
+        except ValidationError as e:
+            return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
         # Derive a unique schema name
         schema_name = _slugify_org(org_name)
 
@@ -95,56 +112,61 @@ class SignupView(APIView):
         except SubscriptionPlan.DoesNotExist:
             return Response({'error': 'Invalid plan.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Create Organization — triggers auto_create_schema which provisions the PG schema
-        #    and runs all TENANT_APP migrations synchronously.
-        org = Organization.objects.create(
-            name=org_name,
-            schema_name=schema_name,
-            is_active=True,
-        )
+        try:
+            with transaction.atomic():
+                # 1. Create Organization — triggers auto_create_schema
+                org = Organization.objects.create(
+                    name=org_name,
+                    schema_name=schema_name,
+                    is_active=True,
+                )
 
-        # 2. Create a Domain for housekeeping (virtual internal domain per org)
-        Domain.objects.create(
-            tenant=org,
-            domain=f'{schema_name}.internal',
-            is_primary=True,
-        )
+                # 2. Create a Domain for housekeeping
+                Domain.objects.create(
+                    tenant=org,
+                    domain=f'{schema_name}.internal',
+                    is_primary=True,
+                )
 
-        # 3. Create the admin User in the public schema
-        username = admin_email.split('@')[0][:40]
-        # Ensure username uniqueness
-        base_username = username
-        counter = 1
-        while User.objects.filter(username=username).exists():
-            username = f'{base_username}{counter}'
-            counter += 1
+                # 3. Create the admin User in the public schema
+                username = admin_email.split('@')[0][:40]
+                base_username = username
+                counter = 1
+                while User.objects.filter(username=username).exists():
+                    username = f'{base_username}{counter}'
+                    counter += 1
 
-        user = User(
-            username=username,
-            email=admin_email,
-            name=org_name,
-            role=Role.ADMIN,
-            organization=org,
-            is_active=True,
-        )
-        user.set_password(admin_password)
-        user.save()
+                user = User(
+                    username=username,
+                    email=admin_email,
+                    name=org_name,
+                    role=Role.ADMIN,
+                    organization=org,
+                    is_active=True,
+                )
+                user.set_password(admin_password)
+                user.save()
 
-        # 4. Create TenantSubscription (14-day trial)
-        now = timezone.now()
-        trial_end = now + timedelta(days=14)
-        period_end = now + timedelta(days=30)
-        TenantSubscription.objects.create(
-            organization=org,
-            plan=plan,
-            status=TenantSubscription.Status.TRIAL,
-            current_period_start=now,
-            current_period_end=period_end,
-            trial_end=trial_end,
-        )
+                # 4. Create TenantSubscription (14-day trial)
+                now = timezone.now()
+                trial_end = now + timedelta(days=14)
+                period_end = now + timedelta(days=30)
+                TenantSubscription.objects.create(
+                    organization=org,
+                    plan=plan,
+                    status=TenantSubscription.Status.TRIAL,
+                    current_period_start=now,
+                    current_period_end=period_end,
+                    trial_end=trial_end,
+                )
+        except IntegrityError:
+            return Response(
+                {'error': 'An organisation or account with that name already exists.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        # 5. Issue JWT tokens
-        access_token = create_access_token(user, mfa_verified=True)
+        # 5. Issue JWT tokens (mfa_verified=False — user must set up MFA separately)
+        access_token = create_access_token(user, mfa_verified=False)
         refresh_token, _ = create_refresh_token(user)
 
         logger.info('signup.success', org=org.name, schema=org.schema_name, user=user.username)
@@ -159,7 +181,6 @@ class SignupView(APIView):
             'org': {
                 'id': str(org.id),
                 'name': org.name,
-                'schema_name': org.schema_name,
             },
             'plan': plan_name,
             'trial_end': trial_end.isoformat(),
@@ -216,7 +237,11 @@ class WebhookView(APIView):
         sig = request.headers.get('X-Razorpay-Signature', '')
         webhook_secret = getattr(settings, 'RAZORPAY_WEBHOOK_SECRET', '')
 
-        # Verify signature when the secret is configured
+        # Fail closed: reject all webhooks when secret is not configured
+        if not webhook_secret:
+            logger.error('billing.webhook_secret_not_configured')
+            return Response({'error': 'webhook not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
         if webhook_secret:
             try:
                 import razorpay

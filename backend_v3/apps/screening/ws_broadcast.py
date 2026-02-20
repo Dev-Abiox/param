@@ -93,25 +93,27 @@ def broadcast_high_risk_alert(
 
         schema = _get_schema_name()
         timestamp = datetime.now(timezone.utc).isoformat()
-        message = {
-            'type': 'screening.high_risk',
-            'screening_id': str(screening_id),
-            'risk_class': risk_class,
-            'label_text': label_text,
-            'timestamp': timestamp,
-        }
+
+        def _make_message():
+            return {
+                'type': 'screening.high_risk',
+                'screening_id': str(screening_id),
+                'risk_class': risk_class,
+                'label_text': label_text,
+                'timestamp': timestamp,
+            }
 
         # Send to doctor-specific group
         if doctor_id:
             async_to_sync(channel_layer.group_send)(
                 f'alerts_{schema}_{doctor_id}',
-                message,
+                _make_message(),
             )
 
         # Also send to admin-wide group
         async_to_sync(channel_layer.group_send)(
             f'alerts_{schema}_all',
-            message,
+            _make_message(),
         )
     except Exception as e:
         logger.warning("WebSocket high-risk broadcast failed: %s", e)

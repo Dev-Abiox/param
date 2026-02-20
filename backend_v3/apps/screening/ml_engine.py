@@ -4,10 +4,10 @@ ML Engine for B12 Clinical Screening.
 Provides CatBoost-based two-stage classification with rule-based adjustments.
 """
 
-import asyncio
 import hashlib
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
@@ -180,7 +180,9 @@ class B12ClinicalEngine:
             if df["Sex"].dtype == "object":
                 df["Sex"] = df["Sex"].map({"M": 1, "F": 0, "m": 1, "f": 0}).fillna(0)
 
-            explainer = shap.TreeExplainer(self.stage1)
+            if not hasattr(self, '_shap_explainer') or self._shap_explainer is None:
+                self._shap_explainer = shap.TreeExplainer(self.stage1)
+            explainer = self._shap_explainer
             shap_values = explainer.shap_values(df)
 
             # shap_values is a list of arrays (one per class) for classification
@@ -305,25 +307,31 @@ class B12ClinicalEngine:
 # Singleton instance
 _engine: Optional[B12ClinicalEngine] = None
 _executor: Optional[ThreadPoolExecutor] = None
+_engine_lock = threading.Lock()
+_executor_lock = threading.Lock()
 
 
 def get_ml_engine() -> B12ClinicalEngine:
-    """Get or initialize the ML engine singleton."""
+    """Get or initialize the ML engine singleton (thread-safe)."""
     global _engine
     if _engine is None:
-        model_dir = settings.ML_MODEL_DIR
-        _engine = B12ClinicalEngine(model_dir)
+        with _engine_lock:
+            if _engine is None:
+                model_dir = settings.ML_MODEL_DIR
+                _engine = B12ClinicalEngine(model_dir)
     return _engine
 
 
 def get_ml_executor() -> ThreadPoolExecutor:
-    """Get or initialize the thread pool executor for ML inference."""
+    """Get or initialize the thread pool executor for ML inference (thread-safe)."""
     global _executor
     if _executor is None:
-        _executor = ThreadPoolExecutor(
-            max_workers=settings.ML_EXECUTOR_WORKERS,
-            thread_name_prefix="ml_worker"
-        )
+        with _executor_lock:
+            if _executor is None:
+                _executor = ThreadPoolExecutor(
+                    max_workers=settings.ML_EXECUTOR_WORKERS,
+                    thread_name_prefix="ml_worker"
+                )
     return _executor
 
 

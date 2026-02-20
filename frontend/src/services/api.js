@@ -40,7 +40,10 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, silently refresh the access token (using the cookie) then retry once
+// On 401, silently refresh the access token (using the cookie) then retry once.
+// Deduplicates concurrent refresh requests so only one fires at a time.
+let _refreshPromise = null;
+
 API.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -48,7 +51,12 @@ API.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const newToken = await AuthService.refresh();
+        if (!_refreshPromise) {
+          _refreshPromise = AuthService.refresh().finally(() => {
+            _refreshPromise = null;
+          });
+        }
+        const newToken = await _refreshPromise;
         originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return API(originalRequest);

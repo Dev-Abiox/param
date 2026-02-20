@@ -45,7 +45,7 @@ services:
       python manage.py migrate_schemas &&
       python manage.py seed_demo_data --skip-screenings &&
       python manage.py ensure_domains &&
-      gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
+      uvicorn clinomic.asgi:application --host 0.0.0.0 --port 8000 --workers 2
       "
     depends_on:
       db_testing:

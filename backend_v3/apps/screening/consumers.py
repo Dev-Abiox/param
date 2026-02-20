@@ -43,8 +43,10 @@ class WorkQueueConsumer(AsyncJsonWebsocketConsumer):
             return
 
         tenant = self.scope.get('tenant')
-        schema = getattr(tenant, 'schema_name', 'public') if tenant else 'public'
-        self.group_name = f'wq_{schema}'
+        if not tenant or not getattr(tenant, 'schema_name', None):
+            await self.close(code=4003)
+            return
+        self.group_name = f'wq_{tenant.schema_name}'
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -132,7 +134,10 @@ class DoctorAlertConsumer(AsyncJsonWebsocketConsumer):
             return
 
         tenant = self.scope.get('tenant')
-        schema = getattr(tenant, 'schema_name', 'public') if tenant else 'public'
+        if not tenant or not getattr(tenant, 'schema_name', None):
+            await self.close(code=4003)
+            return
+        schema = tenant.schema_name
 
         # For DOCTOR role, subscribe to their specific doctor group
         # For ADMIN role, subscribe to the tenant-wide alert group

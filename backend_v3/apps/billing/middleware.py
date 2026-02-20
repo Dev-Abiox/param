@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 def _extract_org_id(request) -> str | None:
     """
     Decode the Bearer token from the Authorization header and return the
-    `org_id` claim, or None if the header is absent / token is invalid.
-    Expiry is deliberately *not* verified here — JWTAuthentication (called
-    later in the DRF view layer) does the full validation.
+    `org_id` claim, or None if the header is absent / token is invalid / expired.
     """
     auth = request.META.get('HTTP_AUTHORIZATION', '')
     if not auth.startswith('Bearer '):
@@ -40,7 +38,6 @@ def _extract_org_id(request) -> str | None:
             token,
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
-            options={'verify_exp': False},
         )
         return payload.get('org_id') or None
     except Exception:

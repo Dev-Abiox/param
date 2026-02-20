@@ -382,10 +382,10 @@ const App = () => {
         {/* Settings */}
         <Route path="/settings" element={<Settings user={user} />} />
 
-        {/* Onboarding wizard (post-signup, full page inside auth) */}
+        {/* Onboarding wizard (post-signup, ADMIN only) */}
         <Route
           path="/onboarding"
-          element={<Onboarding user={user} />}
+          element={user.role === Role.ADMIN ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
         {/* Admin Portal — Management section (ADMIN only) */}

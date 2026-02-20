@@ -3,6 +3,7 @@ Screening API views.
 """
 
 import hashlib
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -113,7 +114,7 @@ class PredictView(APIView):
         except Exception as e:
             logger.exception("Model prediction failed")
             return Response(
-                {'error': f'Prediction failed: {str(e)}'},
+                {'error': 'Prediction failed. Please try again or contact support.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -157,12 +158,12 @@ class PredictView(APIView):
             }
         )
 
-        # Compute hashes for reproducibility
+        # Compute hashes for reproducibility (deterministic key order)
         request_hash = hashlib.sha256(
-            f"{patient_id}:{cbc}".encode()
+            f"{patient_id}:{json.dumps(cbc, sort_keys=True)}".encode()
         ).hexdigest()
         response_hash = hashlib.sha256(
-            f"{result}".encode()
+            json.dumps(result, sort_keys=True).encode()
         ).hexdigest()
 
         screening_id = uuid.uuid4()
@@ -473,7 +474,7 @@ class WorkQueueView(APIView):
             items.append({
                 'id': str(s.id),
                 'patientId': s.patient.patient_id if s.patient else None,
-                'patientName': s.patient.name if s.patient else None,
+                'patientInitials': (s.patient.name[0] + '.' if s.patient and s.patient.name else None),
                 'labId': s.lab.code if s.lab else None,
                 'doctorName': s.doctor.name if s.doctor else None,
                 'riskClass': s.risk_class,

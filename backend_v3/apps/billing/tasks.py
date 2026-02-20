@@ -21,7 +21,13 @@ from django.core.cache import cache
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(name='billing.increment_usage')
+@shared_task(
+    name='billing.increment_usage',
+    max_retries=3,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    acks_late=True,
+)
 def increment_usage(org_id: str, screening_id: str) -> None:
     """
     Atomically increment current_period_count for the given organisation.
@@ -49,7 +55,13 @@ def increment_usage(org_id: str, screening_id: str) -> None:
         )
 
 
-@shared_task(name='billing.compute_monthly_rollups')
+@shared_task(
+    name='billing.compute_monthly_rollups',
+    max_retries=2,
+    retry_backoff=True,
+    retry_backoff_max=120,
+    acks_late=True,
+)
 def compute_monthly_rollups() -> int:
     """
     Archive last month's usage and reset all subscription counters.
@@ -57,6 +69,7 @@ def compute_monthly_rollups() -> int:
 
     Returns the number of subscriptions updated.
     """
+    from django.db import transaction
     from apps.billing.models import TenantSubscription, UsageRecord
 
     today = date.today()
@@ -69,31 +82,41 @@ def compute_monthly_rollups() -> int:
     current_period_end = first_of_next - timedelta(days=1)
 
     updated = 0
-    for sub in TenantSubscription.objects.select_related('organization').iterator():
+    sub_ids = list(
+        TenantSubscription.objects.values_list('id', flat=True)
+    )
+    for sub_id in sub_ids:
         try:
-            UsageRecord.objects.update_or_create(
-                organization=sub.organization,
-                period_start=last_month_start,
-                defaults={
-                    'period_end': last_month_end,
-                    'screening_count': sub.current_period_count,
-                },
-            )
-            sub.current_period_count = 0
-            sub.current_period_start = today
-            sub.current_period_end = current_period_end
-            sub.save(update_fields=[
-                'current_period_count',
-                'current_period_start',
-                'current_period_end',
-                'updated_at',
-            ])
+            with transaction.atomic():
+                sub = (
+                    TenantSubscription.objects
+                    .select_for_update()
+                    .select_related('organization')
+                    .get(id=sub_id)
+                )
+                UsageRecord.objects.update_or_create(
+                    organization=sub.organization,
+                    period_start=last_month_start,
+                    defaults={
+                        'period_end': last_month_end,
+                        'screening_count': sub.current_period_count,
+                    },
+                )
+                sub.current_period_count = 0
+                sub.current_period_start = today
+                sub.current_period_end = current_period_end
+                sub.save(update_fields=[
+                    'current_period_count',
+                    'current_period_start',
+                    'current_period_end',
+                    'updated_at',
+                ])
             cache.delete(f'plan_limit_over:{sub.organization_id}')
             updated += 1
         except Exception as exc:
             logger.error(
                 'billing.rollup_failed',
-                org_id=str(sub.organization_id),
+                sub_id=str(sub_id),
                 error=str(exc),
             )
 

@@ -175,14 +175,13 @@ class NarrativeEngine:
         except Patient.DoesNotExist:
             return ''
 
-        previous = list(
+        # Narrative is generated before the current screening is persisted,
+        # so all results here are genuine historical records.
+        history = list(
             Screening.objects
             .filter(patient=patient)
-            .order_by('-created_at')[:6]
+            .order_by('-created_at')[:5]
         )
-
-        # Skip the most recent (current) screening
-        history = previous[1:] if len(previous) > 1 else []
 
         if not history:
             return ''

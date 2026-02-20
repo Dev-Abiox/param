@@ -6,6 +6,8 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.http import JsonResponse
 from rest_framework import status
@@ -707,6 +709,10 @@ class AdminUserListView(APIView):
             role=role,
             organization=org,
         )
+        try:
+            validate_password(password, user=user)
+        except ValidationError as e:
+            return Response({'error': e.messages}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(password)
         user.save()
 
@@ -751,6 +757,10 @@ class AdminUserDetailView(APIView):
                 setattr(user, field, value)
 
         if 'password' in request.data and request.data['password']:
+            try:
+                validate_password(request.data['password'], user=user)
+            except ValidationError as e:
+                return Response({'error': e.messages}, status=status.HTTP_400_BAD_REQUEST)
             user.set_password(request.data['password'])
 
         user.save()

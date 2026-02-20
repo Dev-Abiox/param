@@ -67,7 +67,7 @@ class TenantSubscription(models.Model):
         choices=Status.choices,
         default=Status.TRIAL,
     )
-    razorpay_sub_id = models.CharField(max_length=100, blank=True)
+    razorpay_sub_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
 
     current_period_start = models.DateTimeField()
     current_period_end = models.DateTimeField()
