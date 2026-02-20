@@ -134,7 +134,7 @@ class MFASettings(models.Model):
         related_name='mfa_settings'
     )
     is_enabled = models.BooleanField(default=False)
-    secret_key = models.CharField(max_length=32, blank=True)  # Encrypted TOTP secret
+    secret_key = models.TextField(blank=True)  # Encrypted TOTP secret (Fernet ciphertext)
     backup_codes = models.JSONField(default=list)  # Hashed backup codes
     recovery_email = models.EmailField(blank=True, null=True)
 
