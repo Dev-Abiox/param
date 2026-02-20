@@ -79,8 +79,11 @@ class Command(BaseCommand):
                 f"\nDemo data seeded successfully!\n"
                 f"  Organization: {org.name} (schema: {org.schema_name})\n"
                 f"  Domains: demo.localhost, localhost\n"
-                f"  Users: admin_demo (admin), lab_demo (lab), doctor_demo (doctor)\n"
-                f"  Password: Demo@2024\n"
+                f"  Users:\n"
+                f"    superadmin (superuser, Django admin access) — SuperAdmin@2024\n"
+                f"    admin_demo (admin role)                     — Demo@2024\n"
+                f"    lab_demo   (lab role)                       — Demo@2024\n"
+                f"    doctor_demo (doctor role)                   — Demo@2024\n"
             )
         )
 
@@ -162,8 +165,19 @@ class Command(BaseCommand):
         """Create demo users with different roles."""
         users = {}
         default_password = "Demo@2024"
+        superadmin_password = "SuperAdmin@2024"
 
         user_configs = [
+            {
+                "key": "superadmin",
+                "username": "superadmin",
+                "role": Role.ADMIN,
+                "name": "Super Administrator",
+                "email": "superadmin@demo.clinomic.local",
+                "is_staff": True,
+                "is_superuser": True,
+                "password": superadmin_password,
+            },
             {
                 "key": "admin_demo",
                 "username": "admin_demo",
@@ -171,6 +185,8 @@ class Command(BaseCommand):
                 "name": "Demo Administrator",
                 "email": "admin@demo.clinomic.local",
                 "is_staff": True,
+                "is_superuser": False,
+                "password": default_password,
             },
             {
                 "key": "lab_demo",
@@ -179,6 +195,8 @@ class Command(BaseCommand):
                 "name": "Demo Lab Technician",
                 "email": "lab@demo.clinomic.local",
                 "is_staff": False,
+                "is_superuser": False,
+                "password": default_password,
             },
             {
                 "key": "doctor_demo",
@@ -187,6 +205,8 @@ class Command(BaseCommand):
                 "name": "Dr. Demo Physician",
                 "email": "doctor@demo.clinomic.local",
                 "is_staff": False,
+                "is_superuser": False,
+                "password": default_password,
             },
         ]
 
@@ -201,16 +221,21 @@ class Command(BaseCommand):
                     "name": config["name"],
                     "email": config["email"],
                     "is_staff": config["is_staff"],
+                    "is_superuser": config["is_superuser"],
                     "organization": org,
                     "is_active": True,
                 },
             )
 
             if created:
-                user.set_password(default_password)
+                user.set_password(config["password"])
                 user.save()
                 self.stdout.write(f"  Created user: {user.username} ({user.role})")
             else:
+                if config["is_superuser"]:
+                    # Always keep superadmin password consistent across deploys
+                    user.set_password(config["password"])
+                    user.save()
                 self.stdout.write(f"  User exists: {user.username}")
 
             users[config["key"]] = user
