@@ -42,7 +42,10 @@ class SummaryView(APIView):
 
     def get(self, request):
         ck = _cache_key('summary', request.user.pk)
-        cached = cache.get(ck)
+        try:
+            cached = cache.get(ck)
+        except Exception:
+            cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
             return Response(cached)
@@ -87,7 +90,7 @@ class SummaryView(APIView):
                 'id': str(s.id),
                 'date': s.created_at.strftime('%Y-%m-%d'),
                 'patientRef': s.patient.patient_id if s.patient else None,
-                'mcv': s.cbc_snapshot.get('MCV', '-'),
+                'mcv': (s.cbc_snapshot or {}).get('MCV', '-'),
                 'result': result_str,
             })
 
@@ -115,7 +118,10 @@ class SummaryView(APIView):
             ],
             'recentCases': recent,
         }
-        cache.set(ck, payload, timeout=60)
+        try:
+            cache.set(ck, payload, timeout=60)
+        except Exception:
+            logger.warning("cache_set_failed", key=ck)
         return Response(payload)
 
 
@@ -130,7 +136,10 @@ class LabStatsView(APIView):
 
     def get(self, request):
         ck = _cache_key('labs')
-        cached = cache.get(ck)
+        try:
+            cached = cache.get(ck)
+        except Exception:
+            cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
             return Response(cached)
@@ -151,7 +160,10 @@ class LabStatsView(APIView):
                 'cases': lab.cases_count,
             })
 
-        cache.set(ck, result, timeout=120)
+        try:
+            cache.set(ck, result, timeout=120)
+        except Exception:
+            logger.warning("cache_set_failed", key=ck)
         return Response(result)
 
 
@@ -167,7 +179,10 @@ class DoctorStatsView(APIView):
     def get(self, request):
         lab_id = request.query_params.get('labId', '')
         ck = _cache_key('doctors', lab_id or 'all')
-        cached = cache.get(ck)
+        try:
+            cached = cache.get(ck)
+        except Exception:
+            cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
             return Response(cached)
@@ -189,7 +204,10 @@ class DoctorStatsView(APIView):
                 'cases': doctor.cases_count,
             })
 
-        cache.set(ck, result, timeout=60)
+        try:
+            cache.set(ck, result, timeout=60)
+        except Exception:
+            logger.warning("cache_set_failed", key=ck)
         return Response(result)
 
 
@@ -295,7 +313,10 @@ class PatientTrendView(APIView):
     def get(self, request, patient_id):
         # Cache key includes user_id so DOCTOR isolation is preserved across cache hits
         ck = _cache_key('trend', request.user.pk, patient_id)
-        cached = cache.get(ck)
+        try:
+            cached = cache.get(ck)
+        except Exception:
+            cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
             return Response(cached)
@@ -335,7 +356,10 @@ class PatientTrendView(APIView):
         })
 
         payload = {'patientId': patient_id, 'trend': trend}
-        cache.set(ck, payload, timeout=60)
+        try:
+            cache.set(ck, payload, timeout=60)
+        except Exception:
+            logger.warning("cache_set_failed", key=ck)
         return Response(payload)
 
 

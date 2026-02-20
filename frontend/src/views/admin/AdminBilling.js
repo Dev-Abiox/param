@@ -15,7 +15,7 @@ const AdminBilling = () => {
     try {
       const res = await BillingService.getPlan();
       setData(res);
-      setSelectedPlan(res?.subscription?.plan || null);
+      setSelectedPlan(res?.subscription?.plan?.name || null);
     } catch {
       setError("Failed to load billing data.");
     } finally {
@@ -26,7 +26,7 @@ const AdminBilling = () => {
   useEffect(() => { load(); }, []);
 
   const handleUpgrade = async () => {
-    if (!selectedPlan || selectedPlan === data?.subscription?.plan) return;
+    if (!selectedPlan || selectedPlan === data?.subscription?.plan?.name) return;
     setUpgradeLoading(true);
     try {
       await BillingService.upgradePlan(selectedPlan);
@@ -48,7 +48,7 @@ const AdminBilling = () => {
     return <div className="max-w-4xl mx-auto p-8 text-center text-red-500">{error}</div>;
   }
 
-  const currentPlan = data?.subscription?.plan;
+  const currentPlan = data?.subscription?.plan?.name;
   const availablePlans = data?.available_plans ?? [];
   const status = data?.subscription?.status;
 
@@ -96,7 +96,7 @@ const AdminBilling = () => {
           <div>
             <p className="text-xs text-slate-400 mb-1">Monthly Limit</p>
             <p className="font-semibold text-slate-800">
-              {data?.subscription?.monthly_limit === -1 ? "Unlimited" : (data?.subscription?.monthly_limit?.toLocaleString() ?? "—")}
+              {data?.subscription?.plan?.monthly_limit === -1 ? "Unlimited" : (data?.subscription?.plan?.monthly_limit?.toLocaleString() ?? "—")}
             </p>
           </div>
         </div>
