@@ -94,8 +94,11 @@ class SummaryView(APIView):
                 'result': result_str,
             })
 
-        ml_engine = get_ml_engine()
-        ml_status = ml_engine.get_status()
+        try:
+            ml_engine = get_ml_engine()
+            ml_status = ml_engine.get_status()
+        except Exception:
+            ml_status = {}
         vm = ml_status.get('validation_metrics', {})
 
         payload = {
