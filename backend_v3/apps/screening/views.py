@@ -18,7 +18,7 @@ from apps.core.audit import log_phi_access
 from apps.core.crypto import encrypt_field
 from apps.core.exceptions import MLModelNotReadyError
 from apps.core.models import Role
-from apps.core.permissions import HasRole, IsMFAVerified
+from apps.core.permissions import HasRole, IsAdmin, IsMFAVerified
 
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
@@ -183,6 +183,12 @@ class PredictView(APIView):
             recommendation = "Consider serum B12 measurement if clinically indicated."
         else:
             recommendation = "B12 deficiency unlikely based on CBC parameters."
+
+        # Fire usage increment asynchronously (non-blocking)
+        org_id = str(request.tenant.id) if getattr(request, 'tenant', None) else None
+        if org_id:
+            from apps.billing.tasks import increment_usage
+            increment_usage.delay(org_id, str(screening.id))
 
         log_phi_access(request, patient_id, 'PHI_PREDICT', {
             'screening_id': str(screening.id),
@@ -800,3 +806,216 @@ class FHIRBundleView(APIView):
                 'valueString': str(result['probabilities']),
             }],
         }, status=status.HTTP_201_CREATED)
+
+
+# ── Admin Lab Management ────────────────────────────────────────────────────────
+
+class AdminLabView(APIView):
+    """
+    List and create labs (tenant-scoped).
+
+    GET  /api/screening/admin/labs   — list all labs
+    POST /api/screening/admin/labs   — create a new lab
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+
+    def get(self, request):
+        labs = Lab.objects.all().order_by('name')
+        data = [
+            {
+                'id': str(l.id),
+                'code': l.code,
+                'name': l.name,
+                'tier': l.tier,
+                'contact_email': l.contact_email,
+                'is_active': l.is_active,
+                'created_at': l.created_at.isoformat(),
+            }
+            for l in labs
+        ]
+        return Response(data)
+
+    def post(self, request):
+        for field in ['code', 'name']:
+            if not request.data.get(field):
+                return Response({'error': f'{field} is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        code = request.data['code'].strip()
+        if Lab.objects.filter(code__iexact=code).exists():
+            return Response({'error': 'Lab code already exists'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lab = Lab.objects.create(
+            code=code,
+            name=request.data['name'].strip(),
+            tier=request.data.get('tier', 'standard'),
+            contact_email=(request.data.get('contact_email') or '').strip(),
+        )
+        return Response({
+            'id': str(lab.id),
+            'code': lab.code,
+            'name': lab.name,
+            'tier': lab.tier,
+            'contact_email': lab.contact_email,
+            'is_active': lab.is_active,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminLabDetailView(APIView):
+    """
+    Update or deactivate a lab.
+
+    PATCH  /api/screening/admin/labs/<lab_id>  — update fields
+    DELETE /api/screening/admin/labs/<lab_id>  — soft-deactivate
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+
+    def _get_lab(self, lab_id):
+        try:
+            return Lab.objects.get(id=lab_id)
+        except Lab.DoesNotExist:
+            return None
+
+    def patch(self, request, lab_id):
+        lab = self._get_lab(lab_id)
+        if not lab:
+            return Response({'error': 'Lab not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ['name', 'tier', 'contact_email', 'is_active']:
+            if field in request.data:
+                setattr(lab, field, request.data[field])
+        lab.save()
+        return Response({
+            'id': str(lab.id),
+            'code': lab.code,
+            'name': lab.name,
+            'tier': lab.tier,
+            'contact_email': lab.contact_email,
+            'is_active': lab.is_active,
+        })
+
+    def delete(self, request, lab_id):
+        lab = self._get_lab(lab_id)
+        if not lab:
+            return Response({'error': 'Lab not found'}, status=status.HTTP_404_NOT_FOUND)
+        lab.is_active = False
+        lab.save(update_fields=['is_active', 'updated_at'])
+        return Response({'detail': 'Lab deactivated'})
+
+
+# ── Admin Doctor Management ─────────────────────────────────────────────────────
+
+class AdminDoctorView(APIView):
+    """
+    List and create doctors (tenant-scoped).
+
+    GET  /api/screening/admin/doctors   — list all doctors
+    POST /api/screening/admin/doctors   — create a new doctor
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+
+    def get(self, request):
+        lab_id = request.query_params.get('labId')
+        qs = Doctor.objects.select_related('lab').order_by('name')
+        if lab_id:
+            qs = qs.filter(lab__code=lab_id)
+        data = [
+            {
+                'id': str(d.id),
+                'code': d.code,
+                'name': d.name,
+                'department': d.department,
+                'specialization': d.specialization,
+                'email': d.email,
+                'lab_id': str(d.lab_id),
+                'lab_code': d.lab.code,
+                'lab_name': d.lab.name,
+                'is_active': d.is_active,
+                'created_at': d.created_at.isoformat(),
+            }
+            for d in qs
+        ]
+        return Response(data)
+
+    def post(self, request):
+        for field in ['code', 'name', 'lab_id']:
+            if not request.data.get(field):
+                return Response({'error': f'{field} is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        code = request.data['code'].strip()
+        if Doctor.objects.filter(code__iexact=code).exists():
+            return Response({'error': 'Doctor code already exists'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            lab = Lab.objects.get(id=request.data['lab_id'])
+        except Lab.DoesNotExist:
+            return Response({'error': 'Lab not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        doctor = Doctor.objects.create(
+            code=code,
+            name=request.data['name'].strip(),
+            department=(request.data.get('department') or '').strip(),
+            specialization=(request.data.get('specialization') or '').strip(),
+            email=(request.data.get('email') or '').strip(),
+            lab=lab,
+        )
+        return Response({
+            'id': str(doctor.id),
+            'code': doctor.code,
+            'name': doctor.name,
+            'department': doctor.department,
+            'specialization': doctor.specialization,
+            'email': doctor.email,
+            'lab_id': str(doctor.lab_id),
+            'is_active': doctor.is_active,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminDoctorDetailView(APIView):
+    """
+    Update or deactivate a doctor.
+
+    PATCH  /api/screening/admin/doctors/<doctor_id>  — update fields
+    DELETE /api/screening/admin/doctors/<doctor_id>  — soft-deactivate
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+
+    def _get_doctor(self, doctor_id):
+        try:
+            return Doctor.objects.select_related('lab').get(id=doctor_id)
+        except Doctor.DoesNotExist:
+            return None
+
+    def patch(self, request, doctor_id):
+        doctor = self._get_doctor(doctor_id)
+        if not doctor:
+            return Response({'error': 'Doctor not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        for field in ['name', 'department', 'specialization', 'email', 'is_active']:
+            if field in request.data:
+                setattr(doctor, field, request.data[field])
+
+        if 'lab_id' in request.data:
+            try:
+                doctor.lab = Lab.objects.get(id=request.data['lab_id'])
+            except Lab.DoesNotExist:
+                return Response({'error': 'Lab not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        doctor.save()
+        return Response({
+            'id': str(doctor.id),
+            'code': doctor.code,
+            'name': doctor.name,
+            'department': doctor.department,
+            'specialization': doctor.specialization,
+            'email': doctor.email,
+            'lab_id': str(doctor.lab_id),
+            'is_active': doctor.is_active,
+        })
+
+    def delete(self, request, doctor_id):
+        doctor = self._get_doctor(doctor_id)
+        if not doctor:
+            return Response({'error': 'Doctor not found'}, status=status.HTTP_404_NOT_FOUND)
+        doctor.is_active = False
+        doctor.save(update_fields=['is_active', 'updated_at'])
+        return Response({'detail': 'Doctor deactivated'})

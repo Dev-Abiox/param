@@ -15,6 +15,8 @@ import {
   Stethoscope,
   TestTube,
   UserCog,
+  BarChart2,
+  CreditCard,
 } from "lucide-react";
 import { Role } from "@/types";
 import { NotificationService } from "@/services/api";
@@ -288,6 +290,49 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           </>
         )}
 
+        {isAdmin && (
+          <div className="pt-4 mt-4 border-t border-slate-200">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
+              Management
+            </p>
+            <NavItem
+              icon={Users}
+              label="Users"
+              active={activeView === "admin_users"}
+              onClick={() => handleNavClick("admin_users")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={Building2}
+              label="Labs"
+              active={activeView === "admin_labs_mgmt"}
+              onClick={() => handleNavClick("admin_labs_mgmt")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={Stethoscope}
+              label="Doctors"
+              active={activeView === "admin_doctors_mgmt"}
+              onClick={() => handleNavClick("admin_doctors_mgmt")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={BarChart2}
+              label="Usage"
+              active={activeView === "admin_usage"}
+              onClick={() => handleNavClick("admin_usage")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={CreditCard}
+              label="Billing"
+              active={activeView === "admin_billing"}
+              onClick={() => handleNavClick("admin_billing")}
+              roleColor={config.color}
+            />
+          </div>
+        )}
+
         <div className="pt-4 mt-4 border-t border-slate-200">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">
             Account
@@ -376,6 +421,11 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               {activeView === "work_queue" && "Work Queue"}
               {activeView === "records" && (isDoctor ? "My Patients" : "Patient Records")}
               {activeView === "settings" && "Settings"}
+              {activeView === "admin_users" && "Users"}
+              {activeView === "admin_labs_mgmt" && "Labs Management"}
+              {activeView === "admin_doctors_mgmt" && "Doctors Management"}
+              {activeView === "admin_usage" && "Usage"}
+              {activeView === "admin_billing" && "Billing"}
             </h2>
             <p className="text-sm text-slate-500">{config.subtitle}</p>
           </div>

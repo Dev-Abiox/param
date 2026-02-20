@@ -5,6 +5,8 @@ import "@/App.css";
 import { useSessionTimeout } from "@/hooks/useSessionTimeout";
 
 import Login from "@/views/Login";
+import Signup from "@/views/Signup";
+import Onboarding from "@/views/Onboarding";
 import Layout from "@/components/Layout";
 import UserWorkspace from "@/views/UserWorkspace";
 import AdminDashboard from "@/views/AdminDashboard";
@@ -14,6 +16,11 @@ import WorkQueue from "@/views/WorkQueue";
 import DoctorList from "@/views/DoctorList";
 import LabList from "@/views/LabList";
 import Settings from "@/views/Settings";
+import AdminUsers from "@/views/admin/AdminUsers";
+import AdminLabs from "@/views/admin/AdminLabs";
+import AdminDoctors from "@/views/admin/AdminDoctors";
+import AdminUsage from "@/views/admin/AdminUsage";
+import AdminBilling from "@/views/admin/AdminBilling";
 
 import { AuthService } from "@/services/api";
 import { Role } from "@/types";
@@ -28,6 +35,11 @@ const routeToView = {
   "/records": "records",
   "/work-queue": "work_queue",
   "/settings": "settings",
+  "/admin/users": "admin_users",
+  "/admin/labs": "admin_labs_mgmt",
+  "/admin/doctors": "admin_doctors_mgmt",
+  "/admin/usage": "admin_usage",
+  "/admin/billing": "admin_billing",
 };
 
 // Get default route based on user role
@@ -176,6 +188,11 @@ const App = () => {
       records: "/records",
       work_queue: "/work-queue",
       settings: "/settings",
+      admin_users: "/admin/users",
+      admin_labs_mgmt: "/admin/labs",
+      admin_doctors_mgmt: "/admin/doctors",
+      admin_usage: "/admin/usage",
+      admin_billing: "/admin/billing",
     };
 
     navigate(viewToRoute[view] || "/");
@@ -195,7 +212,7 @@ const App = () => {
     );
   }
 
-  // Not logged in - show login or redirect to login
+  // Not logged in — allow /login and /signup; redirect everything else to /login
   if (!user) {
     return (
       <Routes>
@@ -207,6 +224,16 @@ const App = () => {
               onMFARequired={handleMFASuccess}
               isLoading={isLoading}
               error={error}
+            />
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            <Signup
+              onSignup={(data) => {
+                setUser({ id: data.user?.id, name: data.user?.name, role: data.user?.role });
+              }}
             />
           }
         />
@@ -354,6 +381,34 @@ const App = () => {
 
         {/* Settings */}
         <Route path="/settings" element={<Settings user={user} />} />
+
+        {/* Onboarding wizard (post-signup, full page inside auth) */}
+        <Route
+          path="/onboarding"
+          element={<Onboarding user={user} />}
+        />
+
+        {/* Admin Portal — Management section (ADMIN only) */}
+        <Route
+          path="/admin/users"
+          element={user.role === Role.ADMIN ? <AdminUsers /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+        />
+        <Route
+          path="/admin/labs"
+          element={user.role === Role.ADMIN ? <AdminLabs /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+        />
+        <Route
+          path="/admin/doctors"
+          element={user.role === Role.ADMIN ? <AdminDoctors /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+        />
+        <Route
+          path="/admin/usage"
+          element={user.role === Role.ADMIN ? <AdminUsage /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+        />
+        <Route
+          path="/admin/billing"
+          element={user.role === Role.ADMIN ? <AdminBilling /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+        />
 
         {/* Default redirect based on role */}
         <Route

@@ -24,8 +24,8 @@ from .authentication import (
 )
 from .crypto import get_crypto_status
 from .mfa import MFAManager
-from .models import User
-from .permissions import IsMFAVerified
+from .models import Role, User
+from .permissions import IsAdmin, IsMFAVerified
 from .serializers import (
     LoginSerializer,
     MFACodeSerializer,
@@ -651,3 +651,126 @@ class NotificationMarkReadView(APIView):
         n.is_read = True
         n.save(update_fields=['is_read'])
         return Response({'detail': 'Marked as read'})
+
+
+# ── Admin User Management ───────────────────────────────────────────────────────
+
+class AdminUserListView(APIView):
+    """
+    List and create users within the admin's organization.
+
+    GET  /api/admin/users   — list all org users
+    POST /api/admin/users   — create a new user in the org
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+
+    def get(self, request):
+        org = request.user.organization
+        users = User.objects.filter(organization=org).order_by('name', 'username')
+        data = [
+            {
+                'id': str(u.id),
+                'username': u.username,
+                'email': u.email or '',
+                'name': u.name,
+                'role': u.role,
+                'is_active': u.is_active,
+                'created_at': u.created_at.isoformat(),
+            }
+            for u in users
+        ]
+        return Response(data)
+
+    def post(self, request):
+        org = request.user.organization
+        required = ['username', 'password', 'role']
+        for field in required:
+            if not request.data.get(field):
+                return Response({'error': f'{field} is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        username = request.data['username'].strip()
+        email = (request.data.get('email') or '').strip() or None
+        name = (request.data.get('name') or '').strip()
+        role = request.data['role'].upper()
+        password = request.data['password']
+
+        if role not in Role.values:
+            return Response({'error': f'Invalid role. Must be one of: {Role.values}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(username__iexact=username).exists():
+            return Response({'error': 'Username already taken'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User(
+            username=username,
+            email=email,
+            name=name,
+            role=role,
+            organization=org,
+        )
+        user.set_password(password)
+        user.save()
+
+        return Response({
+            'id': str(user.id),
+            'username': user.username,
+            'email': user.email or '',
+            'name': user.name,
+            'role': user.role,
+            'is_active': user.is_active,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminUserDetailView(APIView):
+    """
+    Update or deactivate a user within the admin's organization.
+
+    PATCH  /api/admin/users/<user_id>  — update fields
+    DELETE /api/admin/users/<user_id>  — soft-deactivate (is_active=False)
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+
+    def _get_user(self, request, user_id):
+        try:
+            return User.objects.get(id=user_id, organization=request.user.organization)
+        except User.DoesNotExist:
+            return None
+
+    def patch(self, request, user_id):
+        user = self._get_user(request, user_id)
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        allowed = ['name', 'email', 'role', 'is_active']
+        for field in allowed:
+            if field in request.data:
+                value = request.data[field]
+                if field == 'role':
+                    value = value.upper()
+                    if value not in Role.values:
+                        return Response({'error': f'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+                setattr(user, field, value)
+
+        if 'password' in request.data and request.data['password']:
+            user.set_password(request.data['password'])
+
+        user.save()
+        return Response({
+            'id': str(user.id),
+            'username': user.username,
+            'email': user.email or '',
+            'name': user.name,
+            'role': user.role,
+            'is_active': user.is_active,
+        })
+
+    def delete(self, request, user_id):
+        user = self._get_user(request, user_id)
+        if not user:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.id == request.user.id:
+            return Response({'error': 'Cannot deactivate your own account'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.is_active = False
+        user.save(update_fields=['is_active', 'updated_at'])
+        return Response({'detail': 'User deactivated'})

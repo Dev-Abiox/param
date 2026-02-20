@@ -143,6 +143,20 @@ export const AuthService = {
     const res = await API.delete(`/auth/sessions/${tokenId}`);
     return res.data;
   },
+
+  signup: async ({ orgName, adminEmail, adminPassword, plan, adminName }) => {
+    const res = await API.post("/v1/signup/", {
+      org_name: orgName,
+      admin_email: adminEmail,
+      admin_password: adminPassword,
+      plan,
+      admin_name: adminName,
+    });
+    if (res.data.access_token) {
+      setAccessToken(res.data.access_token);
+    }
+    return res.data;
+  },
 };
 
 export const MFAService = {
@@ -294,26 +308,104 @@ export const AdminService = {
     const res = await API.get("/admin/audit/v2/summary");
     return res.data;
   },
-  
+
   verifyAuditChain: async (limit = 100) => {
     const res = await API.get(`/admin/audit/v2/verify?limit=${limit}`);
     return res.data;
   },
-  
+
   exportAuditLogs: async (fromSequence = 1, toSequence = null) => {
     const params = { from_sequence: fromSequence };
     if (toSequence) params.to_sequence = toSequence;
     const res = await API.get("/admin/audit/v2/export", { params });
     return res.data;
   },
-  
+
   getSystemHealth: async () => {
     const res = await API.get("/admin/system/health");
     return res.data;
   },
-  
+
   getSystemConfig: async () => {
     const res = await API.get("/admin/system/config");
+    return res.data;
+  },
+
+  // ── User Management ──────────────────────────────────────────────────────────
+  getUsers: async () => {
+    const res = await API.get("/admin/users");
+    return res.data;
+  },
+  createUser: async (data) => {
+    const res = await API.post("/admin/users", data);
+    return res.data;
+  },
+  updateUser: async (userId, data) => {
+    const res = await API.patch(`/admin/users/${userId}`, data);
+    return res.data;
+  },
+  deactivateUser: async (userId) => {
+    const res = await API.delete(`/admin/users/${userId}`);
+    return res.data;
+  },
+
+  // ── Lab Management ───────────────────────────────────────────────────────────
+  getLabs: async () => {
+    const res = await API.get("/screening/admin/labs");
+    return res.data;
+  },
+  createLab: async (data) => {
+    const res = await API.post("/screening/admin/labs", data);
+    return res.data;
+  },
+  updateLab: async (labId, data) => {
+    const res = await API.patch(`/screening/admin/labs/${labId}`, data);
+    return res.data;
+  },
+  deactivateLab: async (labId) => {
+    const res = await API.delete(`/screening/admin/labs/${labId}`);
+    return res.data;
+  },
+
+  // ── Doctor Management ────────────────────────────────────────────────────────
+  getDoctors: async (labId = null) => {
+    const params = labId ? { labId } : {};
+    const res = await API.get("/screening/admin/doctors", { params });
+    return res.data;
+  },
+  createDoctor: async (data) => {
+    const res = await API.post("/screening/admin/doctors", data);
+    return res.data;
+  },
+  updateDoctor: async (doctorId, data) => {
+    const res = await API.patch(`/screening/admin/doctors/${doctorId}`, data);
+    return res.data;
+  },
+  deactivateDoctor: async (doctorId) => {
+    const res = await API.delete(`/screening/admin/doctors/${doctorId}`);
+    return res.data;
+  },
+};
+
+export const BillingService = {
+  getUsage: async () => {
+    const res = await API.get("/v1/billing/admin/usage");
+    return res.data;
+  },
+  getPlan: async () => {
+    const res = await API.get("/v1/billing/admin/billing");
+    return res.data;
+  },
+  upgradePlan: async (planName) => {
+    const res = await API.post("/v1/billing/admin/billing/upgrade", { plan: planName });
+    return res.data;
+  },
+  getOnboardingStatus: async () => {
+    const res = await API.get("/v1/billing/onboarding/");
+    return res.data;
+  },
+  updateOnboardingStatus: async (updates) => {
+    const res = await API.patch("/v1/billing/onboarding/", updates);
     return res.data;
   },
 };

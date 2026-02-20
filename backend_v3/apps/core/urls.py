@@ -6,6 +6,8 @@ from django.urls import path
 from django.http import JsonResponse
 
 from .views import (
+    AdminUserDetailView,
+    AdminUserListView,
     ForgotPasswordView,
     HealthLiveView,
     HealthReadyView,
@@ -54,6 +56,10 @@ urlpatterns = [
     # Notifications
     path('notifications/', NotificationListView.as_view(), name='notifications-list'),
     path('notifications/<uuid:notification_id>/read', NotificationMarkReadView.as_view(), name='notifications-read'),
+
+    # Admin — User Management
+    path('admin/users', AdminUserListView.as_view(), name='admin-users'),
+    path('admin/users/<uuid:user_id>', AdminUserDetailView.as_view(), name='admin-user-detail'),
 
     # Health Checks
     path('health/live', HealthLiveView.as_view(), name='health-live'),

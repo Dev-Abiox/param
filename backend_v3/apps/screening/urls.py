@@ -5,6 +5,10 @@ URL configuration for Screening API.
 from django.urls import path
 
 from .views import (
+    AdminDoctorDetailView,
+    AdminDoctorView,
+    AdminLabDetailView,
+    AdminLabView,
     BulkImportStatusView,
     BulkImportView,
     CaseListView,
@@ -47,4 +51,12 @@ urlpatterns = [
     path('consent/record', ConsentRecordView.as_view(), name='consent-record'),
     path('consent/status/<str:patient_id>', ConsentStatusView.as_view(), name='consent-status'),
     path('consent/revoke/<uuid:consent_id>', ConsentRevokeView.as_view(), name='consent-revoke'),
+
+    # Admin — Lab Management
+    path('admin/labs', AdminLabView.as_view(), name='admin-labs'),
+    path('admin/labs/<uuid:lab_id>', AdminLabDetailView.as_view(), name='admin-lab-detail'),
+
+    # Admin — Doctor Management
+    path('admin/doctors', AdminDoctorView.as_view(), name='admin-doctors'),
+    path('admin/doctors/<uuid:doctor_id>', AdminDoctorDetailView.as_view(), name='admin-doctor-detail'),
 ]
