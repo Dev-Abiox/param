@@ -37,6 +37,12 @@ django-auditlog>=3.0,<4.0
 structlog>=24.0,<25.0
 sentry-sdk[django]>=2.0,<3.0
 
+# Monitoring
+django-prometheus>=2.3,<3.0
+
+# HTTP client (webhook delivery)
+requests>=2.31,<3.0
+
 # Async task queue
 celery>=5.3,<6.0
 redis>=5.0,<6.0

@@ -25,22 +25,46 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run backend tests
+          cache: pip
+      - name: Install dependencies
+        run: |
+          cd backend_v3
+          pip install -r requirements.txt
+      - name: Run backend tests with coverage
         env:
+          DJANGO_SECRET_KEY: ci-secret-key-not-for-production
+          JWT_SECRET_KEY: ci-jwt-secret-key-not-for-production
+          JWT_REFRESH_SECRET_KEY: ci-jwt-refresh-secret-not-for-production
+          MASTER_ENCRYPTION_KEY: ${{ secrets.CI_MASTER_ENCRYPTION_KEY || 'dGVzdF9lbmNyeXB0aW9uX2tleV9mb3JfY2lfb25seV8x' }}
+          AUDIT_SIGNING_KEY: ci-audit-signing-key-not-for-production-at-all
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: clinomic_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          REDIS_URL: redis://localhost:6379/0
+          CACHE_REDIS_URL: redis://localhost:6379/1
+          CELERY_BROKER_URL: redis://localhost:6379/0
+          CHANNELS_REDIS_URL: redis://localhost:6379/2
+          APP_ENV: testing
+          DEBUG: "False"
         run: |
           cd backend_v3
-          pip install -r requirements.txt
-          pytest
+          pytest --cov=apps --cov-report=term-missing --cov-fail-under=70 -x -q
 
   test-frontend:
     runs-on: ubuntu-latest

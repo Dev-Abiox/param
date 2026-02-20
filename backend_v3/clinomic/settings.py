@@ -43,6 +43,7 @@ SHARED_APPS = [
     'auditlog',
     'drf_spectacular',
     'channels',
+    'django_prometheus',
     # Our shared apps
     'apps.billing',
     'apps.core',
@@ -62,6 +63,7 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 
 # Middleware
 MIDDLEWARE = [
+    'django_prometheus.middleware.PrometheusBeforeMiddleware',  # must be first
     'django_tenants.middleware.main.TenantMainMiddleware',
     'apps.billing.middleware.JWTTenantMiddleware',   # JWT-based tenant override
     'apps.billing.middleware.PlanLimitMiddleware',   # 402 when quota exceeded
@@ -76,6 +78,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'auditlog.middleware.AuditlogMiddleware',
+    'django_prometheus.middleware.PrometheusAfterMiddleware',   # must be last
 ]
 
 ROOT_URLCONF = 'clinomic.urls'
@@ -168,6 +171,7 @@ CSRF_TRUSTED_ORIGINS = os.environ.get(
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'apps.core.authentication.JWTAuthentication',
+        'apps.core.authentication.APIKeyAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -270,10 +274,12 @@ if APP_ENV in ('production', 'prod'):
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # ── Cache (Redis) ──────────────────────────────────────────────────────────────
+# Use CACHE_REDIS_URL (DB 1) separately from REDIS_URL (DB 0, Celery broker) to
+# prevent cache key collisions with Celery task metadata in Celery worker processes.
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': os.environ.get('REDIS_URL', 'redis://redis:6379/1'),
+        'LOCATION': os.environ.get('CACHE_REDIS_URL', 'redis://redis:6379/1'),
     }
 }
 
@@ -291,8 +297,8 @@ CHANNEL_LAYERS = {
 # ── Celery ────────────────────────────────────────────────────────────────────
 from celery.schedules import crontab  # noqa: E402
 
-CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', os.environ.get('REDIS_URL', 'redis://redis:6379/0'))
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_BROKER_URL', os.environ.get('REDIS_URL', 'redis://redis:6379/0'))
 CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']

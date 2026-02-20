@@ -11,8 +11,12 @@ from .views import (
     AdminBillingUpgradeView,
     AdminBillingView,
     AdminUsageView,
+    APIKeyDetailView,
+    APIKeyListView,
     OnboardingStatusView,
     SignupView,
+    WebhookDetailView,
+    WebhookListView,
     WebhookView,
 )
 
@@ -27,6 +31,14 @@ urlpatterns = [
     path('admin/usage/', AdminUsageView.as_view(), name='billing-admin-usage'),
     path('admin/billing/', AdminBillingView.as_view(), name='billing-admin-billing'),
     path('admin/upgrade/', AdminBillingUpgradeView.as_view(), name='billing-admin-upgrade'),
+
+    # Admin portal — API key management
+    path('admin/api-keys/', APIKeyListView.as_view(), name='billing-admin-api-keys'),
+    path('admin/api-keys/<uuid:pk>/', APIKeyDetailView.as_view(), name='billing-admin-api-key-detail'),
+
+    # Admin portal — tenant webhook endpoint management
+    path('admin/webhooks/', WebhookListView.as_view(), name='billing-admin-webhooks'),
+    path('admin/webhooks/<uuid:pk>/', WebhookDetailView.as_view(), name='billing-admin-webhook-detail'),
 ]
 
 # Standalone signup (also included at /api/signup/ in the root urls.py)

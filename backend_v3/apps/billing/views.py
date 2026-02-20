@@ -1,16 +1,24 @@
 """
 Billing API views.
 
-SignupView            POST /api/signup/
-WebhookView           POST /api/billing/webhook/
-OnboardingStatusView  PATCH /api/billing/onboarding/
-AdminUsageView        GET  /api/billing/admin/usage
-AdminBillingView      GET  /api/billing/admin/billing
+SignupView              POST /api/signup/
+WebhookView             POST /api/billing/webhook/
+OnboardingStatusView    PATCH /api/billing/onboarding/
+AdminUsageView          GET  /api/billing/admin/usage
+AdminBillingView        GET  /api/billing/admin/billing
 AdminBillingUpgradeView POST /api/billing/admin/billing/upgrade
+APIKeyListView          GET  /api/billing/admin/api-keys/
+                        POST /api/billing/admin/api-keys/
+APIKeyDetailView        DELETE /api/billing/admin/api-keys/<uuid:pk>/
+WebhookListView         GET  /api/billing/admin/webhooks/
+                        POST /api/billing/admin/webhooks/
+WebhookDetailView       DELETE /api/billing/admin/webhooks/<uuid:pk>/
 """
 
+import hashlib
 import logging
 import re
+import secrets
 from datetime import timedelta
 
 import structlog
@@ -28,7 +36,7 @@ from rest_framework.views import APIView
 from apps.core.models import Role
 from apps.core.permissions import HasRole, IsMFAVerified
 
-from .models import PaymentEvent, SubscriptionPlan, TenantSubscription, UsageRecord
+from .models import APIKey, PaymentEvent, SubscriptionPlan, TenantSubscription, UsageRecord, WebhookEndpoint, VALID_SCOPES
 from .serializers import (
     OnboardingStatusSerializer,
     SignupSerializer,
@@ -170,6 +178,15 @@ class SignupView(APIView):
         refresh_token, _ = create_refresh_token(user)
 
         logger.info('signup.success', org=org.name, schema=org.schema_name, user=user.username)
+
+        # 6. Fire welcome email asynchronously (non-blocking, best-effort)
+        from apps.billing.tasks import send_welcome_email
+        send_welcome_email.delay(
+            user_id=str(user.id),
+            org_name=org.name,
+            plan_name=plan.display_name,
+            trial_end_iso=trial_end.isoformat(),
+        )
 
         response = Response({
             'access_token': access_token,
@@ -491,3 +508,321 @@ class AdminBillingUpgradeView(APIView):
             'plan': plan_name,
             'display_name': new_plan.display_name,
         })
+
+
+# ── Admin — API Key Management ─────────────────────────────────────────────────
+
+class APIKeyListView(APIView):
+    """
+    GET  /api/billing/admin/api-keys/
+        List all active (and inactive) API keys for the admin's organisation.
+        Sensitive fields (key_hash) are never returned.
+
+    POST /api/billing/admin/api-keys/
+        Create a new API key.  The raw key value is returned **only once** in
+        the response body — it cannot be recovered later.
+
+        Expected body:
+        {
+            "name": "CI Pipeline",
+            "scopes": ["screening:read", "analytics:read"],
+            "rate_limit": 120          # optional, default 60
+        }
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        keys = (
+            APIKey.objects
+            .filter(organization=org)
+            .select_related('created_by')
+            .order_by('-created_at')
+        )
+
+        data = [
+            {
+                'id': str(k.id),
+                'name': k.name,
+                'scopes': k.scopes,
+                'rate_limit': k.rate_limit,
+                'is_active': k.is_active,
+                'created_by': k.created_by.username if k.created_by else None,
+                'last_used_at': k.last_used_at,
+                'created_at': k.created_at,
+            }
+            for k in keys
+        ]
+        return Response(data)
+
+    def post(self, request):
+        org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return Response({'error': '"name" is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(name) > 100:
+            return Response({'error': '"name" must be 100 characters or fewer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        scopes = request.data.get('scopes', [])
+        if not isinstance(scopes, list):
+            return Response({'error': '"scopes" must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+        invalid_scopes = [s for s in scopes if s not in VALID_SCOPES]
+        if invalid_scopes:
+            return Response(
+                {
+                    'error': f'Invalid scope(s): {invalid_scopes}. '
+                             f'Valid scopes are: {sorted(VALID_SCOPES)}.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not scopes:
+            return Response({'error': 'At least one scope is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rate_limit = request.data.get('rate_limit', 60)
+        try:
+            rate_limit = int(rate_limit)
+            if rate_limit < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response(
+                {'error': '"rate_limit" must be a positive integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate a cryptographically secure key and store only its digest
+        raw_key = secrets.token_urlsafe(32)
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+        api_key = APIKey.objects.create(
+            organization=org,
+            name=name,
+            key_hash=key_hash,
+            scopes=scopes,
+            rate_limit=rate_limit,
+            is_active=True,
+            created_by=request.user,
+        )
+
+        logger.info(
+            'api_key.created',
+            org=org.name,
+            key_id=str(api_key.id),
+            name=name,
+            scopes=scopes,
+            created_by=request.user.username,
+        )
+
+        return Response(
+            {
+                'id': str(api_key.id),
+                'name': api_key.name,
+                'key': raw_key,          # shown ONCE — cannot be recovered
+                'scopes': api_key.scopes,
+                'rate_limit': api_key.rate_limit,
+                'is_active': api_key.is_active,
+                'created_at': api_key.created_at,
+                'warning': (
+                    'Store this key securely. It will not be shown again.'
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class APIKeyDetailView(APIView):
+    """
+    DELETE /api/billing/admin/api-keys/<uuid:pk>/
+        Revoke (soft-delete) an API key by setting is_active=False.
+        The key is not physically removed so audit logs remain intact.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    def delete(self, request, pk):
+        org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            api_key = APIKey.objects.get(pk=pk, organization=org)
+        except APIKey.DoesNotExist:
+            return Response({'error': 'API key not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not api_key.is_active:
+            return Response({'error': 'API key is already revoked.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key.is_active = False
+        api_key.save(update_fields=['is_active', 'updated_at'])
+
+        logger.info(
+            'api_key.revoked',
+            org=org.name,
+            key_id=str(api_key.id),
+            name=api_key.name,
+            revoked_by=request.user.username,
+        )
+
+        return Response(
+            {
+                'id': str(api_key.id),
+                'name': api_key.name,
+                'is_active': False,
+                'detail': 'API key has been revoked.',
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ── Admin — Tenant Webhook Endpoints ───────────────────────────────────────────
+
+class WebhookListView(APIView):
+    """
+    GET  /api/billing/admin/webhooks/
+        List all webhook endpoints registered for the admin's organisation.
+        The ``secret`` field is **never** returned after the initial creation
+        response — store it securely at creation time.
+
+    POST /api/billing/admin/webhooks/
+        Register a new webhook endpoint.
+
+        Expected body:
+        {
+            "url": "https://example.com/hooks/clinomic",
+            "events": ["screening.completed", "screening.high_risk"]
+        }
+
+        The response includes the ``secret`` — this is the only time it is
+        shown.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    _valid_events = frozenset(WebhookEndpoint.SUPPORTED_EVENTS)
+
+    def get(self, request):
+        org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        endpoints = (
+            WebhookEndpoint.objects
+            .filter(organization=org)
+            .order_by('-created_at')
+        )
+
+        data = [
+            {
+                'id': str(ep.id),
+                'url': ep.url,
+                'events': ep.events,
+                'is_active': ep.is_active,
+                'created_at': ep.created_at,
+                'updated_at': ep.updated_at,
+            }
+            for ep in endpoints
+        ]
+        return Response(data)
+
+    def post(self, request):
+        org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        url = (request.data.get('url') or '').strip()
+        if not url:
+            return Response({'error': '"url" is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        events = request.data.get('events', [])
+        if not isinstance(events, list) or not events:
+            return Response(
+                {'error': '"events" must be a non-empty list.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        invalid_events = [e for e in events if e not in self._valid_events]
+        if invalid_events:
+            return Response(
+                {
+                    'error': f'Invalid event(s): {invalid_events}. '
+                             f'Valid events are: {sorted(self._valid_events)}.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        endpoint = WebhookEndpoint.objects.create(
+            organization=org,
+            url=url,
+            events=events,
+            is_active=True,
+        )
+
+        logger.info(
+            'webhook_endpoint.created',
+            org=org.name,
+            endpoint_id=str(endpoint.id),
+            url=url,
+            events=events,
+            created_by=request.user.username,
+        )
+
+        return Response(
+            {
+                'id': str(endpoint.id),
+                'url': endpoint.url,
+                'events': endpoint.events,
+                'secret': endpoint.secret,   # shown ONCE — cannot be recovered later
+                'is_active': endpoint.is_active,
+                'created_at': endpoint.created_at,
+                'warning': (
+                    'Store this secret securely. It will not be shown again. '
+                    'Use it to verify the X-Clinomic-Signature header on incoming requests.'
+                ),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WebhookDetailView(APIView):
+    """
+    DELETE /api/billing/admin/webhooks/<uuid:pk>/
+        Permanently remove a webhook endpoint registration.
+        Future deliveries to this URL will immediately stop.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    def delete(self, request, pk):
+        org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            endpoint = WebhookEndpoint.objects.get(pk=pk, organization=org)
+        except WebhookEndpoint.DoesNotExist:
+            return Response({'error': 'Webhook endpoint not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        endpoint_id = str(endpoint.id)
+        endpoint_url = endpoint.url
+        endpoint.delete()
+
+        logger.info(
+            'webhook_endpoint.deleted',
+            org=org.name,
+            endpoint_id=endpoint_id,
+            url=endpoint_url,
+            deleted_by=request.user.username,
+        )
+
+        return Response(
+            {
+                'id': endpoint_id,
+                'detail': 'Webhook endpoint has been deleted.',
+            },
+            status=status.HTTP_200_OK,
+        )

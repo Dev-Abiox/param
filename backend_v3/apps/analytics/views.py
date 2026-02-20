@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 import structlog
 from django.core.cache import cache
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, Q
+from django.db.models.functions import TruncMonth, TruncDate
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -398,3 +399,186 @@ class ScreeningDetailView(APIView):
 
         serializer = ScreeningSerializer(screening)
         return Response(serializer.data)
+
+
+# ── Population Health Analytics ────────────────────────────────────────────────
+
+class PopulationTrendsView(APIView):
+    """
+    Aggregate monthly screening trends across the tenant's patient population.
+
+    GET /api/analytics/population/trends?months=6
+
+    Returns a time series of risk class counts per month, showing how the
+    distribution of Normal / Borderline / Deficient has shifted over time.
+    ADMIN-only — provides cross-patient aggregate data.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        try:
+            months = min(24, max(1, int(request.query_params.get('months', 6))))
+        except (ValueError, TypeError):
+            months = 6
+
+        ck = _cache_key('population_trends', months)
+        try:
+            cached = cache.get(ck)
+            if cached is not None:
+                return Response(cached)
+        except Exception:
+            pass
+
+        since = datetime.now(timezone.utc) - timedelta(days=months * 30)
+        qs = (
+            Screening.objects
+            .filter(created_at__gte=since)
+            .annotate(month=TruncMonth('created_at'))
+            .values('month')
+            .annotate(
+                total=Count('id'),
+                normal=Count('id', filter=Q(risk_class=1)),
+                borderline=Count('id', filter=Q(risk_class=2)),
+                deficient=Count('id', filter=Q(risk_class=3)),
+            )
+            .order_by('month')
+        )
+
+        payload = [
+            {
+                'month': row['month'].strftime('%Y-%m'),
+                'total': row['total'],
+                'normal': row['normal'],
+                'borderline': row['borderline'],
+                'deficient': row['deficient'],
+                'deficient_rate': (
+                    round(row['deficient'] / row['total'] * 100, 1)
+                    if row['total'] > 0 else 0
+                ),
+            }
+            for row in qs
+        ]
+
+        try:
+            cache.set(ck, payload, timeout=300)
+        except Exception:
+            pass
+        return Response({'months': months, 'trends': payload})
+
+
+class PopulationCohortsView(APIView):
+    """
+    Cohort breakdown of the patient population by age group and sex.
+
+    GET /api/analytics/population/cohorts
+
+    Returns a matrix showing risk distribution across demographic cohorts,
+    enabling identification of high-risk population segments.
+    ADMIN-only.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    AGE_GROUPS = [
+        ('pediatric', 0, 17),
+        ('young_adult', 18, 39),
+        ('middle_aged', 40, 59),
+        ('elderly', 60, 120),
+    ]
+
+    def get(self, request):
+        ck = _cache_key('population_cohorts')
+        try:
+            cached = cache.get(ck)
+            if cached is not None:
+                return Response(cached)
+        except Exception:
+            pass
+
+        cohorts = []
+        for label, age_min, age_max in self.AGE_GROUPS:
+            for sex in ('M', 'F'):
+                base_qs = Screening.objects.filter(
+                    cbc_snapshot__Age__gte=age_min,
+                    cbc_snapshot__Age__lte=age_max,
+                    cbc_snapshot__Sex=sex,
+                )
+                total = base_qs.count()
+                if total == 0:
+                    continue
+                deficient = base_qs.filter(risk_class=3).count()
+                borderline = base_qs.filter(risk_class=2).count()
+                normal = base_qs.filter(risk_class=1).count()
+                cohorts.append({
+                    'age_group': label,
+                    'sex': sex,
+                    'total': total,
+                    'normal': normal,
+                    'borderline': borderline,
+                    'deficient': deficient,
+                    'deficient_rate': round(deficient / total * 100, 1),
+                })
+
+        payload = {'cohorts': cohorts}
+        try:
+            cache.set(ck, payload, timeout=600)
+        except Exception:
+            pass
+        return Response(payload)
+
+
+class LabComparisonView(APIView):
+    """
+    Cross-lab screening performance comparison.
+
+    GET /api/analytics/population/labs/compare
+
+    Returns per-lab aggregate statistics (total screenings, deficiency rate)
+    to enable benchmarking across collection sites.
+    ADMIN-only.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.ADMIN]
+
+    def get(self, request):
+        ck = _cache_key('lab_comparison')
+        try:
+            cached = cache.get(ck)
+            if cached is not None:
+                return Response(cached)
+        except Exception:
+            pass
+
+        labs = (
+            Lab.objects
+            .filter(is_active=True)
+            .annotate(
+                total=Count('screenings'),
+                normal=Count('screenings', filter=Q(screenings__risk_class=1)),
+                borderline=Count('screenings', filter=Q(screenings__risk_class=2)),
+                deficient=Count('screenings', filter=Q(screenings__risk_class=3)),
+            )
+            .order_by('-total')
+        )
+
+        result = []
+        for lab in labs:
+            result.append({
+                'labId': lab.code,
+                'labName': lab.name,
+                'total': lab.total,
+                'normal': lab.normal,
+                'borderline': lab.borderline,
+                'deficient': lab.deficient,
+                'deficient_rate': (
+                    round(lab.deficient / lab.total * 100, 1)
+                    if lab.total > 0 else 0
+                ),
+            })
+
+        try:
+            cache.set(ck, result, timeout=600)
+        except Exception:
+            pass
+        return Response({'labs': result})

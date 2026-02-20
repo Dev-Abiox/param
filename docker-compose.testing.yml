@@ -39,6 +39,9 @@ services:
       - CORS_ORIGINS=https://testing.clinomiclabs.com
       - CSRF_TRUSTED_ORIGINS=https://testing.clinomiclabs.com
       - REDIS_URL=redis://redis_testing:6379/0
+      - CACHE_REDIS_URL=redis://redis_testing:6379/1
+      - CHANNELS_REDIS_URL=redis://redis_testing:6379/2
+      - CELERY_BROKER_URL=redis://redis_testing:6379/0
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
@@ -111,6 +114,8 @@ services:
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - REDIS_URL=redis://redis_testing:6379/0
+      - CACHE_REDIS_URL=redis://redis_testing:6379/1
+      - CELERY_BROKER_URL=redis://redis_testing:6379/0
     depends_on:
       db_testing:
         condition: service_healthy

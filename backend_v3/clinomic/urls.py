@@ -23,6 +23,9 @@ from apps.billing.urls import signup_urlpatterns
 urlpatterns = [
     path('admin/', admin.site.urls),
 
+    # ── Prometheus metrics (internal — restrict at nginx/firewall level) ────────
+    path('', include('django_prometheus.urls')),
+
     # ── API v1 (versioned — preferred) ────────────────────────────────────────
     path('api/v1/', include('apps.core.urls')),
     path('api/v1/screening/', include('apps.screening.urls')),

@@ -200,12 +200,15 @@ class B12ClinicalEngine:
             logger.warning("SHAP computation failed: %s", e)
             return {}
 
-    def predict(self, cbc_dict: dict[str, Any]) -> dict[str, Any]:
+    def predict(self, cbc_dict: dict[str, Any], include_shap: bool = False) -> dict[str, Any]:
         """
         Perform B12 deficiency prediction.
 
         Args:
             cbc_dict: CBC values with Age, Sex, Hb, RBC, HCT, MCV, MCH, MCHC, RDW, WBC, Platelets, Neutrophils, Lymphocytes
+            include_shap: If True, compute and include SHAP feature attributions.
+                          Defaults to False to avoid latency on bulk imports and
+                          routine predictions. Set to True for explain/ endpoints.
 
         Returns:
             dict with riskClass, labelText, probabilities, rulesFired, indices
@@ -258,8 +261,9 @@ class B12ClinicalEngine:
             cls = 1
             label_text = "NORMAL"
 
-        # Compute SHAP values
-        shap_values = self.compute_shap_values(cbc_dict)
+        # Compute SHAP values only when explicitly requested (opt-in).
+        # Skipped by default to avoid latency on bulk imports and routine predictions.
+        shap_values = self.compute_shap_values(cbc_dict) if include_shap else {}
 
         return {
             "riskClass": cls,
@@ -335,16 +339,20 @@ def get_ml_executor() -> ThreadPoolExecutor:
     return _executor
 
 
-async def predict_async(cbc_dict: dict[str, Any]) -> dict[str, Any]:
+async def predict_async(cbc_dict: dict[str, Any], include_shap: bool = False) -> dict[str, Any]:
     """
     Async wrapper for ML prediction.
 
     Runs prediction in thread pool to avoid blocking event loop.
     """
+    import functools
     engine = get_ml_engine()
     executor = get_ml_executor()
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(executor, engine.predict, cbc_dict)
+    return await loop.run_in_executor(
+        executor,
+        functools.partial(engine.predict, cbc_dict, include_shap=include_shap),
+    )
 
 
 def shutdown_ml_executor():

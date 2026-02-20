@@ -438,6 +438,30 @@ class HealthReadyView(APIView):
         # Check crypto
         crypto_status = get_crypto_status()
 
+        # Check Redis connectivity
+        try:
+            from django.core.cache import cache
+            cache.set('_health_probe', '1', timeout=5)
+            assert cache.get('_health_probe') == '1'
+            redis_ok = True
+        except Exception as e:
+            redis_ok = False
+            errors.append(f'redis: {str(e)}')
+
+        # Check Celery worker responsiveness (ping task)
+        celery_ok = True
+        celery_error = None
+        try:
+            from clinomic.celery import app as celery_app
+            result = celery_app.control.ping(timeout=2, limit=1)
+            celery_ok = bool(result)
+            if not celery_ok:
+                celery_error = 'no workers responded'
+                # Warn but don't fail readiness — workers may be starting up
+        except Exception as e:
+            celery_error = str(e)
+            # Celery ping failure is non-fatal; don't block health check
+
         if errors:
             return Response(
                 {
@@ -446,6 +470,8 @@ class HealthReadyView(APIView):
                     'database': db_ok,
                     'ml_engine': ml_status,
                     'crypto': crypto_status,
+                    'redis': redis_ok,
+                    'celery': {'ok': celery_ok, 'error': celery_error},
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
@@ -455,6 +481,8 @@ class HealthReadyView(APIView):
             'database': db_ok,
             'ml_engine': ml_status,
             'crypto': crypto_status,
+            'redis': redis_ok,
+            'celery': {'ok': celery_ok, 'error': celery_error},
         })
 
 
