@@ -121,6 +121,7 @@ services:
 volumes:
   postgres_testing_data:
   static_testing_volume:
+    external: true
 
 networks:
   clinomic_network:
