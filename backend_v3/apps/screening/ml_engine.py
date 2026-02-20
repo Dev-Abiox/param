@@ -153,6 +153,51 @@ class B12ClinicalEngine:
 
         return score, rules
 
+    def compute_shap_values(self, cbc_dict: dict[str, Any]) -> dict[str, float]:
+        """
+        Compute SHAP values for the given CBC input against the stage1 model.
+
+        Returns a dict mapping feature names to their SHAP values for the
+        "abnormal" class (class index 1). Uses TreeExplainer for CatBoost
+        models (fast, exact for tree models).
+        """
+        if not self.is_ready:
+            return {}
+
+        try:
+            import shap
+
+            df = pd.DataFrame([cbc_dict])
+            expected_cols = [
+                "Age", "Sex", "Hb", "RBC", "HCT", "MCV", "MCH", "MCHC",
+                "RDW", "WBC", "Platelets", "Neutrophils", "Lymphocytes",
+            ]
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[expected_cols]
+
+            if df["Sex"].dtype == "object":
+                df["Sex"] = df["Sex"].map({"M": 1, "F": 0, "m": 1, "f": 0}).fillna(0)
+
+            explainer = shap.TreeExplainer(self.stage1)
+            shap_values = explainer.shap_values(df)
+
+            # shap_values is a list of arrays (one per class) for classification
+            # We want the "abnormal" class (index 1)
+            if isinstance(shap_values, list):
+                values = shap_values[1][0]  # class 1, first (only) sample
+            else:
+                values = shap_values[0]  # single output
+
+            return {
+                col: round(float(val), 6)
+                for col, val in zip(expected_cols, values)
+            }
+        except Exception as e:
+            logger.warning("SHAP computation failed: %s", e)
+            return {}
+
     def predict(self, cbc_dict: dict[str, Any]) -> dict[str, Any]:
         """
         Perform B12 deficiency prediction.
@@ -211,6 +256,9 @@ class B12ClinicalEngine:
             cls = 1
             label_text = "NORMAL"
 
+        # Compute SHAP values
+        shap_values = self.compute_shap_values(cbc_dict)
+
         return {
             "riskClass": cls,
             "labelText": label_text,
@@ -249,6 +297,7 @@ class B12ClinicalEngine:
                     and (cbc_dict.get("WBC", 0) or 0) < 4
                     and (cbc_dict.get("Platelets", 0) or 0) < 150
                 ),
+                "shap_values": shap_values,
             },
         }
 

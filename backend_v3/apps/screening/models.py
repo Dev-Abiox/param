@@ -217,6 +217,9 @@ class Screening(models.Model):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     reviewed_by = models.CharField(max_length=255, blank=True)
 
+    # Clinical narrative (Feature 8)
+    narrative = models.TextField(blank=True, default='')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

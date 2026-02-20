@@ -22,6 +22,8 @@ from apps.core.permissions import HasRole, IsAdmin, IsMFAVerified
 
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
+from .narrative_engine import NarrativeEngine
+from .ws_broadcast import broadcast_high_risk_alert, broadcast_new_screening, broadcast_status_change
 from .serializers import (
     ConsentRecordSerializer,
     ConsentSerializer,
@@ -115,6 +117,20 @@ class PredictView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+        # Generate clinical narrative
+        narrative_engine = NarrativeEngine()
+        narrative_text = narrative_engine.generate(
+            risk_class=result['riskClass'],
+            label_text=result['labelText'],
+            probabilities=result['probabilities'],
+            rules_fired=result['rulesFired'],
+            indices=result['indices'],
+            cbc_snapshot=cbc,
+            age=int(cbc.get('Age', 0)),
+            sex=str(cbc.get('Sex', 'M')),
+            patient_id=patient_id,
+        )
+
         now = datetime.now(timezone.utc)
 
         # Get or create lab (use default if not specified)
@@ -173,6 +189,7 @@ class PredictView(APIView):
             response_hash=response_hash,
             screening_hash=screening_hash,
             consent_id=data.get('consentId'),
+            narrative=narrative_text,
         )
 
         # Generate recommendation text
@@ -183,6 +200,16 @@ class PredictView(APIView):
             recommendation = "Consider serum B12 measurement if clinically indicated."
         else:
             recommendation = "B12 deficiency unlikely based on CBC parameters."
+
+        # Broadcast WebSocket notifications
+        broadcast_new_screening(str(screening.id), result['riskClass'], 'pending')
+        if result['riskClass'] == 3:
+            broadcast_high_risk_alert(
+                str(screening.id),
+                result['riskClass'],
+                result['labelText'],
+                doctor_id=str(doctor.id) if doctor else None,
+            )
 
         # Fire usage increment asynchronously (non-blocking)
         org_id = str(request.tenant.id) if getattr(request, 'tenant', None) else None
@@ -206,6 +233,7 @@ class PredictView(APIView):
             'recommendation': recommendation,
             'rulesFired': result['rulesFired'],
             'modelVersion': result['modelVersion'],
+            'narrative': narrative_text,
         })
 
 
@@ -491,8 +519,14 @@ class ScreeningStatusView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        old_status = screening.status
         screening.status = new_status
         screening.save(update_fields=['status'])
+
+        broadcast_status_change(
+            str(screening.id), old_status, new_status, screening.risk_class,
+        )
+
         return Response({'id': str(screening.id), 'status': screening.status})
 
 
@@ -537,6 +571,69 @@ class ReviewScreeningView(APIView):
             'reviewed_at': screening.reviewed_at.isoformat(),
             'reviewed_by': screening.reviewed_by,
             'clinical_note': screening.clinical_note,
+        })
+
+
+class ExplainView(APIView):
+    """
+    SHAP explainability for a screening prediction.
+
+    GET /api/screening/cases/<uuid:screening_id>/explain
+    Returns feature importances ranked by absolute SHAP value.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+
+    def get(self, request, screening_id):
+        try:
+            screening = Screening.objects.select_related('patient', 'doctor').get(id=screening_id)
+        except Screening.DoesNotExist:
+            return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # DOCTOR isolation: can only see their own patients' screenings
+        if request.user.role == Role.DOCTOR:
+            doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
+            if not doctor or screening.doctor_id != doctor.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        indices = screening.indices or {}
+        shap_values = indices.get('shap_values', {})
+
+        if not shap_values:
+            return Response(
+                {'error': 'SHAP values not available for this screening'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Sort by absolute value, descending
+        ranked = sorted(
+            shap_values.items(),
+            key=lambda x: abs(x[1]),
+            reverse=True,
+        )
+
+        features = [
+            {
+                'feature': name,
+                'shap_value': value,
+                'abs_shap_value': abs(value),
+                'direction': 'risk_increasing' if value > 0 else 'risk_decreasing',
+            }
+            for name, value in ranked
+        ]
+
+        log_phi_access(
+            request,
+            screening.patient.patient_id if screening.patient else '*',
+            'PHI_EXPLAIN',
+            {'screening_id': str(screening_id)},
+        )
+
+        return Response({
+            'screeningId': str(screening.id),
+            'riskClass': screening.risk_class,
+            'labelText': screening.label_text,
+            'features': features,
         })
 
 

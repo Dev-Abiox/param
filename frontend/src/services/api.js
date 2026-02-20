@@ -8,6 +8,7 @@ let _accessToken = null;
 
 export const setAccessToken = (token) => { _accessToken = token; };
 export const clearAccessToken = () => { _accessToken = null; };
+export const getAccessToken = () => _accessToken;
 
 // Generate a unique request ID
 const generateRequestId = () => {
@@ -230,11 +231,13 @@ export const LisService = {
     const res = await API.post("/screening/predict", payload);
 
     return {
+      id: res.data.id,
       label: res.data.label,
       probabilities: res.data.probabilities,
       indices: res.data.indices,
       recommendation: res.data.recommendation,
       interpretation: (res.data.rulesFired || []).join(", "),
+      narrative: res.data.narrative || '',
     };
   },
 
@@ -283,6 +286,12 @@ export const LisService = {
   // 3.3 — Doctor review
   reviewScreening: async (screeningId, clinicalNote = '') => {
     const res = await API.patch(`/screening/cases/${screeningId}/review`, { clinical_note: clinicalNote });
+    return res.data;
+  },
+
+  // SHAP explainability
+  getExplanation: async (screeningId) => {
+    const res = await API.get(`/screening/cases/${screeningId}/explain`);
     return res.data;
   },
 

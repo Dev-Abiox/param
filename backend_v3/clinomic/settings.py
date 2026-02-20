@@ -42,6 +42,7 @@ SHARED_APPS = [
     'django_filters',
     'auditlog',
     'drf_spectacular',
+    'channels',
     # Our shared apps
     'apps.billing',
     'apps.core',
@@ -96,6 +97,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'clinomic.wsgi.application'
+ASGI_APPLICATION = 'clinomic.asgi.application'
 
 # Database (PostgreSQL with django-tenants)
 DATABASES = {
@@ -274,6 +276,17 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': os.environ.get('REDIS_URL', 'redis://redis:6379/1'),
     }
+}
+
+# ── Channels (WebSocket) ─────────────────────────────────────────────────────
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [os.environ.get('REDIS_URL', 'redis://redis:6379/0')],
+            'prefix': 'ws',
+        },
+    },
 }
 
 # ── Celery ────────────────────────────────────────────────────────────────────

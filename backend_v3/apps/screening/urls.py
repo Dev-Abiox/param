@@ -16,6 +16,7 @@ from .views import (
     ConsentRevokeView,
     ConsentStatusView,
     DoctorListView,
+    ExplainView,
     FHIRBundleView,
     LabListView,
     PredictView,
@@ -39,6 +40,9 @@ urlpatterns = [
 
     # Doctor review (3.3)
     path('cases/<uuid:screening_id>/review', ReviewScreeningView.as_view(), name='screening-review'),
+
+    # SHAP Explainability
+    path('cases/<uuid:screening_id>/explain', ExplainView.as_view(), name='screening-explain'),
 
     # Bulk Import (5.3)
     path('bulk-import', BulkImportView.as_view(), name='screening-bulk-import'),

@@ -1,10 +1,24 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { AlertTriangle, CheckCircle, AlertOctagon, FileText, Download, Printer } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
 import { ScreeningLabel } from "../types";
 import { generateReport } from "@/lib/generateReport";
+import { LisService } from "../services/api";
 
 const ResultPanel = ({ result, patient, cbcRows }) => {
+  const [shapData, setShapData] = useState(null);
+  const [shapLoading, setShapLoading] = useState(false);
+
+  useEffect(() => {
+    if (result?.id) {
+      setShapLoading(true);
+      LisService.getExplanation(result.id)
+        .then(data => setShapData(data.features))
+        .catch(() => setShapData(null))
+        .finally(() => setShapLoading(false));
+    }
+  }, [result?.id]);
+
   const generateDoc = () => generateReport(patient, result, cbcRows);
 
   const handleDownloadPDF = async () => {
@@ -111,8 +125,14 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
           {getBadge(result.label)}
 
           <div className="bg-slate-50 p-4 rounded border border-slate-200">
-            <h4 className="text-sm font-semibold text-slate-700 mb-2 border-b border-slate-200 pb-2">Clinical Interpretation</h4>
-            <p className="text-sm text-slate-800 leading-relaxed italic">"{result.interpretation}"</p>
+            <h4 className="text-sm font-semibold text-slate-700 mb-2 border-b border-slate-200 pb-2">Clinical Narrative</h4>
+            {result.narrative ? (
+              result.narrative.split('\n\n').map((para, i) => (
+                <p key={i} className="text-sm text-slate-800 leading-relaxed mb-2 last:mb-0">{para}</p>
+              ))
+            ) : (
+              <p className="text-sm text-slate-800 leading-relaxed italic">"{result.interpretation}"</p>
+            )}
           </div>
 
           <div className="bg-blue-50 p-4 rounded border border-blue-100">
@@ -121,23 +141,57 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
           </div>
         </div>
 
-        <div className="border border-slate-200 rounded p-4 bg-white">
-          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-4 text-center">Model Confidence Probabilities</h4>
-          <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                <XAxis type="number" domain={[0, 100]} hide />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
-                <Tooltip cursor={{ fill: "transparent" }} contentStyle={{ fontSize: "12px" }} />
-                <Bar dataKey="value" barSize={24} radius={[0, 4, 4, 0]} background={{ fill: "#f1f5f9" }}>
-                  <LabelList dataKey="value" position="right" formatter={(val) => `${val}%`} />
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${entry.name}`} fill={getBarColor(index)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+        <div className="space-y-4">
+          <div className="border border-slate-200 rounded p-4 bg-white">
+            <h4 className="text-xs font-semibold text-slate-500 uppercase mb-4 text-center">Model Confidence Probabilities</h4>
+            <div className="h-48 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                  <XAxis type="number" domain={[0, 100]} hide />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
+                  <Tooltip cursor={{ fill: "transparent" }} contentStyle={{ fontSize: "12px" }} />
+                  <Bar dataKey="value" barSize={24} radius={[0, 4, 4, 0]} background={{ fill: "#f1f5f9" }}>
+                    <LabelList dataKey="value" position="right" formatter={(val) => `${val}%`} />
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${entry.name}`} fill={getBarColor(index)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
+
+          {shapData && shapData.length > 0 && (
+            <div className="border border-slate-200 rounded p-4 bg-white">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-4 text-center">
+                Feature Importance (SHAP)
+              </h4>
+              <div style={{ height: Math.max(200, shapData.slice(0, 10).length * 28) }} className="w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={shapData.slice(0, 10)}
+                    layout="vertical"
+                    margin={{ top: 5, right: 30, left: 80, bottom: 5 }}
+                  >
+                    <XAxis type="number" />
+                    <YAxis dataKey="feature" type="category" tick={{ fontSize: 11 }} width={80} />
+                    <Tooltip contentStyle={{ fontSize: "12px" }} />
+                    <Bar dataKey="shap_value" barSize={18} radius={[0, 4, 4, 0]}>
+                      {shapData.slice(0, 10).map((entry, index) => (
+                        <Cell
+                          key={`shap-${index}`}
+                          fill={entry.shap_value > 0 ? "#ef4444" : "#22c55e"}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-xs text-slate-400 text-center mt-2">
+                Red = increases risk, Green = decreases risk
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

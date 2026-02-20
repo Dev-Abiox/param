@@ -73,13 +73,14 @@ class TestPredictView:
         response = PredictView.as_view()(request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @patch("apps.screening.views.NarrativeEngine")
     @patch("apps.screening.views.Screening.objects.create")
     @patch("apps.screening.views.Patient.objects.update_or_create")
     @patch("apps.screening.views.Lab.objects.filter")
     @patch("apps.screening.views.Doctor.objects.filter")
     @patch("apps.screening.views.get_ml_engine")
     def test_valid_predict_returns_200(
-        self, mock_engine, mock_doctor, mock_lab, mock_patient_uoc, mock_screening_create
+        self, mock_engine, mock_doctor, mock_lab, mock_patient_uoc, mock_screening_create, mock_narrative_cls
     ):
         # Mock ML engine
         engine = MagicMock()
@@ -93,6 +94,11 @@ class TestPredictView:
             "modelArtifactHash": "a" * 64,
         }
         mock_engine.return_value = engine
+
+        # Mock narrative engine
+        mock_narrative = MagicMock()
+        mock_narrative.generate.return_value = "Normal CBC parameters. No B12 workup needed."
+        mock_narrative_cls.return_value = mock_narrative
 
         lab_mock = MagicMock()
         lab_mock.code = "LAB-001"
@@ -113,6 +119,8 @@ class TestPredictView:
         assert response.status_code == status.HTTP_200_OK
         assert "label" in response.data
         assert response.data["label"] == 1
+        assert "narrative" in response.data
+        assert response.data["narrative"] != ''
 
     def test_unauthenticated_returns_403(self):
         user = MagicMock()

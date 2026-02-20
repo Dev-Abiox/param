@@ -45,6 +45,7 @@ class ScreeningResponseSerializer(serializers.Serializer):
     recommendation = serializers.CharField()
     rulesFired = serializers.ListField(child=serializers.CharField())
     modelVersion = serializers.CharField()
+    narrative = serializers.CharField(required=False, allow_blank=True)
 
 
 class LabSerializer(serializers.ModelSerializer):
@@ -108,6 +109,8 @@ class ScreeningSerializer(serializers.ModelSerializer):
             'status',
             # 3.3 review workflow
             'is_reviewed', 'reviewed_at', 'reviewed_by', 'clinical_note',
+            # Clinical narrative
+            'narrative',
         ]
 
     def get_patient_name(self, obj):

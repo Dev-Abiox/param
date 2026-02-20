@@ -1,34 +1,45 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, AlertTriangle, TrendingUp, Activity, FileText, Calendar, CheckCircle2 } from "lucide-react";
-import { LisService } from "../services/api";
+import { Users, AlertTriangle, TrendingUp, Activity, FileText, Calendar, CheckCircle2, Bell } from "lucide-react";
+import { LisService, getAccessToken } from "../services/api";
+import useWebSocket from "../hooks/useWebSocket";
 
 const DoctorDashboard = ({ user }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [alerts, setAlerts] = useState([]);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        // Fetch doctor-specific stats
-        const data = await LisService.getStats(user?.id);
-        setStats(data);
-      } catch (e) {
-        console.error("Failed to load stats", e);
-        // Set default stats if API fails
-        setStats({
-          totalPatients: 0,
-          screeningsToday: 0,
-          deficientCases: 0,
-          recentPatients: []
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStats();
+  const fetchStats = useCallback(async () => {
+    try {
+      const data = await LisService.getStats(user?.id);
+      setStats(data);
+    } catch (e) {
+      console.error("Failed to load stats", e);
+      setStats({
+        totalPatients: 0,
+        screeningsToday: 0,
+        deficientCases: 0,
+        recentPatients: []
+      });
+    } finally {
+      setLoading(false);
+    }
   }, [user?.id]);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  // WebSocket: receive high-risk alerts in real time
+  const handleAlert = useCallback((msg) => {
+    if (msg.type === "high_risk_alert") {
+      setAlerts((prev) => [msg, ...prev].slice(0, 10));
+      fetchStats();
+    }
+  }, [fetchStats]);
+
+  useWebSocket("/ws/alerts/", handleAlert, {
+    token: getAccessToken(),
+  });
 
   if (loading) {
     return (
@@ -52,6 +63,24 @@ const DoctorDashboard = ({ user }) => {
           <span className="text-sm font-medium">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
         </div>
       </div>
+
+      {/* High-Risk Alerts */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((alert, i) => (
+            <div key={`${alert.screening_id}-${i}`} className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
+              <Bell className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <p className="text-sm text-red-800 flex-1">
+                <span className="font-semibold">High-risk screening detected</span>
+                {" "}&mdash; Case {alert.screening_id?.slice(0, 8)}... flagged as {alert.label_text || "DEFICIENT"}
+              </p>
+              <span className="text-xs text-red-400 flex-shrink-0">
+                {alert.timestamp ? new Date(alert.timestamp).toLocaleTimeString() : "just now"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
