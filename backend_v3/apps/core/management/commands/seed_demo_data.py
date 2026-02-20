@@ -61,8 +61,9 @@ class Command(BaseCommand):
 
         self.stdout.write("Seeding demo data...")
 
-        # Create shared schema data (organization, domain)
+        # Create shared schema data (organization, domain, subscription)
         org = self.create_organization()
+        self.create_subscription(org)
 
         # Create tenant-specific data
         with schema_context(org.schema_name):
@@ -160,6 +161,37 @@ class Command(BaseCommand):
             self.stdout.write(f"  Created domain: {localhost_domain.domain}")
 
         return org
+
+    def create_subscription(self, org):
+        """Create a demo TenantSubscription on the Professional plan (idempotent)."""
+        try:
+            from apps.billing.models import SubscriptionPlan, TenantSubscription
+        except ImportError:
+            self.stdout.write(self.style.WARNING("  Billing app not available; skipping subscription seed."))
+            return
+
+        try:
+            plan = SubscriptionPlan.objects.get(name='professional')
+        except SubscriptionPlan.DoesNotExist:
+            self.stdout.write(self.style.WARNING("  'professional' plan not found; skipping subscription seed."))
+            return
+
+        now = timezone.now()
+        sub, created = TenantSubscription.objects.get_or_create(
+            organization=org,
+            defaults={
+                'plan': plan,
+                'status': TenantSubscription.Status.ACTIVE,
+                'current_period_start': now,
+                'current_period_end': now + timedelta(days=30),
+                'current_period_count': 0,
+            },
+        )
+
+        if created:
+            self.stdout.write(f"  Created subscription: {plan.display_name} plan")
+        else:
+            self.stdout.write(f"  Subscription exists: {sub.plan.display_name} plan")
 
     def create_users(self, org):
         """Create demo users with different roles."""
