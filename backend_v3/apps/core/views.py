@@ -492,8 +492,8 @@ class ForgotPasswordView(APIView):
         if user and user.is_active:
             token = secrets.token_urlsafe(48)
             cache.set(f'pwd_reset_{token}', str(user.id), timeout=900)  # 15 min
-            # In production, send email here. For now, log the token for debugging.
-            logger.info("Password reset token for %s: %s", user.username, token)
+            # In production, send email here.
+            logger.info("Password reset requested for user: %s", user.username)
 
         # Generic response regardless of whether user was found
         return Response({'detail': 'If an account with that identifier exists, a reset link has been sent.'})

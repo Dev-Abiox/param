@@ -253,14 +253,14 @@ class CaseListView(APIView):
 
         queryset = Screening.objects.select_related(
             'patient', 'lab', 'doctor'
-        ).order_by('-created_at')[:500]
+        ).order_by('-created_at')
 
         if doctor_id:
             queryset = queryset.filter(doctor__code=doctor_id)
         if lab_id:
             queryset = queryset.filter(lab__code=lab_id)
 
-        serializer = ScreeningSerializer(queryset, many=True)
+        serializer = ScreeningSerializer(queryset[:500], many=True)
         return Response(serializer.data)
 
 
@@ -370,23 +370,39 @@ class ConsentRevokeView(APIView):
     Revoke patient consent.
 
     POST /api/screening/consent/revoke/{consentId}
+
+    Authorization:
+    - ADMIN: always permitted.
+    - LAB: permitted for any patient in the tenant (lab users manage all
+      patient records within their organisation).
+    - DOCTOR: permitted only if they are the patient's referring doctor.
+    - All other roles: 403.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified]
 
     def post(self, request, consent_id):
         try:
-            consent = Consent.objects.get(id=consent_id)
-            consent.status = 'revoked'
-            consent.revoked_at = datetime.now(timezone.utc)
-            consent.save()
-
-            return Response({'status': 'revoked'})
-
+            consent = Consent.objects.select_related('patient__referring_doctor').get(id=consent_id)
         except Consent.DoesNotExist:
             return Response(
                 {'error': 'Consent not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        # Authorization check
+        user_role = request.user.role
+        if user_role == Role.DOCTOR:
+            doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
+            if not doctor or consent.patient.referring_doctor_id != doctor.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        elif user_role not in (Role.ADMIN, Role.LAB):
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        consent.status = 'revoked'
+        consent.revoked_at = datetime.now(timezone.utc)
+        consent.save()
+
+        return Response({'status': 'revoked'})
 
 
 class WorkQueueView(APIView):
