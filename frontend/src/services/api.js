@@ -322,12 +322,12 @@ export const AdminService = {
   },
 
   getSystemHealth: async () => {
-    const res = await API.get("/admin/system/health");
+    const res = await API.get("/v1/health/ready");
     return res.data;
   },
 
   getSystemConfig: async () => {
-    const res = await API.get("/admin/system/config");
+    const res = await API.get("/v1/health/ready");
     return res.data;
   },
 

@@ -38,6 +38,7 @@ services:
       - ALLOWED_HOSTS=testing.clinomiclabs.com,localhost
       - CORS_ORIGINS=https://testing.clinomiclabs.com
       - CSRF_TRUSTED_ORIGINS=https://testing.clinomiclabs.com
+      - REDIS_URL=redis://redis_testing:6379/0
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
