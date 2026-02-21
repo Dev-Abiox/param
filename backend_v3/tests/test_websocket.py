@@ -204,8 +204,11 @@ class TestWorkQueueConsumerRoles:
         user.role = "ADMIN"
         user.username = "admin_user"
 
+        tenant = MagicMock()
+        tenant.schema_name = "clinic_a"
+
         consumer = WorkQueueConsumer()
-        consumer.scope = {"user": user, "tenant": None}
+        consumer.scope = {"user": user, "tenant": tenant}
         consumer.channel_layer = AsyncMock()
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
