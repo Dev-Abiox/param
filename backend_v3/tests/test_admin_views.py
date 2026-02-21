@@ -21,6 +21,7 @@ def _make_admin_request(rf, method, path, data=None, **kwargs):
     """Create a request with a mocked admin user."""
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = 'ADMIN'
     user.organization = MagicMock(id=uuid.uuid4())
 
@@ -48,6 +49,7 @@ def _make_non_admin_request(rf, path, method='get'):
     """Create a request with a non-admin user."""
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = 'LAB'
     user.organization = MagicMock()
 

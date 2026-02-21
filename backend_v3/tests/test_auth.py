@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.core.models import Role
 from apps.core.views import LoginView, MeView, TokenRefreshView
@@ -17,6 +17,7 @@ from apps.core.views import LoginView, MeView, TokenRefreshView
 def _make_user(role=Role.LAB, email="lab@example.com", username="lab_user"):
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.email = email
     user.username = username
@@ -75,20 +76,19 @@ class TestMeView:
     def test_unauthenticated_returns_401(self):
         factory = APIRequestFactory()
         request = factory.get("/api/auth/me")
-        request.user = MagicMock(is_authenticated=False)
+        # Don't set request.user — let DRF auth handle it (no credentials → 401/403)
         response = MeView.as_view()(request)
-        # Permission class should block unauthenticated access
         assert response.status_code in (
             status.HTTP_401_UNAUTHORIZED,
             status.HTTP_403_FORBIDDEN,
         )
 
+    @patch.object(MeView, "permission_classes", [])
     def test_authenticated_returns_200(self):
         user = _make_user()
         factory = APIRequestFactory()
         request = factory.get("/api/auth/me")
-        request.user = user
-        request.token_payload = {"mfa_verified": True}
+        force_authenticate(request, user=user)
 
         with patch("apps.core.views.UserSerializer") as mock_ser:
             mock_ser_instance = MagicMock()
@@ -107,8 +107,7 @@ class TestTokenRefreshView:
         factory = APIRequestFactory()
         request = factory.post("/api/auth/refresh", {}, format="json")
         request.COOKIES = {}  # No refresh_token cookie
-        request.user = MagicMock(is_authenticated=False)
-
+        # Don't set request.user — let DRF auth handle it
         response = TokenRefreshView.as_view()(request)
         assert response.status_code in (
             status.HTTP_401_UNAUTHORIZED,
