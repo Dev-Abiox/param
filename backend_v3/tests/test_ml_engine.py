@@ -116,6 +116,7 @@ class TestMLEnginePrediction:
         engine.thresholds = None
         engine._model_version = "unknown"
         engine._model_artifact_hash = ""
+        engine._validation_metrics = None
         
         # Mock the is_ready property to return False
         type(engine).is_ready = PropertyMock(return_value=False)
