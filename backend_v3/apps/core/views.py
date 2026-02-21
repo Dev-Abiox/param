@@ -4,6 +4,7 @@ Core API views for authentication, MFA, and health checks.
 
 import logging
 
+import jwt
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
@@ -192,7 +193,7 @@ class MFAVerifyView(APIView):
         # Decode pending token
         try:
             payload = decode_token(pending_token, token_type='mfa_pending')
-        except Exception as e:
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, KeyError, ValueError) as e:
             return Response(
                 {'error': 'Invalid or expired MFA token'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -247,7 +248,7 @@ class TokenRefreshView(APIView):
 
         try:
             access_token, new_refresh_token = refresh_tokens(token)
-        except Exception as e:
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError) as e:
             response = Response({'error': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
             _delete_refresh_cookie(response)
             return response
@@ -555,7 +556,7 @@ class ForgotPasswordView(APIView):
                     recipient_list=[user.email],
                     fail_silently=False,
                 )
-            except Exception:
+            except (OSError, Exception):
                 logger.exception('Failed to send password reset email for user: %s', user.username)
 
             logger.info("Password reset requested for user: %s", user.username)
@@ -587,12 +588,14 @@ class ResetPasswordView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Atomically consume the token to prevent reuse
         user_id = cache.get(f'pwd_reset_{token}')
         if not user_id:
             return Response(
                 {'error': 'Invalid or expired reset token'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        cache.delete(f'pwd_reset_{token}')
 
         try:
             user = User.objects.get(id=user_id)
@@ -613,9 +616,6 @@ class ResetPasswordView(APIView):
         # Revoke all existing refresh tokens on password change
         from .models import RefreshToken as RT
         RT.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
-
-        # Consume the token
-        cache.delete(f'pwd_reset_{token}')
 
         return Response({'detail': 'Password has been reset successfully.'})
 

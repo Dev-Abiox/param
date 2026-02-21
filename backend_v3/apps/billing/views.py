@@ -102,19 +102,7 @@ class SignupView(APIView):
         from apps.core.authentication import create_access_token, create_refresh_token
         from apps.core.views import _set_refresh_cookie
 
-        # Uniqueness checks
-        if Organization.objects.filter(schema_name=schema_name).exists():
-            return Response(
-                {'error': f'An organisation with that name already exists.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if User.objects.filter(email__iexact=admin_email).exists():
-            return Response(
-                {'error': 'An account with that email already exists.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate plan
+        # Validate plan (read-only, safe outside transaction)
         try:
             plan = SubscriptionPlan.objects.get(name=plan_name, is_active=True)
         except SubscriptionPlan.DoesNotExist:
@@ -122,6 +110,18 @@ class SignupView(APIView):
 
         try:
             with transaction.atomic():
+                # Uniqueness checks inside transaction to prevent TOCTOU race
+                if Organization.objects.filter(schema_name=schema_name).exists():
+                    return Response(
+                        {'error': 'An organisation with that name already exists.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if User.objects.filter(email__iexact=admin_email).exists():
+                    return Response(
+                        {'error': 'An account with that email already exists.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # 1. Create Organization — triggers auto_create_schema
                 org = Organization.objects.create(
                     name=org_name,

@@ -147,14 +147,14 @@ class PredictView(APIView):
         if data.get('doctorId'):
             doctor = Doctor.objects.filter(code=data['doctorId']).first()
 
-        # Get or create patient with encrypted PHI fields
+        # Get or create patient with encrypted PHI fields, scoped to lab
         patient, _ = Patient.objects.update_or_create(
             patient_id=patient_id,
+            lab=lab,
             defaults={
                 'name_encrypted': encrypt_field((data.get('patientName') or '').strip()),
                 'age_encrypted': encrypt_field(str(int(cbc.get('Age', 0)))),
                 'sex_encrypted': encrypt_field(str(cbc.get('Sex', 'M'))),
-                'lab': lab,
                 'referring_doctor': doctor,
             }
         )

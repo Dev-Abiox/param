@@ -40,7 +40,10 @@ def _extract_org_id(request) -> str | None:
             algorithms=[settings.JWT_ALGORITHM],
         )
         return payload.get('org_id') or None
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
     except Exception:
+        logger.warning("JWTTenantMiddleware: unexpected error decoding token", exc_info=True)
         return None
 
 
@@ -93,7 +96,7 @@ class PlanLimitMiddleware:
         '/api/v1/screening/predict',
     ])
 
-    CACHE_TTL = 60  # seconds
+    CACHE_TTL = 10  # seconds — short to minimize quota bypass window
 
     def __init__(self, get_response):
         self.get_response = get_response

@@ -168,25 +168,18 @@ class NarrativeEngine:
         (excluding the current one), compares risk trajectory.
         Returns empty string if no history exists.
         """
-        from apps.screening.models import Patient, Screening
+        from apps.screening.models import Screening
 
-        try:
-            patient = Patient.objects.get(patient_id=patient_id)
-        except Patient.DoesNotExist:
-            return ''
-
-        # Narrative is generated before the current screening is persisted,
-        # so all results here are genuine historical records.
-        history = list(
+        # Fetch only risk_class values — avoids loading full Screening objects
+        risk_trajectory = list(
             Screening.objects
-            .filter(patient=patient)
-            .order_by('-created_at')[:5]
+            .filter(patient__patient_id=patient_id)
+            .order_by('-created_at')
+            .values_list('risk_class', flat=True)[:5]
         )
 
-        if not history:
+        if not risk_trajectory:
             return ''
-
-        risk_trajectory = [s.risk_class for s in history]
 
         if all(r < current_risk_class for r in risk_trajectory):
             return 'This represents a worsening trend compared to prior screenings. '
