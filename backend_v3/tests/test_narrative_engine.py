@@ -158,75 +158,54 @@ class TestDifferentialSuggestions:
 # ── Trend Fragment ────────────────────────────────────────────────────────────
 
 class TestTrendFragment:
+    """Tests for build_trend_fragment which uses values_list query."""
+
+    def _mock_screening_qs(self, mock_screening_cls, risk_values):
+        """Set up mock chain: .filter().order_by().values_list()[:5] → risk_values."""
+        mock_qs = MagicMock()
+        mock_screening_cls.objects.filter.return_value = mock_qs
+        mock_qs.order_by.return_value = mock_qs
+        mock_qs.values_list.return_value = mock_qs
+        mock_qs.__getitem__ = MagicMock(return_value=risk_values)
 
     @patch('apps.screening.models.Screening')
-    @patch('apps.screening.models.Patient')
-    def test_no_patient_returns_empty(self, mock_patient_cls, mock_screening_cls):
-        mock_patient_cls.DoesNotExist = type('DoesNotExist', (Exception,), {})
-        mock_patient_cls.objects.get.side_effect = mock_patient_cls.DoesNotExist
+    def test_no_patient_returns_empty(self, mock_screening_cls):
+        self._mock_screening_qs(mock_screening_cls, [])
 
         engine = NarrativeEngine()
         result = engine.build_trend_fragment('UNKNOWN', 2)
         assert result == ''
 
     @patch('apps.screening.models.Screening')
-    @patch('apps.screening.models.Patient')
-    def test_no_history_returns_empty(self, mock_patient_cls, mock_screening_cls):
-        mock_patient_cls.DoesNotExist = type('DoesNotExist', (Exception,), {})
-        mock_patient_cls.objects.get.return_value = MagicMock()
-        # Only one screening (the current one)
-        mock_screening_cls.objects.filter.return_value.order_by.return_value.__getitem__ = MagicMock(
-            return_value=[MagicMock(risk_class=2)],
-        )
+    def test_no_history_returns_empty(self, mock_screening_cls):
+        self._mock_screening_qs(mock_screening_cls, [])
 
         engine = NarrativeEngine()
         result = engine.build_trend_fragment('P001', 2)
-        # With only 1 record (current), history is empty
         assert result == ''
 
     @patch('apps.screening.models.Screening')
-    @patch('apps.screening.models.Patient')
-    def test_worsening_trend(self, mock_patient_cls, mock_screening_cls):
-        mock_patient_cls.DoesNotExist = type('DoesNotExist', (Exception,), {})
-        mock_patient_cls.objects.get.return_value = MagicMock()
-        current = MagicMock(risk_class=3)
-        prev1 = MagicMock(risk_class=1)
-        prev2 = MagicMock(risk_class=2)
-        mock_screening_cls.objects.filter.return_value.order_by.return_value.__getitem__ = MagicMock(
-            return_value=[current, prev1, prev2],
-        )
+    def test_worsening_trend(self, mock_screening_cls):
+        # All prior risk classes < current (3) → worsening
+        self._mock_screening_qs(mock_screening_cls, [1, 2])
 
         engine = NarrativeEngine()
         result = engine.build_trend_fragment('P001', 3)
         assert 'worsening' in result.lower()
 
     @patch('apps.screening.models.Screening')
-    @patch('apps.screening.models.Patient')
-    def test_improving_trend(self, mock_patient_cls, mock_screening_cls):
-        mock_patient_cls.DoesNotExist = type('DoesNotExist', (Exception,), {})
-        mock_patient_cls.objects.get.return_value = MagicMock()
-        current = MagicMock(risk_class=1)
-        prev1 = MagicMock(risk_class=3)
-        prev2 = MagicMock(risk_class=2)
-        mock_screening_cls.objects.filter.return_value.order_by.return_value.__getitem__ = MagicMock(
-            return_value=[current, prev1, prev2],
-        )
+    def test_improving_trend(self, mock_screening_cls):
+        # All prior risk classes > current (1) → improving
+        self._mock_screening_qs(mock_screening_cls, [3, 2])
 
         engine = NarrativeEngine()
         result = engine.build_trend_fragment('P001', 1)
         assert 'improving' in result.lower()
 
     @patch('apps.screening.models.Screening')
-    @patch('apps.screening.models.Patient')
-    def test_stable_trend(self, mock_patient_cls, mock_screening_cls):
-        mock_patient_cls.DoesNotExist = type('DoesNotExist', (Exception,), {})
-        mock_patient_cls.objects.get.return_value = MagicMock()
-        current = MagicMock(risk_class=2)
-        prev1 = MagicMock(risk_class=2)
-        prev2 = MagicMock(risk_class=2)
-        mock_screening_cls.objects.filter.return_value.order_by.return_value.__getitem__ = MagicMock(
-            return_value=[current, prev1, prev2],
-        )
+    def test_stable_trend(self, mock_screening_cls):
+        # All prior risk classes == current (2) → stable
+        self._mock_screening_qs(mock_screening_cls, [2, 2, 2])
 
         engine = NarrativeEngine()
         result = engine.build_trend_fragment('P001', 2)

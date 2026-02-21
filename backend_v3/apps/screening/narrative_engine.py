@@ -190,7 +190,7 @@ class NarrativeEngine:
         else:
             return (
                 f'Risk classification has fluctuated across the last '
-                f'{len(history)} screenings. '
+                f'{len(risk_trajectory)} screenings. '
             )
 
     def get_differential_suggestions(
