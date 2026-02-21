@@ -348,11 +348,11 @@ class WebhookView(APIView):
 
                 pe.processed = True
                 pe.save(update_fields=['processed'])
-                logger.info('billing.webhook_processed', event=event_type, sub_id=razorpay_sub_id)
+                logger.info('billing.webhook_processed', event_type=event_type, sub_id=razorpay_sub_id)
             except Exception as exc:
                 pe.error = str(exc)
                 pe.save(update_fields=['error'])
-                logger.error('billing.webhook_error', event=event_type, error=str(exc))
+                logger.error('billing.webhook_error', event_type=event_type, error=str(exc))
 
         return Response({'status': 'ok'})
 
