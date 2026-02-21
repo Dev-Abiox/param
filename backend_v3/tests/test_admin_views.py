@@ -311,14 +311,12 @@ class TestAdminDoctorView:
             ),
         ]
 
-        with patch('apps.screening.views.Doctor') as MockDoctor:
+        with patch('apps.screening.views.Doctor') as MockDoctor, \
+             patch.object(AdminDoctorView, 'permission_classes', []):
             MockDoctor.objects.select_related.return_value.order_by.return_value = mock_doctors
 
-            view = AdminDoctorView()
-            view.request = request
-            view.kwargs = {}
-            view.format_kwarg = None
-            response = view.get(request)
+            view = AdminDoctorView.as_view()
+            response = view(request)
 
         assert response.status_code == 200
 
