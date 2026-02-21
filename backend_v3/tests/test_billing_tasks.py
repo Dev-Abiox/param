@@ -35,7 +35,7 @@ class TestIncrementUsage:
         mock_sub.current_period_count = 5
         mock_sub.plan.monthly_limit = 100
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             MockSub.objects.filter.return_value.update.return_value = 1
             MockSub.objects.select_related.return_value.get.return_value = mock_sub
             MockSub.DoesNotExist = Exception
@@ -54,7 +54,7 @@ class TestIncrementUsage:
         org_id = str(uuid.uuid4())
         screening_id = str(uuid.uuid4())
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             mock_sub = MagicMock()
             mock_sub.current_period_count = 5
             mock_sub.plan.monthly_limit = 100
@@ -74,7 +74,7 @@ class TestIncrementUsage:
         """Empty org_id should short-circuit."""
         from apps.billing.tasks import increment_usage
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             increment_usage('', str(uuid.uuid4()))
             increment_usage(None, str(uuid.uuid4()))
 
@@ -84,7 +84,7 @@ class TestIncrementUsage:
         """Empty screening_id should short-circuit."""
         from apps.billing.tasks import increment_usage
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             increment_usage(str(uuid.uuid4()), '')
 
         MockSub.objects.filter.assert_not_called()
@@ -96,7 +96,7 @@ class TestIncrementUsage:
         org_id = str(uuid.uuid4())
         screening_id = str(uuid.uuid4())
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             MockSub.objects.filter.return_value.update.return_value = 0
 
             increment_usage(org_id, screening_id)
@@ -115,7 +115,7 @@ class TestIncrementUsage:
         mock_sub.current_period_count = 80  # Just crossed 80% of 100
         mock_sub.plan.monthly_limit = 100
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub, \
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
              patch('apps.billing.tasks.send_usage_alert') as mock_alert:
             MockSub.objects.filter.return_value.update.return_value = 1
             MockSub.objects.select_related.return_value.get.return_value = mock_sub
@@ -141,7 +141,7 @@ class TestIncrementUsage:
         mock_sub.current_period_count = 85  # prev=84, no threshold boundary
         mock_sub.plan.monthly_limit = 100
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub, \
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
              patch('apps.billing.tasks.send_usage_alert') as mock_alert:
             MockSub.objects.filter.return_value.update.return_value = 1
             MockSub.objects.select_related.return_value.get.return_value = mock_sub
@@ -162,7 +162,7 @@ class TestIncrementUsage:
         mock_sub.current_period_count = 99999
         mock_sub.plan.monthly_limit = -1  # unlimited
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub, \
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
              patch('apps.billing.tasks.send_usage_alert') as mock_alert:
             MockSub.objects.filter.return_value.update.return_value = 1
             MockSub.objects.select_related.return_value.get.return_value = mock_sub
@@ -188,9 +188,9 @@ class TestComputeMonthlyRollups:
         mock_sub.organization = MagicMock()
         mock_sub.current_period_count = 42
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub, \
-             patch('apps.billing.tasks.UsageRecord') as MockUsage, \
-             patch('apps.billing.tasks.transaction') as MockTx:
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
+             patch('apps.billing.models.UsageRecord') as MockUsage, \
+             patch('django.db.transaction') as MockTx:
             MockSub.objects.values_list.return_value = [sub_id]
             MockSub.objects.select_for_update.return_value.select_related.return_value.get.return_value = mock_sub
             MockTx.atomic.return_value.__enter__ = MagicMock(return_value=None)
@@ -211,7 +211,7 @@ class TestComputeMonthlyRollups:
         lock_key = f'billing_rollup_lock:{date.today().isoformat()}'
         cache.set(lock_key, '1', timeout=3600)
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             result = compute_monthly_rollups()
 
         assert result == 0
@@ -230,9 +230,9 @@ class TestComputeMonthlyRollups:
         mock_sub_2.organization = MagicMock()
         mock_sub_2.current_period_count = 10
 
-        with patch('apps.billing.tasks.TenantSubscription') as MockSub, \
-             patch('apps.billing.tasks.UsageRecord') as MockUsage, \
-             patch('apps.billing.tasks.transaction') as MockTx:
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
+             patch('apps.billing.models.UsageRecord') as MockUsage, \
+             patch('django.db.transaction') as MockTx:
             MockSub.objects.values_list.return_value = [sub_id_1, sub_id_2]
 
             # First sub raises, second succeeds
@@ -265,7 +265,7 @@ class TestTriggerWebhook:
         endpoint.id = uuid.uuid4()
         endpoint.events = ['screening.completed', 'consent.revoked']
 
-        with patch('apps.billing.tasks.WebhookEndpoint') as MockWH, \
+        with patch('apps.billing.models.WebhookEndpoint') as MockWH, \
              patch('apps.billing.tasks.deliver_webhook') as mock_deliver:
             MockWH.objects.filter.return_value = [endpoint]
 
@@ -286,7 +286,7 @@ class TestTriggerWebhook:
         endpoint.id = uuid.uuid4()
         endpoint.events = ['consent.revoked']  # doesn't include screening.completed
 
-        with patch('apps.billing.tasks.WebhookEndpoint') as MockWH, \
+        with patch('apps.billing.models.WebhookEndpoint') as MockWH, \
              patch('apps.billing.tasks.deliver_webhook') as mock_deliver:
             MockWH.objects.filter.return_value = [endpoint]
 
@@ -300,7 +300,7 @@ class TestTriggerWebhook:
 
         org = MagicMock()
 
-        with patch('apps.billing.tasks.WebhookEndpoint') as MockWH, \
+        with patch('apps.billing.models.WebhookEndpoint') as MockWH, \
              patch('apps.billing.tasks.deliver_webhook') as mock_deliver:
             MockWH.objects.filter.return_value = []
 
