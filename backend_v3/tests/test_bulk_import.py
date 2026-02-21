@@ -70,7 +70,7 @@ class TestBulkImportView:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Missing CSV columns" in str(response.data.get("error", ""))
 
-    @patch("apps.screening.views.process_bulk_import")
+    @patch("apps.screening.tasks.process_bulk_import")
     @patch("apps.screening.views.BulkImportJob.objects.create")
     @patch("apps.screening.views.log_phi_access")
     def test_valid_csv_accepted_and_job_created(self, mock_log, mock_create, mock_task):
