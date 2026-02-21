@@ -264,18 +264,17 @@ class WebhookView(APIView):
             logger.error('billing.webhook_secret_not_configured')
             return Response({'error': 'webhook not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if webhook_secret:
-            try:
-                import razorpay
-                client = razorpay.Client(
-                    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-                )
-                client.utility.verify_webhook_signature(
-                    request.body.decode('utf-8'), sig, webhook_secret
-                )
-            except Exception:
-                logger.warning('billing.webhook_invalid_signature')
-                return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            import razorpay
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            client.utility.verify_webhook_signature(
+                request.body.decode('utf-8'), sig, webhook_secret
+            )
+        except Exception:
+            logger.warning('billing.webhook_invalid_signature')
+            return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data
         event_type = data.get('event', '')
