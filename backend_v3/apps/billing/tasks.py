@@ -629,3 +629,76 @@ def trigger_webhook(organization, event_name: str, payload: dict) -> None:
             event=event_name,
             count=fired,
         )
+
+
+@shared_task(
+    name='billing.send_lab_created_email',
+    max_retries=3,
+    default_retry_delay=30,
+    acks_late=True,
+)
+def send_lab_created_email(
+    user_id: str,
+    org_name: str,
+    plan_name: str,
+    temp_password: str,
+) -> None:
+    """
+    Email the admin user when a super admin creates a new lab on their behalf.
+    Contains temporary credentials and login instructions.
+    """
+    from django.core.mail import send_mail
+    from apps.core.models import User
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        logger.warning('billing.lab_created_email_user_not_found', user_id=user_id)
+        return
+
+    if not user.email:
+        logger.warning('billing.lab_created_email_no_email', user_id=user_id)
+        return
+
+    subject = f'Your Clinomic account is ready — {org_name}'
+    message = (
+        f'Hi {user.name or user.username},\n\n'
+        f'Your organisation "{org_name}" has been set up on Clinomic.\n\n'
+        f'Plan        : {plan_name}\n'
+        f'Login URL   : {settings.FRONTEND_URL}/login\n'
+        f'Username    : {user.username}\n'
+        f'Password    : {temp_password}\n\n'
+        f'IMPORTANT: Please change your password immediately after logging in.\n'
+        f'You will also be required to set up two-factor authentication (MFA)\n'
+        f'before accessing sensitive features.\n\n'
+        f'Steps to get started:\n'
+        f'  1. Log in at {settings.FRONTEND_URL}/login\n'
+        f'  2. Change your password in Settings\n'
+        f'  3. Set up MFA via the Security section\n'
+        f'  4. Complete the onboarding wizard\n\n'
+        f'If you have questions, contact support@clinomiclabs.com\n\n'
+        f'— The Clinomic Team'
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        logger.info(
+            'billing.lab_created_email_sent',
+            user_id=user_id,
+            org_name=org_name,
+            recipient=user.email,
+        )
+    except Exception as exc:
+        logger.error(
+            'billing.lab_created_email_failed',
+            user_id=user_id,
+            org_name=org_name,
+            error=str(exc),
+        )
+        raise self.retry(exc=exc)

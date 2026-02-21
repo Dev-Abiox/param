@@ -64,6 +64,18 @@ class HasRole(permissions.BasePermission):
         return request.user.role in required_roles
 
 
+class IsPlatformSuperAdmin(permissions.BasePermission):
+    """Only the SaaS platform owner (SUPER_ADMIN role or is_superuser) may access."""
+    message = 'Platform administrator access required.'
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_superuser or request.user.role == Role.SUPER_ADMIN)
+        )
+
+
 class IsMFAVerified(permissions.BasePermission):
     """
     Require MFA verification for sensitive operations.

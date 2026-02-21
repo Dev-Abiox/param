@@ -21,6 +21,10 @@ import AdminLabs from "@/views/admin/AdminLabs";
 import AdminDoctors from "@/views/admin/AdminDoctors";
 import AdminUsage from "@/views/admin/AdminUsage";
 import AdminBilling from "@/views/admin/AdminBilling";
+import PlatformDashboard from "@/views/platform/PlatformDashboard";
+import PlatformOrgList from "@/views/platform/PlatformOrgList";
+import PlatformCreateOrg from "@/views/platform/PlatformCreateOrg";
+import PlatformOrgDetail from "@/views/platform/PlatformOrgDetail";
 
 import { AuthService } from "@/services/api";
 import { Role } from "@/types";
@@ -45,6 +49,8 @@ const routeToView = {
 // Get default route based on user role
 const getDefaultRoute = (role) => {
   switch (role) {
+    case Role.SUPER_ADMIN:
+      return "/platform-admin";
     case Role.ADMIN:
       return "/dashboard";
     case Role.DOCTOR:
@@ -411,6 +417,48 @@ const App = () => {
         <Route
           path="/portal/billing"
           element={user.role === Role.ADMIN ? <AdminBilling /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+        />
+
+        {/* Platform Super Admin (SUPER_ADMIN role only) */}
+        <Route
+          path="/platform-admin"
+          element={
+            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+              <PlatformDashboard />
+            ) : (
+              <Navigate to={getDefaultRoute(user.role)} replace />
+            )
+          }
+        />
+        <Route
+          path="/platform-admin/orgs"
+          element={
+            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+              <PlatformOrgList />
+            ) : (
+              <Navigate to={getDefaultRoute(user.role)} replace />
+            )
+          }
+        />
+        <Route
+          path="/platform-admin/orgs/new"
+          element={
+            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+              <PlatformCreateOrg />
+            ) : (
+              <Navigate to={getDefaultRoute(user.role)} replace />
+            )
+          }
+        />
+        <Route
+          path="/platform-admin/orgs/:schema"
+          element={
+            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+              <PlatformOrgDetail />
+            ) : (
+              <Navigate to={getDefaultRoute(user.role)} replace />
+            )
+          }
         />
 
         {/* Default redirect based on role */}

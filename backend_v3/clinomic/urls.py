@@ -33,6 +33,7 @@ urlpatterns = [
     path('api/v1/billing/', include('apps.billing.urls')),
     path('api/v1/', include(signup_urlpatterns)),
     path('api/v1/admin/', include('apps.core.admin_urls')),
+    path('api/v1/platform/', include('apps.core.platform_urls')),
 
     # ── API legacy (unversioned — backward-compatible) ─────────────────────────
     path('api/', include('apps.core.urls')),
@@ -41,6 +42,7 @@ urlpatterns = [
     path('api/billing/', include('apps.billing.urls')),
     path('api/', include(signup_urlpatterns)),
     path('api/admin/', include('apps.core.admin_urls')),
+    path('api/platform/', include('apps.core.platform_urls')),
 
     # ── OpenAPI / Docs ─────────────────────────────────────────────────────────
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

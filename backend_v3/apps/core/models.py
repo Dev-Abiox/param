@@ -57,6 +57,7 @@ class Domain(DomainMixin):
 
 class Role(models.TextChoices):
     """User roles in the system."""
+    SUPER_ADMIN = 'SUPER_ADMIN', 'Platform Administrator'
     ADMIN = 'ADMIN', 'Administrator'
     LAB = 'LAB', 'Lab Technician'
     DOCTOR = 'DOCTOR', 'Doctor'
@@ -126,7 +127,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_super_admin(self):
-        return self.is_superuser
+        return self.is_superuser or self.role == Role.SUPER_ADMIN
 
 
 class MFASettings(models.Model):
