@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.core.models import Role
 from apps.screening.views import FHIRBundleView
@@ -16,6 +16,7 @@ from apps.screening.views import FHIRBundleView
 def _make_user(role=Role.LAB, username="lab_user"):
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.pk = 1
     user.username = username
@@ -120,7 +121,8 @@ VALID_BUNDLE = {
 def _post_bundle(bundle, user=None):
     factory = APIRequestFactory()
     request = factory.post("/api/screening/fhir/bundle", bundle, format="json")
-    request.user = user or _make_user()
+    user = user or _make_user()
+    force_authenticate(request, user=user)
     request.token_payload = {"mfa_verified": True}
     return request
 

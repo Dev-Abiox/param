@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.core.models import Role
 from apps.screening.models import BulkImportJob
@@ -29,6 +29,7 @@ MISSING_COL_CSV = (
 def _make_user(role=Role.LAB):
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.pk = 1
     user.username = "lab_user"
@@ -46,7 +47,8 @@ def _csv_request(csv_text: str, user=None):
         {"file": csv_file},
         format="multipart",
     )
-    request.user = user or _make_user()
+    user = user or _make_user()
+    force_authenticate(request, user=user)
     request.token_payload = {"mfa_verified": True}
     return request
 
@@ -56,7 +58,8 @@ class TestBulkImportView:
     def test_missing_file_returns_400(self):
         factory = APIRequestFactory()
         request = factory.post("/api/screening/bulk-import", {}, format="multipart")
-        request.user = _make_user()
+        user = _make_user()
+        force_authenticate(request, user=user)
         request.token_payload = {"mfa_verified": True}
         response = BulkImportView.as_view()(request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -109,7 +112,8 @@ class TestBulkImportStatusView:
 
         factory = APIRequestFactory()
         request = factory.get(f"/api/screening/bulk-import/{job_id}/status")
-        request.user = _make_user()
+        user = _make_user()
+        force_authenticate(request, user=user)
         request.token_payload = {"mfa_verified": True}
         response = BulkImportStatusView.as_view()(request, job_id=job_id)
 
@@ -124,7 +128,8 @@ class TestBulkImportStatusView:
         job_id = uuid.uuid4()
         factory = APIRequestFactory()
         request = factory.get(f"/api/screening/bulk-import/{job_id}/status")
-        request.user = _make_user()
+        user = _make_user()
+        force_authenticate(request, user=user)
         request.token_payload = {"mfa_verified": True}
         response = BulkImportStatusView.as_view()(request, job_id=job_id)
         assert response.status_code == status.HTTP_404_NOT_FOUND

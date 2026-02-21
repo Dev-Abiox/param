@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.core.models import Role
 from apps.screening.models import ScreeningStatus
@@ -23,6 +23,7 @@ from apps.screening.views import (
 def _make_user(role=Role.LAB, email="lab@example.com", username="lab_user"):
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.email = email
     user.username = username
@@ -35,7 +36,8 @@ def _make_request(method, path, data=None, user=None, params=None):
     fn = getattr(factory, method)
     kwargs = {"format": "json"} if data is not None else {}
     request = fn(path, data, **kwargs) if data is not None else fn(path, params or {})
-    request.user = user or _make_user()
+    user = user or _make_user()
+    force_authenticate(request, user=user)
     request.token_payload = {"mfa_verified": True}
     return request
 

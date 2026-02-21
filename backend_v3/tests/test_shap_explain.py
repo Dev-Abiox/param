@@ -17,6 +17,7 @@ from apps.screening.views import ExplainView
 def _make_user(role=Role.LAB, email="lab@example.com", username="lab_user"):
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.email = email
     user.username = username

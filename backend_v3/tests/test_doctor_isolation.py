@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.analytics.views import CaseStatsView
 from apps.core.models import Role
@@ -20,6 +20,7 @@ def make_user(role: str, email: str = "doctor@example.com") -> MagicMock:
     """Build a minimal mock user for the given role."""
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.email = email
     return user
@@ -29,7 +30,7 @@ def make_request(user, params: dict | None = None):
     """Construct a GET request to CaseStatsView."""
     factory = APIRequestFactory()
     request = factory.get("/api/analytics/cases/", params or {})
-    request.user = user
+    force_authenticate(request, user=user)
     # Simulate JWTAuthentication setting the token payload
     request.token_payload = {"mfa_verified": True}
     return request
