@@ -69,10 +69,10 @@ class TestWebhookView:
             mock_settings.RAZORPAY_KEY_ID = 'key_id'
             mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
 
-            with patch('apps.billing.views.razorpay') as mock_rp:
+            with patch('razorpay.Client') as MockClient:
                 mock_client = MagicMock()
                 mock_client.utility.verify_webhook_signature.side_effect = Exception('bad sig')
-                mock_rp.Client.return_value = mock_client
+                MockClient.return_value = mock_client
 
                 view = WebhookView.as_view()
                 response = view(request)
