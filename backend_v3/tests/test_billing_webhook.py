@@ -3,6 +3,7 @@ Tests for the billing webhook handler (WebhookView).
 """
 
 import json
+import sys
 import uuid
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -20,11 +21,12 @@ def api_rf():
 
 @pytest.fixture
 def mock_razorpay():
-    """Mock razorpay.Client so the view's local import gets a fake client."""
-    with patch('razorpay.Client') as MockClient:
-        # By default verify_webhook_signature succeeds (no exception).
-        MockClient.return_value.utility.verify_webhook_signature.return_value = None
-        yield MockClient
+    """Fake razorpay module injected into sys.modules so the local import succeeds."""
+    mod = MagicMock()
+    # By default verify_webhook_signature succeeds (no exception).
+    mod.Client.return_value.utility.verify_webhook_signature.return_value = None
+    with patch.dict(sys.modules, {'razorpay': mod}):
+        yield mod
 
 
 @pytest.fixture
