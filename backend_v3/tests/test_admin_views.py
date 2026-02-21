@@ -100,7 +100,7 @@ class TestAdminUserListView:
 
         data = {
             'username': 'newuser',
-            'password': 'StrongP@ss1',
+            'password': 'StrongP@ss1!xy',  # ≥12 chars to pass MinimumLengthValidator
             'role': 'LAB',
             'name': 'New User',
             'email': 'new@test.com',
@@ -108,7 +108,8 @@ class TestAdminUserListView:
         request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
 
         with patch('apps.core.views.User') as MockUser, \
-             patch('apps.core.views.Role') as MockRole:
+             patch('apps.core.views.Role') as MockRole, \
+             patch('apps.core.views.validate_password'):  # isolate from password policy
             MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
             MockUser.objects.filter.return_value.exists.return_value = False
 
