@@ -192,4 +192,4 @@ class TestMLEngineAsync:
 
             result = await predict_async(sample_cbc_data)
             assert result == mock_result
-            mock_engine.predict.assert_called_once_with(sample_cbc_data)
+            mock_engine.predict.assert_called_once_with(sample_cbc_data, include_shap=False)
