@@ -2,29 +2,41 @@ import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
-// Generate a unique request ID
-const generateRequestId = () => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
+// In-memory access token — never touches localStorage or sessionStorage.
+// The refresh token lives in an httpOnly cookie (set by the backend).
+let _accessToken = null;
+
+export const setAccessToken = (token) => { _accessToken = token; };
+export const clearAccessToken = () => { _accessToken = null; };
+export const getAccessToken = () => _accessToken;
 
 const API = axios.create({
   baseURL: `${BACKEND_URL}/api`,
+  withCredentials: true,   // send the httpOnly refresh-token cookie on every request
 });
 
-// Add request ID and auth token to all requests
+// Plain instance with NO interceptors — used only for token refresh so that
+// a 401 from the refresh endpoint propagates directly without triggering
+// another refresh attempt and looping.
+const _refreshAPI = axios.create({
+  baseURL: `${BACKEND_URL}/api`,
+  withCredentials: true,
+});
+
+// Attach access token and cache-control header to every outbound request
 API.interceptors.request.use((config) => {
-  // Add request ID parameter
-  config.params = config.params || {};
-  config.params.r = generateRequestId();
-  
-  // Add auth token
-  const token = localStorage.getItem("access_token");
-  if (token) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${token}`;
+  config.headers = config.headers || {};
+  config.headers['Cache-Control'] = 'no-cache';
+
+  if (_accessToken) {
+    config.headers.Authorization = `Bearer ${_accessToken}`;
   }
   return config;
 });
+
+// On 401, silently refresh the access token (using the cookie) then retry once.
+// Deduplicates concurrent refresh requests so only one fires at a time.
+let _refreshPromise = null;
 
 API.interceptors.response.use(
   (res) => res,
@@ -33,12 +45,19 @@ API.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const newToken = await AuthService.refresh();
+        if (!_refreshPromise) {
+          _refreshPromise = AuthService.refresh().finally(() => {
+            _refreshPromise = null;
+          });
+        }
+        const newToken = await _refreshPromise;
         originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return API(originalRequest);
       } catch (e) {
-        await AuthService.logout();
+        clearAccessToken();
+        // Notify the app that the session has fully expired
+        window.dispatchEvent(new Event("session-expired"));
       }
     }
     return Promise.reject(error);
@@ -48,12 +67,11 @@ API.interceptors.response.use(
 export const AuthService = {
   login: async (username, password, mfaCode = null) => {
     const payload = { username, password };
-    if (mfaCode) {
-      payload.mfa_code = mfaCode;
-    }
+    if (mfaCode) payload.mfa_code = mfaCode;
+
     const res = await API.post("/auth/login", payload);
-    
-    // Check if MFA is required
+
+    // MFA required — no tokens issued yet
     if (res.data.mfa_required && res.data.mfa_pending_token) {
       return {
         mfaRequired: true,
@@ -63,10 +81,9 @@ export const AuthService = {
         role: res.data.role,
       };
     }
-    
-    // Normal login - store tokens
-    localStorage.setItem("access_token", res.data.access_token);
-    localStorage.setItem("refresh_token", res.data.refresh_token);
+
+    // Full login — access token in body, refresh token in httpOnly cookie
+    setAccessToken(res.data.access_token);
     return {
       mfaRequired: false,
       id: res.data.id,
@@ -74,45 +91,74 @@ export const AuthService = {
       role: res.data.role,
     };
   },
-  
+
   verifyMFA: async (mfaPendingToken, mfaCode) => {
     const res = await API.post("/auth/mfa/verify", {
       mfa_pending_token: mfaPendingToken,
       mfa_code: mfaCode,
     });
-    
-    localStorage.setItem("access_token", res.data.access_token);
-    localStorage.setItem("refresh_token", res.data.refresh_token);
+
+    setAccessToken(res.data.access_token);
     return {
       id: res.data.id,
       name: res.data.name,
       role: res.data.role,
     };
   },
-  
+
+  // Silently exchange the httpOnly refresh cookie for a new access token.
+  // Called on app startup and by the 401 interceptor.
   refresh: async () => {
-    const refreshToken = localStorage.getItem("refresh_token");
-    if (!refreshToken) throw new Error("No refresh token");
-    const res = await API.post("/auth/refresh", { refresh_token: refreshToken });
-    localStorage.setItem("access_token", res.data.access_token);
-    localStorage.setItem("refresh_token", res.data.refresh_token);
+    const res = await _refreshAPI.post("/auth/refresh");   // plain instance — no interceptor loop
+    setAccessToken(res.data.access_token);
     return res.data.access_token;
   },
-  
+
   logout: async () => {
-    const refreshToken = localStorage.getItem("refresh_token");
     try {
-      if (refreshToken) {
-        await API.post("/auth/logout", { refresh_token: refreshToken });
-      }
+      await API.post("/auth/logout");   // cookie is sent + deleted by the server
     } finally {
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
+      clearAccessToken();
     }
   },
-  
+
   getMe: async () => {
     const res = await API.get("/auth/me");
+    return res.data;
+  },
+
+  forgotPassword: async (identifier) => {
+    const res = await API.post("/auth/forgot-password", { identifier });
+    return res.data;
+  },
+
+  resetPassword: async (token, newPassword) => {
+    const res = await API.post("/auth/reset-password", { token, new_password: newPassword });
+    return res.data;
+  },
+
+  getSessions: async () => {
+    const res = await API.get("/auth/sessions");
+    return res.data;
+  },
+
+  revokeSession: async (tokenId) => {
+    const res = await API.delete(`/auth/sessions/${tokenId}`);
+    return res.data;
+  },
+
+  signup: async ({ orgName, adminEmail, adminPassword, plan, adminName, tosAccepted }) => {
+    const res = await API.post("/v1/signup/", {
+      org_name: orgName,
+      admin_email: adminEmail,
+      admin_password: adminPassword,
+      plan,
+      admin_name: adminName,
+      tos_accepted: tosAccepted,
+    });
+    if (res.data.access_token) {
+      setAccessToken(res.data.access_token);
+    }
     return res.data;
   },
 };
@@ -150,7 +196,8 @@ export const ConsentService = {
       const res = await API.get(`/screening/consent/status/${patientId}`);
       return res.data;
     } catch (e) {
-      return { hasConsent: false };
+      if (e.response?.status === 404) return { hasConsent: false };
+      throw e;
     }
   },
 
@@ -188,11 +235,13 @@ export const LisService = {
     const res = await API.post("/screening/predict", payload);
 
     return {
+      id: res.data.id,
       label: res.data.label,
       probabilities: res.data.probabilities,
       indices: res.data.indices,
       recommendation: res.data.recommendation,
       interpretation: (res.data.rulesFired || []).join(", "),
+      narrative: res.data.narrative || '',
     };
   },
 
@@ -206,13 +255,63 @@ export const LisService = {
     return res.data;
   },
 
-  getPatientRecords: async (doctorId, labId) => {
-    const res = await API.get("/analytics/cases", { params: { doctorId, labId } });
+  getPatientRecords: async (doctorId, labId, page = 1, pageSize = 50) => {
+    const res = await API.get("/analytics/cases", { params: { doctorId, labId, page, page_size: pageSize } });
     return res.data;
   },
 
   getStats: async () => {
     const res = await API.get("/analytics/summary");
+    return res.data;
+  },
+
+  getScreening: async (screeningId) => {
+    const res = await API.get(`/analytics/screening/${screeningId}`);
+    return res.data;
+  },
+
+  // 3.4 — Patient CBC trend
+  getPatientTrend: async (patientId) => {
+    const res = await API.get(`/analytics/trend/${patientId}`);
+    return res.data;
+  },
+
+  // 3.2 — Work queue
+  getWorkQueue: async (status = 'pending') => {
+    const res = await API.get('/screening/queue', { params: { status } });
+    return res.data;
+  },
+
+  updateScreeningStatus: async (screeningId, newStatus) => {
+    const res = await API.patch(`/screening/cases/${screeningId}/status`, { status: newStatus });
+    return res.data;
+  },
+
+  // 3.3 — Doctor review
+  reviewScreening: async (screeningId, clinicalNote = '') => {
+    const res = await API.patch(`/screening/cases/${screeningId}/review`, { clinical_note: clinicalNote });
+    return res.data;
+  },
+
+  // SHAP explainability
+  getExplanation: async (screeningId) => {
+    const res = await API.get(`/screening/cases/${screeningId}/explain`);
+    return res.data;
+  },
+
+  // 5.3 — Bulk Import
+  submitBulkImport: async (file, labId = '') => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await API.post('/screening/bulk-import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      params: labId ? { labId } : {},
+    });
+    return res.data;
+  },
+
+  getBulkImportStatus: async (jobId) => {
+    const res = await API.get(`/screening/bulk-import/${jobId}/status`);
     return res.data;
   },
 };
@@ -222,26 +321,116 @@ export const AdminService = {
     const res = await API.get("/admin/audit/v2/summary");
     return res.data;
   },
-  
+
   verifyAuditChain: async (limit = 100) => {
     const res = await API.get(`/admin/audit/v2/verify?limit=${limit}`);
     return res.data;
   },
-  
+
   exportAuditLogs: async (fromSequence = 1, toSequence = null) => {
     const params = { from_sequence: fromSequence };
     if (toSequence) params.to_sequence = toSequence;
     const res = await API.get("/admin/audit/v2/export", { params });
     return res.data;
   },
-  
+
   getSystemHealth: async () => {
-    const res = await API.get("/admin/system/health");
+    const res = await API.get("/v1/health/ready");
     return res.data;
   },
-  
+
   getSystemConfig: async () => {
-    const res = await API.get("/admin/system/config");
+    const res = await API.get("/v1/health/ready");
+    return res.data;
+  },
+
+  // ── User Management ──────────────────────────────────────────────────────────
+  getUsers: async () => {
+    const res = await API.get("/v1/admin/users");
+    return res.data;
+  },
+  createUser: async (data) => {
+    const res = await API.post("/v1/admin/users", data);
+    return res.data;
+  },
+  updateUser: async (userId, data) => {
+    const res = await API.patch(`/v1/admin/users/${userId}`, data);
+    return res.data;
+  },
+  deactivateUser: async (userId) => {
+    const res = await API.delete(`/v1/admin/users/${userId}`);
+    return res.data;
+  },
+
+  // ── Lab Management ───────────────────────────────────────────────────────────
+  getLabs: async () => {
+    const res = await API.get("/v1/admin/labs");
+    return res.data;
+  },
+  createLab: async (data) => {
+    const res = await API.post("/v1/admin/labs", data);
+    return res.data;
+  },
+  updateLab: async (labId, data) => {
+    const res = await API.patch(`/v1/admin/labs/${labId}`, data);
+    return res.data;
+  },
+  deactivateLab: async (labId) => {
+    const res = await API.delete(`/v1/admin/labs/${labId}`);
+    return res.data;
+  },
+
+  // ── Doctor Management ────────────────────────────────────────────────────────
+  getDoctors: async (labId = null) => {
+    const params = labId ? { labId } : {};
+    const res = await API.get("/v1/admin/doctors", { params });
+    return res.data;
+  },
+  createDoctor: async (data) => {
+    const res = await API.post("/v1/admin/doctors", data);
+    return res.data;
+  },
+  updateDoctor: async (doctorId, data) => {
+    const res = await API.patch(`/v1/admin/doctors/${doctorId}`, data);
+    return res.data;
+  },
+  deactivateDoctor: async (doctorId) => {
+    const res = await API.delete(`/v1/admin/doctors/${doctorId}`);
+    return res.data;
+  },
+};
+
+export const BillingService = {
+  getUsage: async () => {
+    const res = await API.get("/v1/admin/usage/");
+    return res.data;
+  },
+  getPlan: async () => {
+    const res = await API.get("/v1/admin/billing/");
+    return res.data;
+  },
+  initiateUpgrade: async (planName) => {
+    const res = await API.post("/v1/admin/billing/upgrade/", { plan: planName });
+    return res.data;
+  },
+  getOnboardingStatus: async () => {
+    const res = await API.get("/v1/billing/onboarding/");
+    return res.data;
+  },
+  updateOnboardingStatus: async (updates) => {
+    const res = await API.patch("/v1/billing/onboarding/", updates);
+    return res.data;
+  },
+};
+
+export const NotificationService = {
+  getAll: async () => {
+    const res = await API.get("/notifications/");
+    return res.data;
+  },
+
+  markRead: async (notificationId) => {
+    const res = await API.post(`/notifications/${notificationId}/read`);
     return res.data;
   },
 };

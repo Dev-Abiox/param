@@ -61,8 +61,9 @@ class Command(BaseCommand):
 
         self.stdout.write("Seeding demo data...")
 
-        # Create shared schema data (organization, domain)
+        # Create shared schema data (organization, domain, subscription)
         org = self.create_organization()
+        self.create_subscription(org)
 
         # Create tenant-specific data
         with schema_context(org.schema_name):
@@ -79,8 +80,11 @@ class Command(BaseCommand):
                 f"\nDemo data seeded successfully!\n"
                 f"  Organization: {org.name} (schema: {org.schema_name})\n"
                 f"  Domains: demo.localhost, localhost\n"
-                f"  Users: admin_demo (admin), lab_demo (lab), doctor_demo (doctor)\n"
-                f"  Password: Demo@2024\n"
+                f"  Users:\n"
+                f"    superadmin (superuser, Django admin access) — SuperAdmin@2024\n"
+                f"    admin_demo (admin role)                     — Demo@2024\n"
+                f"    lab_demo   (lab role)                       — Demo@2024\n"
+                f"    doctor_demo (doctor role)                   — Demo@2024\n"
             )
         )
 
@@ -158,12 +162,54 @@ class Command(BaseCommand):
 
         return org
 
+    def create_subscription(self, org):
+        """Create a demo TenantSubscription on the Professional plan (idempotent)."""
+        try:
+            from apps.billing.models import SubscriptionPlan, TenantSubscription
+        except ImportError:
+            self.stdout.write(self.style.WARNING("  Billing app not available; skipping subscription seed."))
+            return
+
+        try:
+            plan = SubscriptionPlan.objects.get(name='professional')
+        except SubscriptionPlan.DoesNotExist:
+            self.stdout.write(self.style.WARNING("  'professional' plan not found; skipping subscription seed."))
+            return
+
+        now = timezone.now()
+        sub, created = TenantSubscription.objects.get_or_create(
+            organization=org,
+            defaults={
+                'plan': plan,
+                'status': TenantSubscription.Status.ACTIVE,
+                'current_period_start': now,
+                'current_period_end': now + timedelta(days=30),
+                'current_period_count': 0,
+            },
+        )
+
+        if created:
+            self.stdout.write(f"  Created subscription: {plan.display_name} plan")
+        else:
+            self.stdout.write(f"  Subscription exists: {sub.plan.display_name} plan")
+
     def create_users(self, org):
         """Create demo users with different roles."""
         users = {}
         default_password = "Demo@2024"
+        superadmin_password = "SuperAdmin@2024"
 
         user_configs = [
+            {
+                "key": "superadmin",
+                "username": "superadmin",
+                "role": Role.ADMIN,
+                "name": "Super Administrator",
+                "email": "superadmin@demo.clinomic.local",
+                "is_staff": True,
+                "is_superuser": True,
+                "password": superadmin_password,
+            },
             {
                 "key": "admin_demo",
                 "username": "admin_demo",
@@ -171,6 +217,8 @@ class Command(BaseCommand):
                 "name": "Demo Administrator",
                 "email": "admin@demo.clinomic.local",
                 "is_staff": True,
+                "is_superuser": False,
+                "password": default_password,
             },
             {
                 "key": "lab_demo",
@@ -179,6 +227,8 @@ class Command(BaseCommand):
                 "name": "Demo Lab Technician",
                 "email": "lab@demo.clinomic.local",
                 "is_staff": False,
+                "is_superuser": False,
+                "password": default_password,
             },
             {
                 "key": "doctor_demo",
@@ -187,6 +237,8 @@ class Command(BaseCommand):
                 "name": "Dr. Demo Physician",
                 "email": "doctor@demo.clinomic.local",
                 "is_staff": False,
+                "is_superuser": False,
+                "password": default_password,
             },
         ]
 
@@ -201,16 +253,21 @@ class Command(BaseCommand):
                     "name": config["name"],
                     "email": config["email"],
                     "is_staff": config["is_staff"],
+                    "is_superuser": config["is_superuser"],
                     "organization": org,
                     "is_active": True,
                 },
             )
 
             if created:
-                user.set_password(default_password)
+                user.set_password(config["password"])
                 user.save()
                 self.stdout.write(f"  Created user: {user.username} ({user.role})")
             else:
+                if config["is_superuser"]:
+                    # Always keep superadmin password consistent across deploys
+                    user.set_password(config["password"])
+                    user.save()
                 self.stdout.write(f"  User exists: {user.username}")
 
             users[config["key"]] = user

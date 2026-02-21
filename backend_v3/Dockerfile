@@ -62,5 +62,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 8000
 
-# Start command with gunicorn
-CMD ["gunicorn", "clinomic.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--threads", "2"]
+# Start command with uvicorn (ASGI — required for WebSocket support)
+CMD ["uvicorn", "clinomic.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

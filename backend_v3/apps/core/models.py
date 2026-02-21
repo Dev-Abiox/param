@@ -11,6 +11,10 @@ from django.db import models
 from django_tenants.models import DomainMixin, TenantMixin
 
 
+def _default_onboarding_status():
+    return {'lab_added': False, 'doctor_added': False, 'user_invited': False, 'completed': False}
+
+
 class Organization(TenantMixin):
     """
     Multi-tenant organization model.
@@ -33,6 +37,8 @@ class Organization(TenantMixin):
 
     auto_create_schema = True
 
+    onboarding_status = models.JSONField(default=_default_onboarding_status)
+
     class Meta:
         db_table = 'organizations'
         verbose_name = 'Organization'
@@ -51,6 +57,7 @@ class Domain(DomainMixin):
 
 class Role(models.TextChoices):
     """User roles in the system."""
+    SUPER_ADMIN = 'SUPER_ADMIN', 'Platform Administrator'
     ADMIN = 'ADMIN', 'Administrator'
     LAB = 'LAB', 'Lab Technician'
     DOCTOR = 'DOCTOR', 'Doctor'
@@ -120,7 +127,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_super_admin(self):
-        return self.is_superuser
+        return self.is_superuser or self.role == Role.SUPER_ADMIN
 
 
 class MFASettings(models.Model):
@@ -134,7 +141,7 @@ class MFASettings(models.Model):
         related_name='mfa_settings'
     )
     is_enabled = models.BooleanField(default=False)
-    secret_key = models.CharField(max_length=32, blank=True)  # Encrypted TOTP secret
+    secret_key = models.TextField(blank=True)  # Encrypted TOTP secret (Fernet ciphertext)
     backup_codes = models.JSONField(default=list)  # Hashed backup codes
     recovery_email = models.EmailField(blank=True, null=True)
 
@@ -220,3 +227,30 @@ class AuditLogEntry(models.Model):
 
     def __str__(self):
         return f"[{self.sequence}] {self.actor}: {self.action}"
+
+
+class Notification(models.Model):
+    """
+    User-facing notification (high-risk alerts, system messages, etc.).
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notifications'
+    )
+    type = models.CharField(max_length=50, default='info')   # 'high_risk', 'info', 'alert'
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notifications'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'is_read']),
+        ]
+
+    def __str__(self):
+        return f"Notification({self.type}) for {self.user.username}: {self.title}"

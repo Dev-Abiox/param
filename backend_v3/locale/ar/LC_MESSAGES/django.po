@@ -1,0 +1,45 @@
+# Clinomic B12 Screening Platform — Arabic (ar)
+# Translators: add translations below.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ar\n"
+
+# Auth
+msgid "Invalid username or password."
+msgstr "اسم المستخدم أو كلمة المرور غير صحيحة."
+
+msgid "Your session has expired. Please log in again."
+msgstr "انتهت صلاحية جلستك. يرجى تسجيل الدخول مجدداً."
+
+msgid "MFA verification required."
+msgstr "مطلوب التحقق الثنائي."
+
+# Screening
+msgid "B12 deficiency unlikely based on CBC parameters."
+msgstr "نقص B12 غير محتمل بناءً على معايير صورة الدم الكاملة."
+
+msgid "Consider serum B12 measurement if clinically indicated."
+msgstr "يُنصح بقياس B12 في المصل إذا كانت هناك مؤشرات سريرية."
+
+msgid "Serum B12 measurement recommended. Clinical correlation advised."
+msgstr "يُوصى بقياس B12 في المصل. ينصح بالمقارنة السريرية."
+
+# Consent
+msgid "Patient consent has expired."
+msgstr "انتهت صلاحية موافقة المريض."
+
+msgid "Patient consent has been revoked."
+msgstr "تم إلغاء موافقة المريض."
+
+msgid "No valid patient consent on file."
+msgstr "لا توجد موافقة صالحة للمريض في السجل."
+
+# Work Queue
+msgid "Screening not found."
+msgstr "الفحص غير موجود."
+
+msgid "Access denied."
+msgstr "تم رفض الوصول."

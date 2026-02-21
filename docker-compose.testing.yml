@@ -34,15 +34,21 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - ALLOWED_HOSTS=testing.clinomiclabs.com,localhost
       - CORS_ORIGINS=https://testing.clinomiclabs.com
+      - CSRF_TRUSTED_ORIGINS=https://testing.clinomiclabs.com
+      - REDIS_URL=redis://redis_testing:6379/0
+      - CACHE_REDIS_URL=redis://redis_testing:6379/1
+      - CHANNELS_REDIS_URL=redis://redis_testing:6379/2
+      - CELERY_BROKER_URL=redis://redis_testing:6379/0
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
-      python manage.py migrate_schemas --shared &&
+      python manage.py migrate_schemas &&
       python manage.py seed_demo_data --skip-screenings &&
       python manage.py ensure_domains &&
-      gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
+      uvicorn clinomic.asgi:application --host 0.0.0.0 --port 8000 --workers 2
       "
     depends_on:
       db_testing:
@@ -79,9 +85,49 @@ services:
       - clinomic_network
       - testing_internal
 
+  redis_testing:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - testing_internal
+
+  celery_worker_testing:
+    image: ghcr.io/dev-abiox/param:test-latest
+    restart: always
+    command: celery -A clinomic worker --loglevel=info --concurrency=1
+    environment:
+      - DEBUG=True
+      - APP_ENV=testing
+      - POSTGRES_HOST=db_testing
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=clinomic_testing
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - REDIS_URL=redis://redis_testing:6379/0
+      - CACHE_REDIS_URL=redis://redis_testing:6379/1
+      - CELERY_BROKER_URL=redis://redis_testing:6379/0
+    depends_on:
+      db_testing:
+        condition: service_healthy
+      redis_testing:
+        condition: service_healthy
+    networks:
+      - testing_internal
+
 volumes:
   postgres_testing_data:
   static_testing_volume:
+    external: true
 
 networks:
   clinomic_network:

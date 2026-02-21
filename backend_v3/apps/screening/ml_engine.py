@@ -4,10 +4,10 @@ ML Engine for B12 Clinical Screening.
 Provides CatBoost-based two-stage classification with rule-based adjustments.
 """
 
-import asyncio
 import hashlib
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
@@ -38,6 +38,7 @@ class B12ClinicalEngine:
         self._load_error = None
         self._model_version = "unknown"
         self._model_artifact_hash = ""
+        self._validation_metrics = {}
 
         self._load_models()
 
@@ -60,6 +61,7 @@ class B12ClinicalEngine:
                 with open(version_path, "r", encoding="utf-8") as f:
                     version_info = json.load(f)
                     self._model_version = version_info.get("version", "1.0.0")
+                    self._validation_metrics = version_info.get("validation", {})
 
             # Compute artifact hash for reproducibility
             self._model_artifact_hash = self._compute_artifact_hash()
@@ -103,6 +105,7 @@ class B12ClinicalEngine:
             "thresholds_loaded": self.thresholds is not None,
             "version": self._model_version,
             "artifact_hash": self._model_artifact_hash,
+            "validation_metrics": self._validation_metrics,
             "error": self._load_error,
         }
 
@@ -150,12 +153,62 @@ class B12ClinicalEngine:
 
         return score, rules
 
-    def predict(self, cbc_dict: dict[str, Any]) -> dict[str, Any]:
+    def compute_shap_values(self, cbc_dict: dict[str, Any]) -> dict[str, float]:
+        """
+        Compute SHAP values for the given CBC input against the stage1 model.
+
+        Returns a dict mapping feature names to their SHAP values for the
+        "abnormal" class (class index 1). Uses TreeExplainer for CatBoost
+        models (fast, exact for tree models).
+        """
+        if not self.is_ready:
+            return {}
+
+        try:
+            import shap
+
+            df = pd.DataFrame([cbc_dict])
+            expected_cols = [
+                "Age", "Sex", "Hb", "RBC", "HCT", "MCV", "MCH", "MCHC",
+                "RDW", "WBC", "Platelets", "Neutrophils", "Lymphocytes",
+            ]
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[expected_cols]
+
+            if df["Sex"].dtype == "object":
+                df["Sex"] = df["Sex"].map({"M": 1, "F": 0, "m": 1, "f": 0}).fillna(0)
+
+            if not hasattr(self, '_shap_explainer') or self._shap_explainer is None:
+                self._shap_explainer = shap.TreeExplainer(self.stage1)
+            explainer = self._shap_explainer
+            shap_values = explainer.shap_values(df)
+
+            # shap_values is a list of arrays (one per class) for classification
+            # We want the "abnormal" class (index 1)
+            if isinstance(shap_values, list):
+                values = shap_values[1][0]  # class 1, first (only) sample
+            else:
+                values = shap_values[0]  # single output
+
+            return {
+                col: round(float(val), 6)
+                for col, val in zip(expected_cols, values)
+            }
+        except Exception as e:
+            logger.warning("SHAP computation failed: %s", e)
+            return {}
+
+    def predict(self, cbc_dict: dict[str, Any], include_shap: bool = False) -> dict[str, Any]:
         """
         Perform B12 deficiency prediction.
 
         Args:
             cbc_dict: CBC values with Age, Sex, Hb, RBC, HCT, MCV, MCH, MCHC, RDW, WBC, Platelets, Neutrophils, Lymphocytes
+            include_shap: If True, compute and include SHAP feature attributions.
+                          Defaults to False to avoid latency on bulk imports and
+                          routine predictions. Set to True for explain/ endpoints.
 
         Returns:
             dict with riskClass, labelText, probabilities, rulesFired, indices
@@ -208,6 +261,10 @@ class B12ClinicalEngine:
             cls = 1
             label_text = "NORMAL"
 
+        # Compute SHAP values only when explicitly requested (opt-in).
+        # Skipped by default to avoid latency on bulk imports and routine predictions.
+        shap_values = self.compute_shap_values(cbc_dict) if include_shap else {}
+
         return {
             "riskClass": cls,
             "labelText": label_text,
@@ -246,6 +303,7 @@ class B12ClinicalEngine:
                     and (cbc_dict.get("WBC", 0) or 0) < 4
                     and (cbc_dict.get("Platelets", 0) or 0) < 150
                 ),
+                "shap_values": shap_values,
             },
         }
 
@@ -253,38 +311,48 @@ class B12ClinicalEngine:
 # Singleton instance
 _engine: Optional[B12ClinicalEngine] = None
 _executor: Optional[ThreadPoolExecutor] = None
+_engine_lock = threading.Lock()
+_executor_lock = threading.Lock()
 
 
 def get_ml_engine() -> B12ClinicalEngine:
-    """Get or initialize the ML engine singleton."""
+    """Get or initialize the ML engine singleton (thread-safe)."""
     global _engine
     if _engine is None:
-        model_dir = settings.ML_MODEL_DIR
-        _engine = B12ClinicalEngine(model_dir)
+        with _engine_lock:
+            if _engine is None:
+                model_dir = settings.ML_MODEL_DIR
+                _engine = B12ClinicalEngine(model_dir)
     return _engine
 
 
 def get_ml_executor() -> ThreadPoolExecutor:
-    """Get or initialize the thread pool executor for ML inference."""
+    """Get or initialize the thread pool executor for ML inference (thread-safe)."""
     global _executor
     if _executor is None:
-        _executor = ThreadPoolExecutor(
-            max_workers=settings.ML_EXECUTOR_WORKERS,
-            thread_name_prefix="ml_worker"
-        )
+        with _executor_lock:
+            if _executor is None:
+                _executor = ThreadPoolExecutor(
+                    max_workers=settings.ML_EXECUTOR_WORKERS,
+                    thread_name_prefix="ml_worker"
+                )
     return _executor
 
 
-async def predict_async(cbc_dict: dict[str, Any]) -> dict[str, Any]:
+async def predict_async(cbc_dict: dict[str, Any], include_shap: bool = False) -> dict[str, Any]:
     """
     Async wrapper for ML prediction.
 
     Runs prediction in thread pool to avoid blocking event loop.
     """
+    import functools
     engine = get_ml_engine()
     executor = get_ml_executor()
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(executor, engine.predict, cbc_dict)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        executor,
+        functools.partial(engine.predict, cbc_dict, include_shap=include_shap),
+    )
 
 
 def shutdown_ml_executor():

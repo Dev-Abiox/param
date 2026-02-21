@@ -20,15 +20,6 @@ class MFAVerifySerializer(serializers.Serializer):
     mfa_code = serializers.CharField(max_length=10)
 
 
-class TokenRefreshSerializer(serializers.Serializer):
-    """Token refresh request serializer."""
-    refresh_token = serializers.CharField()
-
-
-class LogoutSerializer(serializers.Serializer):
-    """Logout request serializer."""
-    refresh_token = serializers.CharField()
-
 
 class UserSerializer(serializers.ModelSerializer):
     """User data serializer."""

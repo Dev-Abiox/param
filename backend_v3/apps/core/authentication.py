@@ -1,7 +1,8 @@
 """
 JWT Authentication for Clinomic Platform.
 
-Provides stateless JWT authentication with refresh token rotation.
+Provides stateless JWT authentication with refresh token rotation,
+and API key authentication for programmatic access.
 """
 
 import hashlib
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 
 import jwt
 from django.conf import settings
+from django.utils import timezone as dj_timezone
 from rest_framework import authentication, exceptions
 
 from .models import RefreshToken, User
@@ -207,3 +209,64 @@ def revoke_refresh_token(refresh_token_str: str) -> bool:
     ).update(is_revoked=True)
 
     return updated > 0
+
+
+# ── API Key Authentication ──────────────────────────────────────────────────────
+
+class APIKeyAuthentication(authentication.BaseAuthentication):
+    """
+    Custom DRF authentication class for API key access.
+
+    Reads the raw key from the ``X-API-Key`` request header, computes its
+    SHA-256 digest, looks it up in ``billing.APIKey``, and — if valid —
+    sets:
+
+    * ``request.user``    → the ``User`` who created the key
+    * ``request.api_key`` → the ``APIKey`` model instance (for scope / rate-limit checks)
+
+    The ``last_used_at`` timestamp is updated on every successful authentication
+    for billing and auditing purposes.
+
+    This authenticator returns ``None`` (not an error) when no ``X-API-Key``
+    header is present, so that other authenticators (e.g. JWTAuthentication)
+    can still handle the request.
+    """
+
+    HEADER = 'HTTP_X_API_KEY'
+
+    def authenticate(self, request):
+        raw_key = request.META.get(self.HEADER, '').strip()
+        if not raw_key:
+            return None  # Let other authenticators run
+
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+        # Import here to avoid circular imports at module load time
+        from apps.billing.models import APIKey
+
+        try:
+            api_key = (
+                APIKey.objects
+                .select_related('created_by', 'organization')
+                .get(key_hash=key_hash)
+            )
+        except APIKey.DoesNotExist:
+            raise exceptions.AuthenticationFailed('Invalid API key.')
+
+        if not api_key.is_active:
+            raise exceptions.AuthenticationFailed('API key has been revoked.')
+
+        if api_key.created_by is None or not api_key.created_by.is_active:
+            raise exceptions.AuthenticationFailed('API key owner account is inactive.')
+
+        # Track last usage (fire-and-forget; no transaction needed here)
+        APIKey.objects.filter(pk=api_key.pk).update(last_used_at=dj_timezone.now())
+        api_key.last_used_at = dj_timezone.now()  # Update in-memory too
+
+        # Attach the key to the request so views / throttles can inspect it
+        request.api_key = api_key
+
+        return (api_key.created_by, api_key)
+
+    def authenticate_header(self, request):
+        return 'X-API-Key'

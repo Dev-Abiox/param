@@ -25,22 +25,46 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run backend tests
+          cache: pip
+      - name: Install dependencies
+        run: |
+          cd backend_v3
+          pip install -r requirements.txt
+      - name: Run backend tests with coverage
         env:
+          DJANGO_SECRET_KEY: ci-secret-key-not-for-production
+          JWT_SECRET_KEY: ci-jwt-secret-key-not-for-production
+          JWT_REFRESH_SECRET_KEY: ci-jwt-refresh-secret-not-for-production
+          MASTER_ENCRYPTION_KEY: ${{ secrets.CI_MASTER_ENCRYPTION_KEY || 'dGVzdF9lbmNyeXB0aW9uX2tleV9mb3JfY2lfb25seV8x' }}
+          AUDIT_SIGNING_KEY: ci-audit-signing-key-not-for-production-at-all
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: clinomic_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          REDIS_URL: redis://localhost:6379/0
+          CACHE_REDIS_URL: redis://localhost:6379/1
+          CELERY_BROKER_URL: redis://localhost:6379/0
+          CHANNELS_REDIS_URL: redis://localhost:6379/2
+          APP_ENV: testing
+          DEBUG: "False"
         run: |
           cd backend_v3
-          pip install -r requirements.txt
-          pytest
+          pytest --cov=apps --cov-report=term-missing --cov-fail-under=70 -x -q
 
   test-frontend:
     runs-on: ubuntu-latest
@@ -75,6 +99,7 @@ jobs:
           push: true
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
       - name: Build frontend
         uses: docker/build-push-action@v5
         with:
@@ -82,6 +107,7 @@ jobs:
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
 
   deploy:
     needs: build
@@ -95,37 +121,41 @@ jobs:
       - name: Copy config files to server
         run: |
           SSH_OPTS="-o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
-          SERVER="root@${{ secrets.HOST_IP }}"
+          SERVER="deploy@${{ secrets.HOST_IP }}"
           ssh $SSH_OPTS $SERVER "mkdir -p /opt/clinomic-b12-platform/ml/models"
           scp $SSH_OPTS docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
-          scp $SSH_OPTS docker-compose.testing.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.testing.yml
-          scp $SSH_OPTS nginx.testing.conf $SERVER:/opt/clinomic-b12-platform/nginx.testing.conf
+          scp $SSH_OPTS nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
           scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/
-      - name: Deploy to Production (No Rollback)
+      - name: Deploy to Production
         run: |
           ssh \
             -o StrictHostKeyChecking=no \
             -o HostKeyAlgorithms=+ssh-rsa \
             -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-            root@${{ secrets.HOST_IP }} << 'EOF'
+            deploy@${{ secrets.HOST_IP }} << 'EOF'
 
           set -e
 
+          BACKEND_IMAGE="ghcr.io/dev-abiox/param"
+          FRONTEND_IMAGE="ghcr.io/dev-abiox/param-frontend"
           BASE=/opt/clinomic-b12-platform
           COMPOSE="$BASE/docker-compose.prod.yml"
 
           echo "=== VALIDATING DEPLOYMENT ==="
-          [ -f "$COMPOSE" ] || exit 1
-          [ -f "$BASE/nginx.testing.conf" ] || exit 1
+          [ -f "$COMPOSE" ] || { echo "ERROR: $COMPOSE not found"; exit 1; }
+          [ -f "$BASE/nginx.prod.conf" ] || { echo "ERROR: nginx.prod.conf not found"; exit 1; }
 
           echo "=== ENSURING SHARED DOCKER NETWORK ==="
           docker network create clinomic_network 2>/dev/null || true
 
-          echo "=== ENSURING TESTING STATIC VOLUME ==="
-          docker volume create static_testing_volume 2>/dev/null || true
+          echo "=== SAVING CURRENT IMAGES FOR ROLLBACK ==="
+          cd $BASE
+          PREV_BACKEND=$(docker inspect --format='{{.Id}}' $BACKEND_IMAGE:latest 2>/dev/null || echo "")
+          PREV_FRONTEND=$(docker inspect --format='{{.Id}}' $FRONTEND_IMAGE:latest 2>/dev/null || echo "")
+          [ -n "$PREV_BACKEND" ] && docker tag $BACKEND_IMAGE:latest $BACKEND_IMAGE:previous || true
+          [ -n "$PREV_FRONTEND" ] && docker tag $FRONTEND_IMAGE:latest $FRONTEND_IMAGE:previous || true
 
           echo "=== PULLING NEW IMAGES ==="
-          cd $BASE
           docker-compose -f $COMPOSE pull
 
           echo "=== RECREATING CONTAINERS ==="
@@ -135,19 +165,17 @@ jobs:
           sleep 30
 
           echo "=== HEALTH CHECK ==="
-          # Perform health check but don't fail deployment
-          if curl -f -H "Host: clinomiclabs.com" http://localhost:8000/api/health/live; then
-            echo "✓ Backend health check passed"
+          if curl -f https://clinomiclabs.com/api/health/live; then
+            echo "✓ Health check passed"
           else
-            echo "⚠ Backend health check failed (continuing deployment)"
+            echo "✗ Health check failed — ROLLING BACK to previous images"
+            [ -n "$PREV_BACKEND" ] && docker tag $BACKEND_IMAGE:previous $BACKEND_IMAGE:latest || true
+            [ -n "$PREV_FRONTEND" ] && docker tag $FRONTEND_IMAGE:previous $FRONTEND_IMAGE:latest || true
+            docker-compose -f $COMPOSE up -d --force-recreate
+            echo "Rollback complete."
+            exit 1
           fi
 
-          if curl -f http://localhost:80/; then
-            echo "✓ Frontend health check passed"
-          else
-            echo "⚠ Frontend health check failed (continuing deployment)"
-          fi
-
-          echo "✅ DEPLOYMENT COMPLETED SUCCESSFULLY (Rollback Disabled)"
+          echo "✅ DEPLOYMENT COMPLETED SUCCESSFULLY"
 
           EOF

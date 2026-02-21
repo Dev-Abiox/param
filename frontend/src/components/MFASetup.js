@@ -57,7 +57,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
   const handleDisable = async () => {
     const code = prompt("Enter your current MFA code to disable:");
     if (!code) return;
-    
+
     setIsLoading(true);
     setError(null);
     try {
@@ -86,46 +86,46 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
   // Status View
   if (step === "status") {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6">
         <div className="flex items-center space-x-3 mb-6">
           <div className="h-10 w-10 bg-teal-100 rounded-lg flex items-center justify-center">
             <Shield className="h-6 w-6 text-teal-600" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Two-Factor Authentication</h2>
-            <p className="text-sm text-slate-500">Add an extra layer of security to your account</p>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Two-Factor Authentication</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Add an extra layer of security to your account</p>
           </div>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded text-sm text-red-600">
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
             {error}
           </div>
         )}
 
         {mfaStatus?.is_enabled ? (
           <div>
-            <div className="flex items-center p-4 bg-green-50 border border-green-100 rounded-lg mb-4">
+            <div className="flex items-center p-4 bg-green-50 dark:bg-green-900/30 border border-green-100 dark:border-green-800 rounded-lg mb-4">
               <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
               <div>
-                <p className="font-medium text-green-800">MFA is enabled</p>
+                <p className="font-medium text-green-800 dark:text-green-300">MFA is enabled</p>
                 <p className="text-sm text-green-600">
                   Backup codes remaining: {mfaStatus.backup_codes_remaining}
                 </p>
               </div>
             </div>
-            
+
             <div className="flex space-x-3">
               <button
                 onClick={handleDisable}
                 disabled={isLoading}
-                className="px-4 py-2 border border-red-300 text-red-600 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50"
+                className="px-4 py-2 border border-red-300 text-red-600 dark:text-red-400 rounded-md text-sm font-medium hover:bg-red-50 disabled:opacity-50"
               >
                 Disable MFA
               </button>
               <button
                 onClick={onCancel}
-                className="px-4 py-2 border border-slate-300 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-50"
+                className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
               >
                 Close
               </button>
@@ -133,18 +133,18 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
           </div>
         ) : (
           <div>
-            <div className="flex items-center p-4 bg-amber-50 border border-amber-100 rounded-lg mb-4">
+            <div className="flex items-center p-4 bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 rounded-lg mb-4">
               <AlertTriangle className="h-5 w-5 text-amber-500 mr-3" />
               <div>
-                <p className="font-medium text-amber-800">MFA is not enabled</p>
+                <p className="font-medium text-amber-800 dark:text-amber-300">MFA is not enabled</p>
                 <p className="text-sm text-amber-600">
-                  {mfaStatus?.mfa_required_for_role 
+                  {mfaStatus?.mfa_required_for_role
                     ? "MFA is required for your role. Please set it up now."
                     : "Enable MFA for enhanced account security."}
                 </p>
               </div>
             </div>
-            
+
             <div className="flex space-x-3">
               <button
                 onClick={handleStartSetup}
@@ -160,7 +160,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
               {!mfaStatus?.mfa_required_for_role && (
                 <button
                   onClick={onCancel}
-                  className="px-4 py-2 border border-slate-300 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-50"
+                  className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   Skip for now
                 </button>
@@ -175,34 +175,34 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
   // Setup View - Show QR Code
   if (step === "setup") {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-        <h2 className="text-lg font-semibold text-slate-900 mb-2">Set Up Authenticator App</h2>
-        <p className="text-sm text-slate-500 mb-6">Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Set Up Authenticator App</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded text-sm text-red-600">
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
             {error}
           </div>
         )}
 
         <div className="flex flex-col items-center mb-6">
-          <div className="bg-white p-4 border-2 border-slate-200 rounded-lg mb-4">
+          <div className="bg-white dark:bg-slate-900 p-4 border-2 border-slate-200 dark:border-slate-700 rounded-lg mb-4">
             {setupData?.qr_code_base64 ? (
-              <img 
+              <img
                 src={`data:image/png;base64,${setupData.qr_code_base64}`}
                 alt="MFA QR Code"
                 className="w-48 h-48"
               />
             ) : (
-              <div className="w-48 h-48 bg-slate-100 flex items-center justify-center">
-                <Smartphone className="h-12 w-12 text-slate-300" />
+              <div className="w-48 h-48 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Smartphone className="h-12 w-12 text-slate-300 dark:text-slate-600" />
               </div>
             )}
           </div>
-          
+
           <div className="text-center">
-            <p className="text-xs text-slate-500 mb-1">Can't scan? Enter this code manually:</p>
-            <code className="text-sm bg-slate-100 px-3 py-1 rounded font-mono">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Can't scan? Enter this code manually:</p>
+            <code className="text-sm bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded font-mono">
               {setupData?.provisioning_uri?.split("secret=")[1]?.split("&")[0] || "Loading..."}
             </code>
           </div>
@@ -210,7 +210,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
 
         <form onSubmit={handleVerify} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               Enter the 6-digit code from your app
             </label>
             <input
@@ -220,12 +220,12 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
               maxLength={6}
               value={verificationCode}
               onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
-              className="w-full text-center text-xl tracking-[0.5em] font-mono py-3 border border-slate-300 rounded-md focus:ring-teal-500 focus:border-teal-500"
+              className="w-full text-center text-xl tracking-[0.5em] font-mono py-3 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-teal-500 focus:border-teal-500"
               placeholder="000000"
               autoFocus
             />
           </div>
-          
+
           <div className="flex space-x-3">
             <button
               type="submit"
@@ -237,7 +237,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
             <button
               type="button"
               onClick={() => setStep("status")}
-              className="px-4 py-2 border border-slate-300 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-50"
+              className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               Cancel
             </button>
@@ -250,19 +250,19 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
   // Backup Codes View
   if (step === "backup_codes") {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6">
         <div className="flex items-center space-x-3 mb-4">
           <CheckCircle className="h-8 w-8 text-green-500" />
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">MFA Enabled Successfully!</h2>
-            <p className="text-sm text-slate-500">Save your backup codes in a secure location</p>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">MFA Enabled Successfully!</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Save your backup codes in a secure location</p>
           </div>
         </div>
 
-        <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-4">
+        <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 rounded-lg p-4 mb-4">
           <div className="flex items-start">
             <AlertTriangle className="h-5 w-5 text-amber-500 mr-2 mt-0.5" />
-            <div className="text-sm text-amber-800">
+            <div className="text-sm text-amber-800 dark:text-amber-300">
               <p className="font-medium">Important: Save these backup codes</p>
               <p className="mt-1">Each code can only be used once. Store them securely - you won't see them again.</p>
             </div>
@@ -271,14 +271,14 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
 
         <div className="grid grid-cols-2 gap-2 mb-4">
           {setupData?.backup_codes?.map((code, index) => (
-            <div 
+            <div
               key={index}
-              className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded border border-slate-200 font-mono text-sm"
+              className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 px-3 py-2 rounded border border-slate-200 dark:border-slate-700 font-mono text-sm"
             >
               <span>{code}</span>
               <button
                 onClick={() => copyToClipboard(code, index)}
-                className="text-slate-400 hover:text-teal-600"
+                className="text-slate-400 dark:text-slate-500 hover:text-teal-600 dark:hover:text-teal-400"
               >
                 {copiedCode === index ? (
                   <CheckCircle className="h-4 w-4 text-green-500" />
@@ -293,7 +293,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
         <div className="flex space-x-3">
           <button
             onClick={copyAllCodes}
-            className="flex-1 px-4 py-2 border border-slate-300 text-slate-600 rounded-md text-sm font-medium hover:bg-slate-50 flex items-center justify-center"
+            className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center"
           >
             {copiedCode === "all" ? (
               <><CheckCircle className="h-4 w-4 mr-2 text-green-500" /> Copied!</>
@@ -318,14 +318,14 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
   // Complete View
   if (step === "complete") {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 text-center">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6 text-center">
         <div className="flex justify-center mb-4">
-          <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center">
+          <div className="h-16 w-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
             <CheckCircle className="h-10 w-10 text-green-500" />
           </div>
         </div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-2">All Set!</h2>
-        <p className="text-sm text-slate-500 mb-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">All Set!</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
           Your account is now protected with two-factor authentication.
         </p>
         <button
@@ -340,9 +340,9 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
 
   // Loading
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 text-center">
+    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6 text-center">
       <RefreshCw className="h-8 w-8 text-teal-600 animate-spin mx-auto mb-4" />
-      <p className="text-slate-500">Loading MFA settings...</p>
+      <p className="text-slate-500 dark:text-slate-400">Loading MFA settings...</p>
     </div>
   );
 };

@@ -16,7 +16,96 @@ env:
   FRONTEND_IMAGE: ghcr.io/dev-abiox/param-frontend
 
 jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: clinomic_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install backend dependencies
+      run: |
+        cd backend_v3
+        pip install -r requirements.txt
+
+    - name: Run backend tests with coverage
+      env:
+        DJANGO_SECRET_KEY: ci-secret-key-not-for-production
+        JWT_SECRET_KEY: ci-jwt-secret-key-not-for-production
+        JWT_REFRESH_SECRET_KEY: ci-jwt-refresh-secret-not-for-production
+        MASTER_ENCRYPTION_KEY: ${{ secrets.CI_MASTER_ENCRYPTION_KEY || 'dGVzdF9lbmNyeXB0aW9uX2tleV9mb3JfY2lfb25seV8x' }}
+        AUDIT_SIGNING_KEY: ci-audit-signing-key-not-for-production-at-all
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: clinomic_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        REDIS_URL: redis://localhost:6379/0
+        CACHE_REDIS_URL: redis://localhost:6379/1
+        CELERY_BROKER_URL: redis://localhost:6379/0
+        CHANNELS_REDIS_URL: redis://localhost:6379/2
+        APP_ENV: testing
+        DEBUG: "False"
+      run: |
+        cd backend_v3
+        pytest --cov=apps --cov-report=term-missing --cov-fail-under=60 -x -q
+
+  test-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci --legacy-peer-deps
+
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        CI=true npm test -- --watchAll=false --passWithNoTests
+
   build-test-images:
+    needs: [test-backend, test-frontend]
     runs-on: ubuntu-latest
 
     permissions:
@@ -26,6 +115,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -74,13 +166,14 @@ jobs:
     - name: Copy config files to server
       run: |
         SSH_OPTS="-o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
-        SERVER="root@${{ secrets.HOST_IP }}"
+        SERVER="deploy@${{ secrets.HOST_IP }}"
         BASE="/opt/clinomic-b12-platform"
 
         ssh $SSH_OPTS $SERVER "mkdir -p $BASE/ml/models"
         scp $SSH_OPTS docker-compose.prod.yml $SERVER:$BASE/docker-compose.prod.yml
         scp $SSH_OPTS docker-compose.testing.yml $SERVER:$BASE/docker-compose.testing.yml
         scp $SSH_OPTS nginx.testing.conf $SERVER:$BASE/nginx.testing.conf
+        scp $SSH_OPTS nginx.prod.conf $SERVER:$BASE/nginx.prod.conf
         scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:$BASE/ml/
 
     - name: Deploy testing stack
@@ -89,7 +182,7 @@ jobs:
           -o StrictHostKeyChecking=no \
           -o HostKeyAlgorithms=+ssh-rsa \
           -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-          root@${{ secrets.HOST_IP }} << 'EOF'
+          deploy@${{ secrets.HOST_IP }} << 'EOF'
 
         set -e
 
@@ -109,25 +202,27 @@ jobs:
         docker-compose -f docker-compose.testing.yml down || true
         docker-compose -f docker-compose.testing.yml up -d
 
-        echo "=== RESTARTING NGINX (prod) TO PICK UP TESTING CONFIG ==="
-        docker-compose -f docker-compose.prod.yml up -d --force-recreate nginx
+        echo "=== RELOADING NGINX CONFIG ==="
+        # nginx.testing.conf is bind-mounted into the container as /etc/nginx/nginx.conf
+        # SCP already updated the file on the host — just signal nginx to reload it
+        NGINX_CONTAINER=$(docker ps --filter 'name=nginx' --filter 'status=running' --format '{{.Names}}' | grep -v testing | head -1)
+        if [ -n "$NGINX_CONTAINER" ]; then
+          docker exec $NGINX_CONTAINER nginx -s reload
+          echo "✓ nginx reloaded: $NGINX_CONTAINER"
+        else
+          echo "⚠ No running nginx container found — skipping reload"
+        fi
 
         echo "=== WARMING UP SERVICES ==="
         sleep 30
 
         echo "=== HEALTH CHECK ==="
-        if curl -f -H "Host: testing.clinomiclabs.com" http://localhost:8000/api/health/live 2>/dev/null; then
-          echo "Testing backend health check passed"
+        if curl -f -H "Host: testing.clinomiclabs.com" https://localhost/api/health/live -k; then
+          echo "✓ Testing health check passed"
         else
-          echo "Testing backend health check failed - checking logs..."
+          echo "✗ Testing health check failed — showing logs"
           docker-compose -f docker-compose.testing.yml logs --tail=50 backend_testing
-        fi
-
-        # Verify production still works
-        if curl -f -H "Host: clinomiclabs.com" https://localhost/api/health/live -k 2>/dev/null; then
-          echo "Production health check still passing"
-        else
-          echo "WARNING: Production health check failed after testing deploy"
+          exit 1
         fi
 
         echo "=== TESTING DEPLOYMENT COMPLETE ==="

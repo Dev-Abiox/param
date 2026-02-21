@@ -17,6 +17,14 @@ services:
       retries: 5
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
 
   backend:
     image: ghcr.io/dev-abiox/param:latest
@@ -33,20 +41,32 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - JWT_REFRESH_SECRET_KEY=${JWT_REFRESH_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS}
       - CORS_ORIGINS=${FRONTEND_URL}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://clinomiclabs.com}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0    # C5: Redis auth
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CHANNELS_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-db-backups/}
+      - AWS_BACKUP_ACCESS_KEY_ID=${AWS_BACKUP_ACCESS_KEY_ID:-}
+      - AWS_BACKUP_SECRET_ACCESS_KEY=${AWS_BACKUP_SECRET_ACCESS_KEY:-}
     command: >
       sh -c "
       python manage.py collectstatic --noinput &&
-      python manage.py migrate_schemas --shared &&
-      python manage.py seed_demo_data --skip-screenings &&
+      python manage.py migrate_schemas &&
       python manage.py ensure_domains &&
-      gunicorn clinomic.wsgi:application -b 0.0.0.0:8000
+      uvicorn clinomic.asgi:application --host 0.0.0.0 --port 8000 --workers 4
       "
     expose:
       - "8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - static_volume:/app/staticfiles
@@ -59,6 +79,14 @@ services:
       start_period: 60s
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   frontend:
     image: ghcr.io/dev-abiox/param-frontend:latest
@@ -77,6 +105,14 @@ services:
       start_period: 60s
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   nginx:
     image: nginx:alpine
@@ -99,12 +135,182 @@ services:
         condition: service_healthy
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    # C5: require password + persist every 60s if ≥1 write
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  celery_worker:
+    image: ghcr.io/dev-abiox/param:latest
+    restart: always
+    command: >
+      celery -A clinomic worker
+      --loglevel=info
+      --concurrency=2
+      -Q default,webhooks,alerts,email
+    environment:
+      - DEBUG=False
+      - APP_ENV=production
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-clinomic}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-db-backups/}
+      - AWS_BACKUP_ACCESS_KEY_ID=${AWS_BACKUP_ACCESS_KEY_ID:-}
+      - AWS_BACKUP_SECRET_ACCESS_KEY=${AWS_BACKUP_SECRET_ACCESS_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ml/models:/app/ml/models:ro
+    networks:
+      - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  celery_beat:
+    image: ghcr.io/dev-abiox/param:latest
+    restart: always
+    command: celery -A clinomic beat --loglevel=info
+    environment:
+      - DEBUG=False
+      - APP_ENV=production
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-clinomic}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 128M
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    restart: always
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    expose:
+      - "9090"
+    networks:
+      - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    expose:
+      - "3000"
+    depends_on:
+      - prometheus
+    networks:
+      - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
 volumes:
   postgres_data:
   static_volume:
+  redis_data:
   static_testing_volume:
     external: true
+  prometheus_data:
+  grafana_data:
 
 networks:
   clinomic_network:
