@@ -304,6 +304,24 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_RESULT_SERIALIZER = 'json'
 
+# H1: Reliability — acks_late + reject_on_lost ensure tasks are not dropped
+# if the worker crashes mid-execution (message stays in broker until acked).
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+
+# Route tasks into purpose-specific queues so a slow webhook doesn't starve
+# the alert queue. Workers consume all queues: -Q default,webhooks,alerts,email
+CELERY_TASK_ROUTES = {
+    'billing.deliver_webhook':       {'queue': 'webhooks'},
+    'billing.send_high_risk_alert':  {'queue': 'alerts'},
+    'billing.send_lab_created_email': {'queue': 'email'},
+    'billing.send_welcome_email':    {'queue': 'email'},
+}
+
+# Dead-letter: after max_retries are exhausted Celery marks the task FAILURE.
+# A separate Celery Beat job can sweep failed tasks; for now we log via Sentry.
+CELERY_TASK_STORE_ERRORS_EVEN_IF_IGNORED = True
+
 # Data Retention Policy (HIPAA §164.530(j) — minimum 6 years; default 7)
 DATA_RETENTION_DAYS = int(os.environ.get('DATA_RETENTION_DAYS', '2555'))
 

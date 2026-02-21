@@ -19,7 +19,7 @@ from apps.core.audit import log_phi_access
 from apps.core.crypto import encrypt_field
 from apps.core.exceptions import MLModelNotReadyError
 from apps.core.models import Role
-from apps.core.permissions import HasRole, IsAdmin, IsMFAVerified
+from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified
 
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
@@ -48,8 +48,9 @@ class PredictView(APIView):
 
     POST /api/screening/predict
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole, HasAPIKeyScope]
     required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+    required_api_key_scope = 'screening:write'
     throttle_classes = [ScreeningRateThrottle]
 
     def post(self, request):
@@ -212,11 +213,27 @@ class PredictView(APIView):
                 doctor_id=str(doctor.id) if doctor else None,
             )
 
-        # Fire usage increment asynchronously (non-blocking)
-        org_id = str(request.tenant.id) if getattr(request, 'tenant', None) else None
+        # Fire usage increment, HTTP webhooks, and high-risk alert (non-blocking)
+        org = getattr(request, 'tenant', None)
+        org_id = str(org.id) if org else None
         if org_id:
-            from apps.billing.tasks import increment_usage
+            from apps.billing.tasks import increment_usage, trigger_webhook, send_high_risk_alert
             increment_usage.delay(org_id, str(screening.id))
+            # C1: fire HTTP webhook for every completed screening
+            trigger_webhook(org, 'screening.completed', {
+                'screening_id': str(screening.id),
+                'patient_id': patient_id,
+                'risk_class': result['riskClass'],
+                'label': result['labelText'],
+                'model_version': result['modelVersion'],
+            })
+            # C2: send email alert for high-risk (class 3) screenings
+            if result['riskClass'] == 3:
+                send_high_risk_alert.delay(
+                    str(screening.id),
+                    org_id,
+                    str(doctor.id) if doctor else None,
+                )
 
         log_phi_access(request, patient_id, 'PHI_PREDICT', {
             'screening_id': str(screening.id),
@@ -277,10 +294,11 @@ class CaseListView(APIView):
     """
     List screening cases with filters.
 
-    GET /api/screening/cases?doctorId=D001&labId=LAB-001
+    GET /api/screening/cases?doctorId=D001&labId=LAB-001&page=1&page_size=50
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole, HasAPIKeyScope]
     required_roles = [Role.ADMIN, Role.LAB]
+    required_api_key_scope = 'screening:read'
 
     def get(self, request):
         doctor_id = request.query_params.get('doctorId')
@@ -295,8 +313,25 @@ class CaseListView(APIView):
         if lab_id:
             queryset = queryset.filter(lab__code=lab_id)
 
-        serializer = ScreeningSerializer(queryset[:500], many=True)
-        return Response(serializer.data)
+        # H7: proper pagination (default 50, max 200, client-controlled)
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+            page_size = min(200, max(1, int(request.query_params.get('page_size', 50))))
+        except (ValueError, TypeError):
+            page = 1
+            page_size = 50
+
+        total = queryset.count()
+        offset = (page - 1) * page_size
+        page_qs = queryset[offset:offset + page_size]
+
+        serializer = ScreeningSerializer(page_qs, many=True)
+        return Response({
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+            'results': serializer.data,
+        })
 
 
 class ConsentRecordView(APIView):
@@ -465,9 +500,18 @@ class WorkQueueView(APIView):
             'completed': base_qs.filter(status=ScreeningStatus.COMPLETED).count(),
         }
 
+        # H7: honour client-supplied page_size (default 50, max 200)
+        try:
+            page_size = min(200, max(1, int(request.query_params.get('page_size', 50))))
+            page = max(1, int(request.query_params.get('page', 1)))
+        except (ValueError, TypeError):
+            page_size = 50
+            page = 1
+        offset = (page - 1) * page_size
+
         items_qs = base_qs.filter(status=queue_status).select_related(
             'patient', 'lab', 'doctor'
-        ).order_by('-created_at')[:50]
+        ).order_by('-created_at')[offset:offset + page_size]
 
         items = []
         for s in items_qs:
@@ -484,7 +528,12 @@ class WorkQueueView(APIView):
                 'performedBy': s.performed_by,
             })
 
-        return Response({'counts': counts, 'items': items})
+        total_for_status = base_qs.filter(status=queue_status).count()
+        return Response({
+            'counts': counts,
+            'items': items,
+            'pagination': {'page': page, 'page_size': page_size, 'total': total_for_status},
+        })
 
 
 class ScreeningStatusView(APIView):
@@ -882,6 +931,22 @@ class FHIRBundleView(APIView):
         )
 
         log_phi_access(request, patient_id, 'PHI_FHIR_PREDICT', {'screening_id': str(screening.id)})
+
+        # Fire HTTP webhook + high-risk alert for FHIR screenings
+        org = getattr(request, 'tenant', None)
+        fhir_org_id = str(org.id) if org else None
+        if fhir_org_id:
+            from apps.billing.tasks import trigger_webhook, send_high_risk_alert
+            trigger_webhook(org, 'screening.completed', {
+                'screening_id': str(screening.id),
+                'patient_id': patient_id,
+                'risk_class': result['riskClass'],
+                'label': result['labelText'],
+                'model_version': result['modelVersion'],
+                'source': 'fhir',
+            })
+            if result['riskClass'] == 3:
+                send_high_risk_alert.delay(str(screening.id), fhir_org_id, None)
 
         # Return FHIR DiagnosticReport-style structure
         risk_map = {1: 'normal', 2: 'borderline', 3: 'deficient'}

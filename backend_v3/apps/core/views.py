@@ -119,6 +119,23 @@ class LoginView(APIView):
         # Check if MFA is required
         mfa_status = MFAManager.get_mfa_status(user)
 
+        # C4: ADMIN and DOCTOR must have MFA set up before accessing features.
+        # If they haven't configured MFA yet, issue a restricted token that only
+        # allows the MFA-setup endpoints (mfa_verified=False blocks everything else).
+        MFA_REQUIRED_ROLES = {Role.ADMIN, Role.DOCTOR}
+        if user.role in MFA_REQUIRED_ROLES and not mfa_status['enabled']:
+            restricted_token = create_access_token(user, mfa_verified=False)
+            refresh_token, _ = create_refresh_token(user)
+            resp = Response({
+                'access_token': restricted_token,
+                'mfaSetupRequired': True,
+                'id': str(user.id),
+                'name': user.name or user.username,
+                'role': user.role,
+            })
+            _set_refresh_cookie(resp, refresh_token)
+            return resp
+
         if mfa_status['enabled']:
             if not mfa_code:
                 # Return MFA pending token

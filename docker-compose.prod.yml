@@ -17,6 +17,14 @@ services:
       retries: 5
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
 
   backend:
     image: ghcr.io/dev-abiox/param:latest
@@ -37,10 +45,10 @@ services:
       - ALLOWED_HOSTS=${ALLOWED_HOSTS}
       - CORS_ORIGINS=${FRONTEND_URL}
       - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://clinomiclabs.com}
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_REDIS_URL=redis://redis:6379/1
-      - CHANNELS_REDIS_URL=redis://redis:6379/2
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0    # C5: Redis auth
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CHANNELS_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - SENTRY_DSN=${SENTRY_DSN:-}
       - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
       - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-db-backups/}
@@ -58,6 +66,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - static_volume:/app/staticfiles
       - ./ml/models:/app/ml/models:ro
@@ -69,6 +79,14 @@ services:
       start_period: 60s
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   frontend:
     image: ghcr.io/dev-abiox/param-frontend:latest
@@ -87,6 +105,14 @@ services:
       start_period: 60s
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   nginx:
     image: nginx:alpine
@@ -109,25 +135,50 @@ services:
         condition: service_healthy
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   redis:
     image: redis:7-alpine
     restart: always
-    command: redis-server --save 60 1 --loglevel warning
+    # C5: require password + persist every 60s if ≥1 write
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
 
   celery_worker:
     image: ghcr.io/dev-abiox/param:latest
     restart: always
-    command: celery -A clinomic worker --loglevel=info --concurrency=2
+    command: >
+      celery -A clinomic worker
+      --loglevel=info
+      --concurrency=2
+      -Q default,webhooks,alerts,email
     environment:
       - DEBUG=False
       - APP_ENV=production
@@ -140,9 +191,9 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_REDIS_URL=redis://redis:6379/1
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - SENTRY_DSN=${SENTRY_DSN:-}
       - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
       - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-db-backups/}
@@ -157,6 +208,14 @@ services:
       - ./ml/models:/app/ml/models:ro
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   celery_beat:
     image: ghcr.io/dev-abiox/param:latest
@@ -174,9 +233,9 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_REDIS_URL=redis://redis:6379/1
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - SENTRY_DSN=${SENTRY_DSN:-}
     depends_on:
       db:
@@ -185,6 +244,14 @@ services:
         condition: service_healthy
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 128M
 
   prometheus:
     image: prom/prometheus:v2.51.2
@@ -201,12 +268,20 @@ services:
       - "9090"
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
 
   grafana:
     image: grafana/grafana:10.4.2
     restart: always
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
@@ -219,6 +294,14 @@ services:
       - prometheus
     networks:
       - clinomic_network
+    deploy:                         # C3: resource limits
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
 volumes:
   postgres_data:
