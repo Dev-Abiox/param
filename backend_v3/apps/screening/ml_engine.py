@@ -4,6 +4,7 @@ ML Engine for B12 Clinical Screening.
 Provides CatBoost-based two-stage classification with rule-based adjustments.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
