@@ -236,8 +236,7 @@ class TestWebhookView:
             response = view(request)
 
         assert response.status_code == 200
-        data = json.loads(response.content)
-        assert data['status'] == 'already_processed'
+        assert response.data['status'] == 'already_processed'
 
     @pytest.mark.django_db
     def test_unknown_sub_stores_event(self, api_rf, mock_razorpay):
