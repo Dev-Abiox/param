@@ -40,6 +40,7 @@ def _make_admin_request(rf, method, path, data=None, **kwargs):
 
     request.user = user
     request.data = data or {}
+    request.query_params = request.GET  # DRF Request compat for views that use query_params
     return request
 
 
