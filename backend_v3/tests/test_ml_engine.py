@@ -155,7 +155,7 @@ class TestMLEngineValidation:
         sparse_cbc = {'Hb': 12.0, 'MCV': 85.0, 'Sex': 'M', 'Age': 40}
         result = mock_engine.predict(sparse_cbc)
         assert 'riskClass' in result
-        assert 'label' in result
+        assert 'labelText' in result
 
     def test_predict_with_zero_values(self, mock_engine):
         """Engine should handle zero CBC values without crashing."""
