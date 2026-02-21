@@ -75,7 +75,7 @@ class TestWebhookView:
             HTTP_X_RAZORPAY_SIGNATURE='bad_sig',
         )
 
-        mock_razorpay.return_value.utility.verify_webhook_signature.side_effect = Exception('bad sig')
+        mock_razorpay.Client.return_value.utility.verify_webhook_signature.side_effect = Exception('bad sig')
 
         with patch('apps.billing.views.settings') as mock_settings:
             mock_settings.RAZORPAY_WEBHOOK_SECRET = 'webhook_secret'
