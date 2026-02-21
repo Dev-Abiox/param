@@ -151,6 +151,85 @@ class TestAdminUserListView:
 
         assert response.status_code == 400
 
+    @pytest.mark.django_db
+    def test_post_weak_password_returns_400(self, api_rf):
+        """POST with a weak password should be rejected by validate_password."""
+        from django.core.exceptions import ValidationError
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'newuser',
+            'password': '123',  # too short / too common
+            'role': 'LAB',
+        }
+        request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.Role') as MockRole, \
+             patch('apps.core.views.validate_password') as mock_vp:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockUser.objects.filter.return_value.exists.return_value = False
+            mock_vp.side_effect = ValidationError(['This password is too short.'])
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 400
+        assert 'error' in response.data
+
+    @pytest.mark.django_db
+    def test_post_duplicate_username_returns_400(self, api_rf):
+        """POST with an existing username should return 400."""
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'existinguser',
+            'password': 'StrongP@ss1!xy',
+            'role': 'LAB',
+        }
+        request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.Role') as MockRole:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockUser.objects.filter.return_value.exists.return_value = True  # username taken
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 400
+        assert 'Username already taken' in response.data['error']
+
+    @pytest.mark.django_db
+    def test_post_invalid_role_returns_400(self, api_rf):
+        """POST with an invalid role should return 400."""
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'newuser',
+            'password': 'StrongP@ss1!xy',
+            'role': 'SUPERVILLAIN',
+        }
+        request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.Role') as MockRole:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 400
+        assert 'Invalid role' in response.data['error']
+
 
 class TestAdminUserDetailView:
 
@@ -184,6 +263,39 @@ class TestAdminUserDetailView:
         assert response.status_code == 200
 
     @pytest.mark.django_db
+    def test_patch_weak_password_returns_400(self, api_rf):
+        """PATCH with a weak password should be rejected by validate_password."""
+        from django.core.exceptions import ValidationError
+        from apps.core.views import AdminUserDetailView
+
+        user_id = uuid.uuid4()
+        data = {'password': '123'}
+        request = _make_admin_request(api_rf, 'patch', f'/api/admin/users/{user_id}', data)
+
+        mock_user = MagicMock(
+            id=user_id,
+            username='testuser',
+            email='test@test.com',
+            name='Test',
+            role='LAB',
+            is_active=True,
+        )
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.validate_password') as mock_vp:
+            MockUser.objects.get.return_value = mock_user
+            mock_vp.side_effect = ValidationError(['This password is too short.'])
+
+            view = AdminUserDetailView()
+            view.request = request
+            view.kwargs = {'user_id': user_id}
+            view.format_kwarg = None
+            response = view.patch(request, user_id=user_id)
+
+        assert response.status_code == 400
+        assert 'error' in response.data
+
+    @pytest.mark.django_db
     def test_delete_deactivates_user(self, api_rf):
         """DELETE /admin/users/<id> should soft-deactivate."""
         from apps.core.views import AdminUserDetailView
@@ -208,6 +320,31 @@ class TestAdminUserDetailView:
 
         assert response.status_code == 200
         assert mock_user.is_active is False
+
+    @pytest.mark.django_db
+    def test_delete_self_returns_400(self, api_rf):
+        """Admin should not be able to deactivate their own account."""
+        from apps.core.views import AdminUserDetailView
+
+        user_id = uuid.uuid4()
+        request = _make_admin_request(api_rf, 'delete', f'/api/admin/users/{user_id}')
+        # Make the target user the same as the requesting user
+        request.user.id = user_id
+
+        mock_user = MagicMock(id=user_id, is_active=True)
+
+        with patch('apps.core.views.User') as MockUser:
+            MockUser.objects.get.return_value = mock_user
+            MockUser.DoesNotExist = Exception
+
+            view = AdminUserDetailView()
+            view.request = request
+            view.kwargs = {'user_id': user_id}
+            view.format_kwarg = None
+            response = view.delete(request, user_id=user_id)
+
+        assert response.status_code == 400
+        assert 'Cannot deactivate your own account' in response.data['error']
 
     @pytest.mark.django_db
     def test_patch_nonexistent_returns_404(self, api_rf):
