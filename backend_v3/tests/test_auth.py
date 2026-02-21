@@ -35,6 +35,7 @@ def _make_request_with_data(data: dict, user=None):
 class TestLoginView:
     """Login endpoint behaviour."""
 
+    @patch.object(LoginView, "throttle_classes", [])
     @patch("apps.core.views.LoginSerializer")
     @patch("apps.core.views.authenticate")
     def test_missing_credentials_returns_400(self, mock_auth, mock_ser):
@@ -49,6 +50,7 @@ class TestLoginView:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @patch.object(LoginView, "throttle_classes", [])
     @patch("apps.core.views.authenticate")
     def test_invalid_credentials_returns_401(self, mock_auth):
         mock_auth.return_value = None  # authentication fails
