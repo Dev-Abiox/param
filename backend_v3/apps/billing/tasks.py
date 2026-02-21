@@ -626,7 +626,7 @@ def trigger_webhook(organization, event_name: str, payload: dict) -> None:
         logger.info(
             'billing.webhooks_triggered',
             org_id=str(organization.id),
-            event=event_name,
+            event_name=event_name,
             count=fired,
         )
 
