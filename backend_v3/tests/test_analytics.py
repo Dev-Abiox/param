@@ -29,6 +29,7 @@ from apps.core.models import Role
 def _make_user(role=Role.LAB, email="lab@example.com", pk=1):
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = role
     user.email = email
     user.pk = pk
