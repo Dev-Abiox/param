@@ -3,7 +3,6 @@ Tests for the billing webhook handler (WebhookView).
 """
 
 import json
-import sys
 import uuid
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -21,12 +20,11 @@ def api_rf():
 
 @pytest.fixture
 def mock_razorpay():
-    """Fake razorpay module injected into sys.modules so the local import succeeds."""
-    mod = MagicMock()
-    # By default verify_webhook_signature does nothing (signature accepted).
-    mod.Client.return_value.utility.verify_webhook_signature.return_value = None
-    with patch.dict(sys.modules, {'razorpay': mod}):
-        yield mod
+    """Mock razorpay.Client so the view's local import gets a fake client."""
+    with patch('razorpay.Client') as MockClient:
+        # By default verify_webhook_signature succeeds (no exception).
+        MockClient.return_value.utility.verify_webhook_signature.return_value = None
+        yield MockClient
 
 
 @pytest.fixture
@@ -75,7 +73,7 @@ class TestWebhookView:
             HTTP_X_RAZORPAY_SIGNATURE='bad_sig',
         )
 
-        mock_razorpay.Client.return_value.utility.verify_webhook_signature.side_effect = Exception('bad sig')
+        mock_razorpay.return_value.utility.verify_webhook_signature.side_effect = Exception('bad sig')
 
         with patch('apps.billing.views.settings') as mock_settings:
             mock_settings.RAZORPAY_WEBHOOK_SECRET = 'webhook_secret'
