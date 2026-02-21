@@ -151,7 +151,7 @@ class TestIsOverLimit:
         org = MagicMock()
         org.id = 'org-db-err'
 
-        with patch('apps.billing.middleware.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             MockSub.objects.select_related.return_value.get.side_effect = RuntimeError('db down')
 
             result = mw._is_over_limit(org)
@@ -170,7 +170,7 @@ class TestIsOverLimit:
 
         cache.set(f'plan_limit_over:{org.id}', True, timeout=60)
 
-        with patch('apps.billing.middleware.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             result = mw._is_over_limit(org)
 
         assert result is True
@@ -185,7 +185,7 @@ class TestIsOverLimit:
         org = MagicMock()
         org.id = 'org-no-sub'
 
-        with patch('apps.billing.middleware.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub:
             MockSub.DoesNotExist = TenantSubscription.DoesNotExist
             MockSub.objects.select_related.return_value.get.side_effect = TenantSubscription.DoesNotExist
 
