@@ -128,6 +128,28 @@ class TestMLEnginePrediction:
 class TestMLEngineValidation:
     """Tests for CBC data validation — engine handles missing/bad data gracefully."""
 
+    @pytest.fixture
+    def mock_engine(self):
+        """Create engine with mocked models."""
+        from pathlib import Path
+        from apps.screening.ml_engine import B12ClinicalEngine
+        from unittest.mock import MagicMock, PropertyMock
+
+        engine = B12ClinicalEngine(Path("../../backend_v3/ml/models"))
+        engine._ready = True
+        engine._load_error = None
+
+        mock_stage1 = MagicMock()
+        mock_stage1.predict_proba.return_value = [[0.8, 0.2]]
+        mock_stage2 = MagicMock()
+        mock_stage2.predict_proba.return_value = [[0.7, 0.3]]
+
+        engine.thresholds = {"rule_weight": 0.5, "deficient_threshold": 0.7, "borderline_threshold": 0.4}
+        engine.stage1 = mock_stage1
+        engine.stage2 = mock_stage2
+        type(engine).is_ready = PropertyMock(return_value=True)
+        return engine
+
     def test_predict_with_missing_fields(self, mock_engine):
         """Engine should handle prediction even with sparse input."""
         sparse_cbc = {'Hb': 12.0, 'MCV': 85.0, 'Sex': 'M', 'Age': 40}
