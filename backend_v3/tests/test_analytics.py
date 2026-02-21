@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.analytics.views import (
     CaseStatsView,
@@ -38,7 +38,7 @@ def _make_user(role=Role.LAB, email="lab@example.com", pk=1):
 def _get(path, user, params=None):
     factory = APIRequestFactory()
     request = factory.get(path, params or {})
-    request.user = user
+    force_authenticate(request, user=user)
     request.token_payload = {"mfa_verified": True}
     return request
 
