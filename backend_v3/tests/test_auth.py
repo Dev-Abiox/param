@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
 from apps.core.models import Role
@@ -40,8 +41,9 @@ class TestLoginView:
     @patch("apps.core.views.authenticate")
     def test_missing_credentials_returns_400(self, mock_auth, mock_ser):
         mock_ser_instance = MagicMock()
-        mock_ser_instance.is_valid.return_value = False
-        mock_ser_instance.errors = {"username": ["This field is required."]}
+        mock_ser_instance.is_valid.side_effect = ValidationError(
+            {"username": ["This field is required."]}
+        )
         mock_ser.return_value = mock_ser_instance
 
         factory = APIRequestFactory()
