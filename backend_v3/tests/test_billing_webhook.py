@@ -3,6 +3,7 @@ Tests for the billing webhook handler (WebhookView).
 """
 
 import json
+import sys
 import uuid
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -69,11 +70,12 @@ class TestWebhookView:
             mock_settings.RAZORPAY_KEY_ID = 'key_id'
             mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
 
-            with patch('razorpay.Client') as MockClient:
-                mock_client = MagicMock()
-                mock_client.utility.verify_webhook_signature.side_effect = Exception('bad sig')
-                MockClient.return_value = mock_client
+            mock_razorpay = MagicMock()
+            mock_client = MagicMock()
+            mock_client.utility.verify_webhook_signature.side_effect = Exception('bad sig')
+            mock_razorpay.Client.return_value = mock_client
 
+            with patch.dict(sys.modules, {'razorpay': mock_razorpay}):
                 view = WebhookView.as_view()
                 response = view(request)
 
