@@ -20,7 +20,7 @@ const Settings = ({ user }) => {
       const status = await MFAService.getStatus();
       setMfaStatus(status);
 
-      if (user.role === Role.ADMIN) {
+      if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
         const health = await AdminService.getSystemHealth();
         setSystemHealth(health);
       }
@@ -63,7 +63,7 @@ const Settings = ({ user }) => {
   const tabs = [
     { id: "security", label: "Security", icon: Shield },
     { id: "account", label: "Account", icon: User },
-    ...(user.role === Role.ADMIN ? [{ id: "system", label: "System", icon: Server }] : []),
+    ...(user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN ? [{ id: "system", label: "System", icon: Server }] : []),
   ];
 
   const renderSecurityTab = () => (
@@ -240,7 +240,7 @@ const Settings = ({ user }) => {
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Role</label>
               <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                user.role === Role.ADMIN ? "bg-purple-100 text-purple-700" :
+                user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN ? "bg-purple-100 text-purple-700" :
                 user.role === Role.DOCTOR ? "bg-blue-100 text-blue-700" :
                 "bg-teal-100 text-teal-700"
               }`}>
@@ -416,7 +416,7 @@ const Settings = ({ user }) => {
       {/* Tab Content */}
       {activeTab === "security" && renderSecurityTab()}
       {activeTab === "account" && renderAccountTab()}
-      {activeTab === "system" && user.role === Role.ADMIN && renderSystemTab()}
+      {activeTab === "system" && (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && renderSystemTab()}
     </div>
   );
 };

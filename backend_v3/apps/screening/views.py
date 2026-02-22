@@ -19,7 +19,7 @@ from apps.core.audit import log_phi_access
 from apps.core.crypto import encrypt_field
 from apps.core.exceptions import MLModelNotReadyError
 from apps.core.models import Role
-from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified
+from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified, IsOrgManager
 
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
@@ -1074,7 +1074,7 @@ class AdminDoctorView(APIView):
     GET  /api/screening/admin/doctors   — list all doctors
     POST /api/screening/admin/doctors   — create a new doctor
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def get(self, request):
         lab_id = request.query_params.get('labId')
@@ -1140,7 +1140,7 @@ class AdminDoctorDetailView(APIView):
     PATCH  /api/screening/admin/doctors/<doctor_id>  — update fields
     DELETE /api/screening/admin/doctors/<doctor_id>  — soft-deactivate
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def _get_doctor(self, doctor_id):
         try:

@@ -28,7 +28,7 @@ from .authentication import (
 from .crypto import get_crypto_status
 from .mfa import MFAManager
 from .models import Role, User
-from .permissions import IsAdmin, IsMFAVerified
+from .permissions import IsAdmin, IsMFAVerified, IsOrgManager
 from .serializers import (
     LoginSerializer,
     MFACodeSerializer,
@@ -123,7 +123,7 @@ class LoginView(APIView):
         # C4: ADMIN and DOCTOR must have MFA set up before accessing features.
         # If they haven't configured MFA yet, issue a restricted token that only
         # allows the MFA-setup endpoints (mfa_verified=False blocks everything else).
-        MFA_REQUIRED_ROLES = {Role.ADMIN, Role.DOCTOR}
+        MFA_REQUIRED_ROLES = {Role.ADMIN, Role.DOCTOR, Role.SUPER_ADMIN}
         if user.role in MFA_REQUIRED_ROLES and not mfa_status['enabled']:
             restricted_token = create_access_token(user, mfa_verified=False)
             refresh_token, _ = create_refresh_token(user)
@@ -727,7 +727,7 @@ class AdminUserListView(APIView):
     GET  /api/admin/users   — list all org users
     POST /api/admin/users   — create a new user in the org
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def get(self, request):
         org = request.user.organization
@@ -796,7 +796,7 @@ class AdminUserDetailView(APIView):
     PATCH  /api/admin/users/<user_id>  — update fields
     DELETE /api/admin/users/<user_id>  — soft-deactivate (is_active=False)
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def _get_user(self, request, user_id):
         try:
