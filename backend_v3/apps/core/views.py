@@ -732,6 +732,9 @@ class AdminUserListView(APIView):
     def get(self, request):
         org = request.user.organization
         users = User.objects.filter(organization=org).order_by('name', 'username')
+        # LAB owners only see their staff (technicians / DOCTOR role)
+        if request.user.role == Role.LAB:
+            users = users.filter(role=Role.DOCTOR)
         data = [
             {
                 'id': str(u.id),
@@ -761,6 +764,13 @@ class AdminUserListView(APIView):
 
         if role not in Role.values:
             return Response({'error': f'Invalid role. Must be one of: {Role.values}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # LAB owners can only create technician (DOCTOR) accounts
+        if request.user.role == Role.LAB and role != Role.DOCTOR:
+            return Response(
+                {'error': 'Lab owners can only create technician accounts'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if User.objects.filter(username__iexact=username).exists():
             return Response({'error': 'Username already taken'}, status=status.HTTP_400_BAD_REQUEST)
@@ -800,7 +810,11 @@ class AdminUserDetailView(APIView):
 
     def _get_user(self, request, user_id):
         try:
-            return User.objects.get(id=user_id, organization=request.user.organization)
+            user = User.objects.get(id=user_id, organization=request.user.organization)
+            # LAB owners can only manage DOCTOR (technician) users
+            if request.user.role == Role.LAB and user.role != Role.DOCTOR:
+                return None
+            return user
         except User.DoesNotExist:
             return None
 
@@ -817,6 +831,12 @@ class AdminUserDetailView(APIView):
                     value = value.upper()
                     if value not in Role.values:
                         return Response({'error': f'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+                    # LAB owners cannot assign privileged roles
+                    if request.user.role == Role.LAB and value != Role.DOCTOR:
+                        return Response(
+                            {'error': 'Lab owners can only assign the technician role'},
+                            status=status.HTTP_403_FORBIDDEN,
+                        )
                 setattr(user, field, value)
 
         if 'password' in request.data and request.data['password']:

@@ -389,7 +389,7 @@ const App = () => {
         {/* Management — Users/Doctors/Usage/Billing (SUPER_ADMIN + LAB) */}
         <Route
           path="/portal/users"
-          element={canManageOrg(user.role) ? <AdminUsers /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <AdminUsers user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
           path="/portal/labs"

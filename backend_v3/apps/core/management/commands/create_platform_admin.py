@@ -76,6 +76,7 @@ class Command(BaseCommand):
             existing.role = Role.SUPER_ADMIN
             existing.is_superuser = True
             existing.is_staff = True
+            existing.is_active = True
             existing.email = email
             existing.set_password(password)
             existing.save()
