@@ -3,8 +3,9 @@ Tests for the Razorpay WebhookView (billing/views.py).
 """
 
 import json
+import sys
 import uuid
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
@@ -54,6 +55,17 @@ class TestWebhookView:
         yield
         WebhookView.throttle_classes = original
 
+    @pytest.fixture(autouse=True)
+    def mock_razorpay(self):
+        """Mock the razorpay module in sys.modules to avoid pkg_resources import."""
+        mock_rp = MagicMock()
+        mock_client = MagicMock()
+        mock_rp.Client.return_value = mock_client
+        self._mock_razorpay = mock_rp
+        self._mock_client = mock_client
+        with patch.dict(sys.modules, {'razorpay': mock_rp}):
+            yield
+
     @patch('apps.billing.views.settings')
     def test_missing_webhook_secret_returns_503(self, mock_settings, rf):
         """Should return 503 when RAZORPAY_WEBHOOK_SECRET is not configured."""
@@ -68,9 +80,8 @@ class TestWebhookView:
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
-    def test_invalid_signature_returns_400(self, mock_settings, MockClient, rf):
+    def test_invalid_signature_returns_400(self, mock_settings, rf):
         """Should return 400 when Razorpay signature verification fails."""
         from apps.billing.views import WebhookView
 
@@ -78,9 +89,7 @@ class TestWebhookView:
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
 
-        mock_client = MagicMock()
-        mock_client.utility.verify_webhook_signature.side_effect = Exception('bad sig')
-        MockClient.return_value = mock_client
+        self._mock_client.utility.verify_webhook_signature.side_effect = Exception('bad sig')
 
         payload = _subscription_payload('subscription.activated')
         request = _webhook_request(rf, payload, signature='bad-sig')
@@ -90,20 +99,15 @@ class TestWebhookView:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
-    def test_duplicate_event_returns_already_processed(self, MockPE, mock_settings,
-                                                        MockClient, rf):
+    def test_duplicate_event_returns_already_processed(self, MockPE, mock_settings, rf):
         """Should return 200 with 'already_processed' for duplicate event IDs."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
-
-        mock_client = MagicMock()
-        MockClient.return_value = mock_client
 
         MockPE.objects.filter.return_value.exists.return_value = True  # already processed
 
@@ -116,23 +120,18 @@ class TestWebhookView:
         assert response.status_code == status.HTTP_200_OK
         assert response.data['status'] == 'already_processed'
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     @patch('apps.billing.views.SubscriptionPlan')
     def test_subscription_activated_updates_status(self, MockPlan, MockSub,
-                                                    MockPE, mock_settings,
-                                                    MockClient, rf):
+                                                    MockPE, mock_settings, rf):
         """subscription.activated should transition sub to ACTIVE."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
-
-        mock_client = MagicMock()
-        MockClient.return_value = mock_client
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -157,21 +156,17 @@ class TestWebhookView:
         mock_sub.save.assert_called_once()
         mock_pe.save.assert_called()
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_subscription_charged_resets_counter(self, MockSub, MockPE,
-                                                  mock_settings, MockClient, rf):
+                                                  mock_settings, rf):
         """subscription.charged should reset current_period_count to 0."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
-
-        mock_client = MagicMock()
-        MockClient.return_value = mock_client
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -192,21 +187,17 @@ class TestWebhookView:
         assert response.status_code == status.HTTP_200_OK
         assert mock_sub.current_period_count == 0
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_subscription_cancelled_sets_status(self, MockSub, MockPE,
-                                                 mock_settings, MockClient, rf):
+                                                 mock_settings, rf):
         """subscription.cancelled should transition sub to CANCELLED."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
-
-        mock_client = MagicMock()
-        MockClient.return_value = mock_client
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -227,21 +218,17 @@ class TestWebhookView:
         assert response.status_code == status.HTTP_200_OK
         mock_sub.transition_to.assert_called_once_with('CANCELLED')
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_payment_failed_sets_past_due(self, MockSub, MockPE,
-                                           mock_settings, MockClient, rf):
+                                           mock_settings, rf):
         """payment.failed should transition sub to PAST_DUE."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
-
-        mock_client = MagicMock()
-        MockClient.return_value = mock_client
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -262,21 +249,17 @@ class TestWebhookView:
         assert response.status_code == status.HTTP_200_OK
         mock_sub.transition_to.assert_called_once_with('PAST_DUE')
 
-    @patch('razorpay.Client')
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_no_matching_sub_still_stores_event(self, MockSub, MockPE,
-                                                 mock_settings, MockClient, rf):
+                                                 mock_settings, rf):
         """Webhook for unknown sub should store the event but not crash."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
-
-        mock_client = MagicMock()
-        MockClient.return_value = mock_client
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
