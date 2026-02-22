@@ -73,7 +73,7 @@ class SignupView(APIView):
 
     POST /api/signup/
     Creates a new Organisation, provisions its PostgreSQL schema,
-    creates an ADMIN user, and issues a JWT so the admin is immediately
+    creates a LAB owner user, and issues a JWT so the owner is immediately
     logged in.
     """
     permission_classes = [AllowAny]
@@ -85,6 +85,7 @@ class SignupView(APIView):
         data = serializer.validated_data
 
         org_name = data['org_name'].strip()
+        admin_name = (data.get('admin_name') or '').strip() or org_name
         admin_email = data['admin_email'].lower().strip()
         admin_password = data['admin_password']
         plan_name = data['plan']
@@ -102,19 +103,7 @@ class SignupView(APIView):
         from apps.core.authentication import create_access_token, create_refresh_token
         from apps.core.views import _set_refresh_cookie
 
-        # Uniqueness checks
-        if Organization.objects.filter(schema_name=schema_name).exists():
-            return Response(
-                {'error': f'An organisation with that name already exists.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if User.objects.filter(email__iexact=admin_email).exists():
-            return Response(
-                {'error': 'An account with that email already exists.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate plan
+        # Validate plan (read-only, safe outside transaction)
         try:
             plan = SubscriptionPlan.objects.get(name=plan_name, is_active=True)
         except SubscriptionPlan.DoesNotExist:
@@ -122,6 +111,18 @@ class SignupView(APIView):
 
         try:
             with transaction.atomic():
+                # Uniqueness checks inside transaction to prevent TOCTOU race
+                if Organization.objects.filter(schema_name=schema_name).exists():
+                    return Response(
+                        {'error': 'An organisation with that name already exists.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if User.objects.filter(email__iexact=admin_email).exists():
+                    return Response(
+                        {'error': 'An account with that email already exists.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 # 1. Create Organization — triggers auto_create_schema
                 org = Organization.objects.create(
                     name=org_name,
@@ -147,8 +148,8 @@ class SignupView(APIView):
                 user = User(
                     username=username,
                     email=admin_email,
-                    name=org_name,
-                    role=Role.ADMIN,
+                    name=admin_name,
+                    role=Role.LAB,
                     organization=org,
                     is_active=True,
                 )
@@ -180,13 +181,16 @@ class SignupView(APIView):
         logger.info('signup.success', org=org.name, schema=org.schema_name, user=user.username)
 
         # 6. Fire welcome email asynchronously (non-blocking, best-effort)
-        from apps.billing.tasks import send_welcome_email
-        send_welcome_email.delay(
-            user_id=str(user.id),
-            org_name=org.name,
-            plan_name=plan.display_name,
-            trial_end_iso=trial_end.isoformat(),
-        )
+        try:
+            from apps.billing.tasks import send_welcome_email
+            send_welcome_email.delay(
+                user_id=str(user.id),
+                org_name=org.name,
+                plan_name=plan.display_name,
+                trial_end_iso=trial_end.isoformat(),
+            )
+        except Exception:
+            logger.warning('signup.welcome_email_queue_failed', user=user.username)
 
         response = Response({
             'access_token': access_token,
@@ -215,7 +219,7 @@ class OnboardingStatusView(APIView):
     Allows the frontend wizard to mark steps as completed.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -264,18 +268,17 @@ class WebhookView(APIView):
             logger.error('billing.webhook_secret_not_configured')
             return Response({'error': 'webhook not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if webhook_secret:
-            try:
-                import razorpay
-                client = razorpay.Client(
-                    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-                )
-                client.utility.verify_webhook_signature(
-                    request.body.decode('utf-8'), sig, webhook_secret
-                )
-            except Exception:
-                logger.warning('billing.webhook_invalid_signature')
-                return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            import razorpay
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            client.utility.verify_webhook_signature(
+                request.body.decode('utf-8'), sig, webhook_secret
+            )
+        except Exception:
+            logger.warning('billing.webhook_invalid_signature')
+            return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data
         event_type = data.get('event', '')
@@ -348,11 +351,11 @@ class WebhookView(APIView):
 
                 pe.processed = True
                 pe.save(update_fields=['processed'])
-                logger.info('billing.webhook_processed', event=event_type, sub_id=razorpay_sub_id)
+                logger.info('billing.webhook_processed', event_type=event_type, sub_id=razorpay_sub_id)
             except Exception as exc:
                 pe.error = str(exc)
                 pe.save(update_fields=['error'])
-                logger.error('billing.webhook_error', event=event_type, error=str(exc))
+                logger.error('billing.webhook_error', event_type=event_type, error=str(exc))
 
         return Response({'status': 'ok'})
 
@@ -365,7 +368,7 @@ class AdminUsageView(APIView):
     Returns current usage stats and 6-month history for the admin's org.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -406,7 +409,7 @@ class AdminBillingView(APIView):
     Returns the current plan + all available plans for the upgrade picker.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -438,7 +441,7 @@ class AdminBillingUpgradeView(APIView):
     the Razorpay `subscription.activated` webhook arrives.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def post(self, request):
         plan_name = (request.data.get('plan') or '').strip().lower()
@@ -530,7 +533,7 @@ class APIKeyListView(APIView):
         }
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -643,7 +646,7 @@ class APIKeyDetailView(APIView):
         The key is not physically removed so audit logs remain intact.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def delete(self, request, pk):
         org = getattr(request.user, 'organization', None)
@@ -702,7 +705,7 @@ class WebhookListView(APIView):
         shown.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN]
 
     _valid_events = frozenset(WebhookEndpoint.SUPPORTED_EVENTS)
 
@@ -795,7 +798,7 @@ class WebhookDetailView(APIView):
         Future deliveries to this URL will immediately stop.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN]
 
     def delete(self, request, pk):
         org = getattr(request.user, 'organization', None)

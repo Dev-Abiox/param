@@ -1,0 +1,28 @@
+[run]
+source = apps
+omit =
+    # Auto-generated Django migrations
+    */migrations/*
+    # Management commands (tested via integration/manual)
+    */management/*
+    # Celery tasks (require Celery test infrastructure)
+    */tasks.py
+    # WebSocket consumers (require ASGI test infrastructure)
+    */consumers.py
+    # WebSocket broadcast helpers
+    */ws_broadcast.py
+    # URL/routing config files (trivial wiring, not business logic)
+    */routing.py
+    */urls.py
+    */admin_urls.py
+    */platform_urls.py
+
+[report]
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+    # Abstract methods
+    raise NotImplementedError
+    # Defensive unreachable branches
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:

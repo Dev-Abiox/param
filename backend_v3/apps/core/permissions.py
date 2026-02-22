@@ -8,13 +8,14 @@ from .models import Role
 
 
 class IsAdmin(permissions.BasePermission):
-    """Only allow admin users."""
+    """Allow admin-level users (ADMIN, SUPER_ADMIN, or Django superuser)."""
     message = 'Admin access required.'
 
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            (request.user.role == Role.ADMIN or request.user.is_superuser)
+            (request.user.role in (Role.ADMIN, Role.SUPER_ADMIN)
+             or request.user.is_superuser)
         )
 
 
@@ -25,7 +26,19 @@ class IsLabOrDoctor(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            request.user.role in [Role.LAB, Role.DOCTOR, Role.ADMIN]
+            request.user.role in [Role.LAB, Role.DOCTOR, Role.ADMIN, Role.SUPER_ADMIN]
+        )
+
+
+class IsOrgManager(permissions.BasePermission):
+    """ADMIN, SUPER_ADMIN, or LAB owner can manage their organization."""
+    message = 'Organization management access required.'
+
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated and
+            (request.user.role in (Role.ADMIN, Role.SUPER_ADMIN, Role.LAB)
+             or request.user.is_superuser)
         )
 
 

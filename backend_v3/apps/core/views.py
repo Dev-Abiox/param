@@ -4,6 +4,7 @@ Core API views for authentication, MFA, and health checks.
 
 import logging
 
+import jwt
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
@@ -27,7 +28,7 @@ from .authentication import (
 from .crypto import get_crypto_status
 from .mfa import MFAManager
 from .models import Role, User
-from .permissions import IsAdmin, IsMFAVerified
+from .permissions import IsAdmin, IsMFAVerified, IsOrgManager
 from .serializers import (
     LoginSerializer,
     MFACodeSerializer,
@@ -122,7 +123,7 @@ class LoginView(APIView):
         # C4: ADMIN and DOCTOR must have MFA set up before accessing features.
         # If they haven't configured MFA yet, issue a restricted token that only
         # allows the MFA-setup endpoints (mfa_verified=False blocks everything else).
-        MFA_REQUIRED_ROLES = {Role.ADMIN, Role.DOCTOR}
+        MFA_REQUIRED_ROLES = {Role.ADMIN, Role.DOCTOR, Role.SUPER_ADMIN}
         if user.role in MFA_REQUIRED_ROLES and not mfa_status['enabled']:
             restricted_token = create_access_token(user, mfa_verified=False)
             refresh_token, _ = create_refresh_token(user)
@@ -192,7 +193,7 @@ class MFAVerifyView(APIView):
         # Decode pending token
         try:
             payload = decode_token(pending_token, token_type='mfa_pending')
-        except Exception as e:
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, KeyError, ValueError) as e:
             return Response(
                 {'error': 'Invalid or expired MFA token'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -247,7 +248,7 @@ class TokenRefreshView(APIView):
 
         try:
             access_token, new_refresh_token = refresh_tokens(token)
-        except Exception as e:
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError) as e:
             response = Response({'error': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
             _delete_refresh_cookie(response)
             return response
@@ -555,7 +556,7 @@ class ForgotPasswordView(APIView):
                     recipient_list=[user.email],
                     fail_silently=False,
                 )
-            except Exception:
+            except (OSError, Exception):
                 logger.exception('Failed to send password reset email for user: %s', user.username)
 
             logger.info("Password reset requested for user: %s", user.username)
@@ -587,12 +588,14 @@ class ResetPasswordView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Atomically consume the token to prevent reuse
         user_id = cache.get(f'pwd_reset_{token}')
         if not user_id:
             return Response(
                 {'error': 'Invalid or expired reset token'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        cache.delete(f'pwd_reset_{token}')
 
         try:
             user = User.objects.get(id=user_id)
@@ -613,9 +616,6 @@ class ResetPasswordView(APIView):
         # Revoke all existing refresh tokens on password change
         from .models import RefreshToken as RT
         RT.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
-
-        # Consume the token
-        cache.delete(f'pwd_reset_{token}')
 
         return Response({'detail': 'Password has been reset successfully.'})
 
@@ -727,11 +727,14 @@ class AdminUserListView(APIView):
     GET  /api/admin/users   — list all org users
     POST /api/admin/users   — create a new user in the org
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def get(self, request):
         org = request.user.organization
         users = User.objects.filter(organization=org).order_by('name', 'username')
+        # LAB owners only see their staff (technicians / DOCTOR role)
+        if request.user.role == Role.LAB:
+            users = users.filter(role=Role.DOCTOR)
         data = [
             {
                 'id': str(u.id),
@@ -761,6 +764,13 @@ class AdminUserListView(APIView):
 
         if role not in Role.values:
             return Response({'error': f'Invalid role. Must be one of: {Role.values}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # LAB owners can only create technician (DOCTOR) accounts
+        if request.user.role == Role.LAB and role != Role.DOCTOR:
+            return Response(
+                {'error': 'Lab owners can only create technician accounts'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if User.objects.filter(username__iexact=username).exists():
             return Response({'error': 'Username already taken'}, status=status.HTTP_400_BAD_REQUEST)
@@ -796,11 +806,15 @@ class AdminUserDetailView(APIView):
     PATCH  /api/admin/users/<user_id>  — update fields
     DELETE /api/admin/users/<user_id>  — soft-deactivate (is_active=False)
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def _get_user(self, request, user_id):
         try:
-            return User.objects.get(id=user_id, organization=request.user.organization)
+            user = User.objects.get(id=user_id, organization=request.user.organization)
+            # LAB owners can only manage DOCTOR (technician) users
+            if request.user.role == Role.LAB and user.role != Role.DOCTOR:
+                return None
+            return user
         except User.DoesNotExist:
             return None
 
@@ -817,6 +831,12 @@ class AdminUserDetailView(APIView):
                     value = value.upper()
                     if value not in Role.values:
                         return Response({'error': f'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+                    # LAB owners cannot assign privileged roles
+                    if request.user.role == Role.LAB and value != Role.DOCTOR:
+                        return Response(
+                            {'error': 'Lab owners can only assign the technician role'},
+                            status=status.HTTP_403_FORBIDDEN,
+                        )
                 setattr(user, field, value)
 
         if 'password' in request.data and request.data['password']:

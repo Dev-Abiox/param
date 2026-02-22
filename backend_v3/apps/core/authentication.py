@@ -62,7 +62,7 @@ def create_access_token(user: User, mfa_verified: bool = False) -> str:
         'username': user.username,
         'role': user.role,
         'org_id': str(user.organization_id) if user.organization_id else None,
-        'is_super_admin': user.is_superuser,
+        'is_super_admin': user.is_super_admin,
         'mfa_verified': mfa_verified,
         'token_type': 'access',
         'jti': str(uuid.uuid4()),

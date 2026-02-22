@@ -17,13 +17,24 @@ import {
   UserCog,
   BarChart2,
   CreditCard,
+  Globe,
 } from "lucide-react";
-import { Role } from "@/types";
+import { Role, isSuperAdmin, canManageOrg } from "@/types";
 import { NotificationService } from "@/services/api";
 import ThemeToggle from "@/components/ThemeToggle";
 
 // Role-specific configurations
 const roleConfig = {
+  [Role.SUPER_ADMIN]: {
+    color: "purple",
+    bgGradient: "from-purple-600 to-purple-700",
+    lightBg: "bg-purple-50 dark:bg-purple-900/30",
+    textColor: "text-purple-700 dark:text-purple-400",
+    borderColor: "border-purple-200 dark:border-purple-700",
+    icon: Shield,
+    title: "Platform Owner",
+    subtitle: "Platform Management",
+  },
   [Role.ADMIN]: {
     color: "purple",
     bgGradient: "from-purple-600 to-purple-700",
@@ -34,22 +45,22 @@ const roleConfig = {
     title: "Administrator",
     subtitle: "System Management",
   },
-  [Role.DOCTOR]: {
-    color: "blue",
-    bgGradient: "from-blue-600 to-blue-700",
-    lightBg: "bg-blue-50 dark:bg-blue-900/30",
-    textColor: "text-blue-700 dark:text-blue-400",
-    borderColor: "border-blue-200 dark:border-blue-700",
-    icon: Stethoscope,
-    title: "Physician Portal",
-    subtitle: "Patient Care",
-  },
   [Role.LAB]: {
     color: "teal",
     bgGradient: "from-teal-600 to-teal-700",
     lightBg: "bg-teal-50 dark:bg-teal-900/30",
     textColor: "text-teal-700 dark:text-teal-400",
     borderColor: "border-teal-200 dark:border-teal-700",
+    icon: Building2,
+    title: "Lab Owner",
+    subtitle: "Lab Management",
+  },
+  [Role.DOCTOR]: {
+    color: "blue",
+    bgGradient: "from-blue-600 to-blue-700",
+    lightBg: "bg-blue-50 dark:bg-blue-900/30",
+    textColor: "text-blue-700 dark:text-blue-400",
+    borderColor: "border-blue-200 dark:border-blue-700",
     icon: TestTube,
     title: "Lab Technician",
     subtitle: "Screening & Analysis",
@@ -141,9 +152,10 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
     return <>{children}</>;
   }
 
-  const isAdmin = user.role === Role.ADMIN;
+  const _isSuperAdmin = isSuperAdmin(user);
   const isLab = user.role === Role.LAB;
   const isDoctor = user.role === Role.DOCTOR;
+  const _canManageOrg = canManageOrg(user.role);
   const config = roleConfig[user.role] || roleConfig[Role.LAB];
   const RoleIcon = config.icon;
 
@@ -199,7 +211,8 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           Main Menu
         </p>
 
-        {isAdmin && (
+        {/* SUPER_ADMIN: Dashboard, Lab Overview, Doctor Overview, Records */}
+        {_isSuperAdmin && (
           <>
             <NavItem
               icon={LayoutDashboard}
@@ -232,6 +245,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           </>
         )}
 
+        {/* LAB owner: Screening, Work Queue, Doctors, Records */}
         {isLab && (
           <>
             <NavItem
@@ -265,15 +279,9 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           </>
         )}
 
+        {/* DOCTOR (technician): Screening, Work Queue, Records */}
         {isDoctor && (
           <>
-            <NavItem
-              icon={LayoutDashboard}
-              label="Dashboard"
-              active={activeView === "doctor_dashboard"}
-              onClick={() => handleNavClick("doctor_dashboard")}
-              roleColor={config.color}
-            />
             <NavItem
               icon={Activity}
               label="New Screening"
@@ -283,7 +291,14 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
             />
             <NavItem
               icon={FileText}
-              label="My Patients"
+              label="Work Queue"
+              active={activeView === "work_queue"}
+              onClick={() => handleNavClick("work_queue")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={FileText}
+              label="Records"
               active={activeView === "records"}
               onClick={() => handleNavClick("records")}
               roleColor={config.color}
@@ -291,7 +306,8 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           </>
         )}
 
-        {isAdmin && (
+        {/* Management section — SUPER_ADMIN gets all, LAB gets Users/Doctors/Usage/Billing */}
+        {_canManageOrg && (
           <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 px-3">
               Management
@@ -303,13 +319,15 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               onClick={() => handleNavClick("admin_users")}
               roleColor={config.color}
             />
-            <NavItem
-              icon={Building2}
-              label="Labs"
-              active={activeView === "admin_labs_mgmt"}
-              onClick={() => handleNavClick("admin_labs_mgmt")}
-              roleColor={config.color}
-            />
+            {_isSuperAdmin && (
+              <NavItem
+                icon={Building2}
+                label="Labs"
+                active={activeView === "admin_labs_mgmt"}
+                onClick={() => handleNavClick("admin_labs_mgmt")}
+                roleColor={config.color}
+              />
+            )}
             <NavItem
               icon={Stethoscope}
               label="Doctors"
@@ -329,6 +347,29 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               label="Billing"
               active={activeView === "admin_billing"}
               onClick={() => handleNavClick("admin_billing")}
+              roleColor={config.color}
+            />
+          </div>
+        )}
+
+        {/* Platform section — SUPER_ADMIN only */}
+        {_isSuperAdmin && (
+          <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 px-3">
+              Platform
+            </p>
+            <NavItem
+              icon={Globe}
+              label="Organizations"
+              active={activeView === "platform_orgs"}
+              onClick={() => handleNavClick("platform_orgs")}
+              roleColor={config.color}
+            />
+            <NavItem
+              icon={BarChart2}
+              label="Platform Stats"
+              active={activeView === "platform_dashboard"}
+              onClick={() => handleNavClick("platform_dashboard")}
               roleColor={config.color}
             />
           </div>
@@ -417,18 +458,19 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           <div className="hidden lg:block">
             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
               {activeView === "admin_dashboard" && "Dashboard"}
-              {activeView === "doctor_dashboard" && "Dashboard"}
               {activeView === "admin_labs" && "Lab Management"}
               {activeView === "lab_doctors" && "Doctors"}
               {activeView === "workspace" && "B12 Screening"}
               {activeView === "work_queue" && "Work Queue"}
-              {activeView === "records" && (isDoctor ? "My Patients" : "Patient Records")}
+              {activeView === "records" && "Patient Records"}
               {activeView === "settings" && "Settings"}
               {activeView === "admin_users" && "Users"}
               {activeView === "admin_labs_mgmt" && "Labs Management"}
               {activeView === "admin_doctors_mgmt" && "Doctors Management"}
               {activeView === "admin_usage" && "Usage"}
               {activeView === "admin_billing" && "Billing"}
+              {activeView === "platform_dashboard" && "Platform Stats"}
+              {activeView === "platform_orgs" && "Organizations"}
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400">{config.subtitle}</p>
           </div>

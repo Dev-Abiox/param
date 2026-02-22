@@ -203,7 +203,7 @@ class Command(BaseCommand):
             {
                 "key": "superadmin",
                 "username": "superadmin",
-                "role": Role.ADMIN,
+                "role": Role.SUPER_ADMIN,
                 "name": "Super Administrator",
                 "email": "superadmin@demo.clinomic.local",
                 "is_staff": True,

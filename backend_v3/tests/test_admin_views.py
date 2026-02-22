@@ -21,6 +21,7 @@ def _make_admin_request(rf, method, path, data=None, **kwargs):
     """Create a request with a mocked admin user."""
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = 'ADMIN'
     user.organization = MagicMock(id=uuid.uuid4())
 
@@ -40,6 +41,33 @@ def _make_admin_request(rf, method, path, data=None, **kwargs):
 
     request.user = user
     request.data = data or {}
+    request.query_params = request.GET  # DRF Request compat for views that use query_params
+    return request
+
+
+def _make_lab_owner_request(rf, method, path, data=None, org=None):
+    """Create a request with a mocked LAB owner user."""
+    user = MagicMock()
+    user.is_authenticated = True
+    user.is_superuser = False
+    user.role = 'LAB'
+    user.organization = org or MagicMock(id=uuid.uuid4())
+    user.mfa_enabled = True
+
+    if method == 'get':
+        request = rf.get(path)
+    elif method == 'post':
+        request = rf.post(path, data=json.dumps(data or {}), content_type='application/json')
+    elif method == 'patch':
+        request = rf.patch(path, data=json.dumps(data or {}), content_type='application/json')
+    elif method == 'delete':
+        request = rf.delete(path)
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    request.user = user
+    request.data = data or {}
+    request.query_params = request.GET
     return request
 
 
@@ -47,6 +75,7 @@ def _make_non_admin_request(rf, path, method='get'):
     """Create a request with a non-admin user."""
     user = MagicMock()
     user.is_authenticated = True
+    user.is_superuser = False
     user.role = 'LAB'
     user.organization = MagicMock()
 
@@ -148,6 +177,85 @@ class TestAdminUserListView:
 
         assert response.status_code == 400
 
+    @pytest.mark.django_db
+    def test_post_weak_password_returns_400(self, api_rf):
+        """POST with a weak password should be rejected by validate_password."""
+        from django.core.exceptions import ValidationError
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'newuser',
+            'password': '123',  # too short / too common
+            'role': 'LAB',
+        }
+        request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.Role') as MockRole, \
+             patch('apps.core.views.validate_password') as mock_vp:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockUser.objects.filter.return_value.exists.return_value = False
+            mock_vp.side_effect = ValidationError(['This password is too short.'])
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 400
+        assert 'error' in response.data
+
+    @pytest.mark.django_db
+    def test_post_duplicate_username_returns_400(self, api_rf):
+        """POST with an existing username should return 400."""
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'existinguser',
+            'password': 'StrongP@ss1!xy',
+            'role': 'LAB',
+        }
+        request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.Role') as MockRole:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockUser.objects.filter.return_value.exists.return_value = True  # username taken
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 400
+        assert 'Username already taken' in response.data['error']
+
+    @pytest.mark.django_db
+    def test_post_invalid_role_returns_400(self, api_rf):
+        """POST with an invalid role should return 400."""
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'newuser',
+            'password': 'StrongP@ss1!xy',
+            'role': 'SUPERVILLAIN',
+        }
+        request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.Role') as MockRole:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 400
+        assert 'Invalid role' in response.data['error']
+
 
 class TestAdminUserDetailView:
 
@@ -181,6 +289,39 @@ class TestAdminUserDetailView:
         assert response.status_code == 200
 
     @pytest.mark.django_db
+    def test_patch_weak_password_returns_400(self, api_rf):
+        """PATCH with a weak password should be rejected by validate_password."""
+        from django.core.exceptions import ValidationError
+        from apps.core.views import AdminUserDetailView
+
+        user_id = uuid.uuid4()
+        data = {'password': '123'}
+        request = _make_admin_request(api_rf, 'patch', f'/api/admin/users/{user_id}', data)
+
+        mock_user = MagicMock(
+            id=user_id,
+            username='testuser',
+            email='test@test.com',
+            name='Test',
+            role='LAB',
+            is_active=True,
+        )
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.validate_password') as mock_vp:
+            MockUser.objects.get.return_value = mock_user
+            mock_vp.side_effect = ValidationError(['This password is too short.'])
+
+            view = AdminUserDetailView()
+            view.request = request
+            view.kwargs = {'user_id': user_id}
+            view.format_kwarg = None
+            response = view.patch(request, user_id=user_id)
+
+        assert response.status_code == 400
+        assert 'error' in response.data
+
+    @pytest.mark.django_db
     def test_delete_deactivates_user(self, api_rf):
         """DELETE /admin/users/<id> should soft-deactivate."""
         from apps.core.views import AdminUserDetailView
@@ -205,6 +346,31 @@ class TestAdminUserDetailView:
 
         assert response.status_code == 200
         assert mock_user.is_active is False
+
+    @pytest.mark.django_db
+    def test_delete_self_returns_400(self, api_rf):
+        """Admin should not be able to deactivate their own account."""
+        from apps.core.views import AdminUserDetailView
+
+        user_id = uuid.uuid4()
+        request = _make_admin_request(api_rf, 'delete', f'/api/admin/users/{user_id}')
+        # Make the target user the same as the requesting user
+        request.user.id = user_id
+
+        mock_user = MagicMock(id=user_id, is_active=True)
+
+        with patch('apps.core.views.User') as MockUser:
+            MockUser.objects.get.return_value = mock_user
+            MockUser.DoesNotExist = Exception
+
+            view = AdminUserDetailView()
+            view.request = request
+            view.kwargs = {'user_id': user_id}
+            view.format_kwarg = None
+            response = view.delete(request, user_id=user_id)
+
+        assert response.status_code == 400
+        assert 'Cannot deactivate your own account' in response.data['error']
 
     @pytest.mark.django_db
     def test_patch_nonexistent_returns_404(self, api_rf):
@@ -310,34 +476,186 @@ class TestAdminDoctorView:
             ),
         ]
 
-        with patch('apps.screening.views.Doctor') as MockDoctor:
+        with patch('apps.screening.views.Doctor') as MockDoctor, \
+             patch.object(AdminDoctorView, 'permission_classes', []):
             MockDoctor.objects.select_related.return_value.order_by.return_value = mock_doctors
 
-            view = AdminDoctorView()
+            view = AdminDoctorView.as_view()
+            response = view(request)
+
+        assert response.status_code == 200
+
+
+class TestRoleEnforcement:
+    """Non-admin/non-org-manager users should get 403 from admin views."""
+
+    @pytest.mark.django_db
+    def test_non_manager_gets_403_on_user_list(self, api_rf):
+        """Non-manager user (DOCTOR) should be rejected from admin user endpoints."""
+        from apps.core.views import AdminUserListView
+
+        # The permission classes enforce IsOrgManager (ADMIN, SUPER_ADMIN, LAB)
+        # DOCTOR role should be rejected
+        assert any(
+            pc.__name__ == 'IsOrgManager'
+            for pc in AdminUserListView.permission_classes
+            if hasattr(pc, '__name__')
+        )
+
+    @pytest.mark.django_db
+    def test_lab_list_requires_admin(self, api_rf):
+        """Lab management should require IsAdmin (not org manager)."""
+        from apps.screening.views import AdminLabView
+
+        assert any(
+            pc.__name__ == 'IsAdmin'
+            for pc in AdminLabView.permission_classes
+            if hasattr(pc, '__name__')
+        )
+
+
+class TestLabOwnerUserScoping:
+    """LAB owners should only see/manage DOCTOR (technician) users."""
+
+    @pytest.mark.django_db
+    def test_lab_get_only_sees_doctors(self, api_rf):
+        """LAB owner GET /admin/users should only return DOCTOR users."""
+        from apps.core.views import AdminUserListView
+
+        request = _make_lab_owner_request(api_rf, 'get', '/api/admin/users')
+
+        mock_doctors = [
+            MagicMock(
+                id=uuid.uuid4(), username='tech1', email='t1@test.com',
+                name='Tech One', role='DOCTOR', is_active=True,
+                created_at=MagicMock(isoformat=lambda: '2024-01-01T00:00:00'),
+            ),
+        ]
+
+        with patch('apps.core.views.User') as MockUser:
+            # The view calls .filter(organization=org).order_by(...)
+            # Then for LAB, it calls .filter(role=Role.DOCTOR) on the result
+            qs = MockUser.objects.filter.return_value.order_by.return_value
+            qs.filter.return_value = mock_doctors
+
+            view = AdminUserListView()
             view.request = request
             view.kwargs = {}
             view.format_kwarg = None
             response = view.get(request)
 
         assert response.status_code == 200
-
-
-class TestRoleEnforcement:
-    """Non-admin users should get 403 from admin views."""
+        # Verify .filter(role='DOCTOR') was called on the queryset
+        qs.filter.assert_called_once()
 
     @pytest.mark.django_db
-    def test_non_admin_gets_403_on_user_list(self, api_rf):
-        """Non-admin user should be rejected from admin endpoints."""
+    def test_lab_cannot_create_admin(self, api_rf):
+        """LAB owner should not be able to create ADMIN users."""
         from apps.core.views import AdminUserListView
 
-        request = _make_non_admin_request(api_rf, '/api/admin/users')
+        data = {
+            'username': 'hacker',
+            'password': 'StrongP@ss1!xy',
+            'role': 'ADMIN',
+        }
+        request = _make_lab_owner_request(api_rf, 'post', '/api/admin/users', data)
 
-        view = AdminUserListView.as_view()
+        with patch('apps.core.views.Role') as MockRole:
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB', 'SUPER_ADMIN']
+            MockRole.LAB = 'LAB'
+            MockRole.DOCTOR = 'DOCTOR'
 
-        # The permission classes will reject non-admin users
-        # We test this by checking the view enforces IsAdmin
-        assert any(
-            pc.__name__ == 'IsAdmin'
-            for pc in AdminUserListView.permission_classes
-            if hasattr(pc, '__name__')
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 403
+
+    @pytest.mark.django_db
+    def test_lab_can_create_doctor(self, api_rf):
+        """LAB owner should be able to create DOCTOR (technician) users."""
+        from apps.core.views import AdminUserListView
+
+        data = {
+            'username': 'newtech',
+            'password': 'StrongP@ss1!xy',
+            'role': 'DOCTOR',
+            'name': 'New Tech',
+        }
+        request = _make_lab_owner_request(api_rf, 'post', '/api/admin/users', data)
+
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.Role') as MockRole, \
+             patch('apps.core.views.validate_password'):
+            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB', 'SUPER_ADMIN']
+            MockRole.LAB = 'LAB'
+            MockRole.DOCTOR = 'DOCTOR'
+            MockUser.objects.filter.return_value.exists.return_value = False
+
+            mock_user = MagicMock(
+                id=uuid.uuid4(), username='newtech', email='',
+                name='New Tech', role='DOCTOR', is_active=True,
+            )
+            MockUser.return_value = mock_user
+
+            view = AdminUserListView()
+            view.request = request
+            view.kwargs = {}
+            view.format_kwarg = None
+            response = view.post(request)
+
+        assert response.status_code == 201
+
+    @pytest.mark.django_db
+    def test_lab_cannot_modify_superadmin(self, api_rf):
+        """LAB owner should not be able to modify SUPER_ADMIN users (returns 404)."""
+        from apps.core.views import AdminUserDetailView
+
+        user_id = uuid.uuid4()
+        data = {'name': 'Hacked'}
+        request = _make_lab_owner_request(api_rf, 'patch', f'/api/admin/users/{user_id}', data)
+
+        mock_superadmin = MagicMock(
+            id=user_id, username='superadmin', role='SUPER_ADMIN', is_active=True,
         )
+
+        with patch('apps.core.views.User') as MockUser:
+            MockUser.objects.get.return_value = mock_superadmin
+            MockUser.DoesNotExist = Exception
+
+            view = AdminUserDetailView()
+            view.request = request
+            view.kwargs = {'user_id': user_id}
+            view.format_kwarg = None
+            response = view.patch(request, user_id=user_id)
+
+        # _get_user returns None for non-DOCTOR users when requester is LAB
+        assert response.status_code == 404
+
+    @pytest.mark.django_db
+    def test_lab_cannot_deactivate_superadmin(self, api_rf):
+        """LAB owner should not be able to deactivate SUPER_ADMIN users."""
+        from apps.core.views import AdminUserDetailView
+
+        user_id = uuid.uuid4()
+        request = _make_lab_owner_request(api_rf, 'delete', f'/api/admin/users/{user_id}')
+
+        mock_superadmin = MagicMock(
+            id=user_id, username='superadmin', role='SUPER_ADMIN', is_active=True,
+        )
+
+        with patch('apps.core.views.User') as MockUser:
+            MockUser.objects.get.return_value = mock_superadmin
+            MockUser.DoesNotExist = Exception
+
+            view = AdminUserDetailView()
+            view.request = request
+            view.kwargs = {'user_id': user_id}
+            view.format_kwarg = None
+            response = view.delete(request, user_id=user_id)
+
+        assert response.status_code == 404
+        # SUPER_ADMIN should NOT have been deactivated
+        assert mock_superadmin.is_active is True

@@ -10,6 +10,7 @@ django-tenants>=3.6,<4.0
 
 # Billing
 razorpay>=1.4,<2.0
+setuptools>=70.0  # provides pkg_resources required by razorpay on Python 3.12+
 
 # Authentication
 PyJWT>=2.8,<3.0

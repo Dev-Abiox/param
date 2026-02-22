@@ -6,6 +6,14 @@ export const Role = {
   PUBLIC: "PUBLIC",
 };
 
+/** True for the platform owner (SUPER_ADMIN role or is_super_admin flag). */
+export const isSuperAdmin = (user) =>
+  user?.role === Role.SUPER_ADMIN || user?.is_super_admin;
+
+/** True for roles that can manage an organization (users, doctors, billing, usage). */
+export const canManageOrg = (role) =>
+  role === Role.SUPER_ADMIN || role === Role.ADMIN || role === Role.LAB;
+
 export const Flag = {
   LOW: "L",
   NORMAL: "N",

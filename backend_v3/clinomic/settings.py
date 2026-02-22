@@ -248,7 +248,7 @@ AUDIT_SIGNING_KEY = os.environ.get('AUDIT_SIGNING_KEY', '')
 AUDITLOG_INCLUDE_ALL_MODELS = True
 
 # Email (SMTP for password reset)
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if APP_ENV == 'production' else 'django.core.mail.backends.console.EmailBackend'
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if APP_ENV in ('production', 'prod', 'staging') else 'django.core.mail.backends.console.EmailBackend'
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
@@ -314,6 +314,7 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_TASK_ROUTES = {
     'billing.deliver_webhook':       {'queue': 'webhooks'},
     'billing.send_high_risk_alert':  {'queue': 'alerts'},
+    'billing.send_usage_alert':      {'queue': 'email'},
     'billing.send_lab_created_email': {'queue': 'email'},
     'billing.send_welcome_email':    {'queue': 'email'},
 }
@@ -353,7 +354,14 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # ── Startup secret validation (must run after all secrets are read) ──────────
-validate_required_secrets(APP_ENV, SECRET_KEY, MASTER_ENCRYPTION_KEY, AUDIT_SIGNING_KEY)
+validate_required_secrets(
+    APP_ENV, SECRET_KEY, MASTER_ENCRYPTION_KEY, AUDIT_SIGNING_KEY,
+    razorpay_key_id=RAZORPAY_KEY_ID,
+    razorpay_key_secret=RAZORPAY_KEY_SECRET,
+    razorpay_webhook_secret=RAZORPAY_WEBHOOK_SECRET,
+    email_host_user=EMAIL_HOST_USER,
+    email_host_password=EMAIL_HOST_PASSWORD,
+)
 
 # Logging (stdlib — structlog renders through this handler)
 LOGGING = {

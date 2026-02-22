@@ -4,14 +4,16 @@ import { AdminService } from "@/services/api";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
-const ROLE_LABELS = { ADMIN: "Admin", LAB: "Lab Tech", DOCTOR: "Doctor" };
+const ROLE_LABELS = { SUPER_ADMIN: "Platform Owner", ADMIN: "Admin", LAB: "Lab Owner", DOCTOR: "Technician" };
 const ROLE_COLORS = {
+  SUPER_ADMIN: "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400",
   ADMIN: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
   LAB: "bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400",
   DOCTOR: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
 };
 
-const AdminUsers = () => {
+const AdminUsers = ({ user: currentUser }) => {
+  const isLabOwner = currentUser?.role === "LAB";
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,7 +23,7 @@ const AdminUsers = () => {
 
   const [confirmDeactivate, setConfirmDeactivate] = useState(null);
 
-  const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: "LAB" });
+  const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: isLabOwner ? "DOCTOR" : "LAB" });
 
   const load = async () => {
     setLoading(true);
@@ -45,7 +47,7 @@ const AdminUsers = () => {
     try {
       await AdminService.createUser(form);
       setShowCreate(false);
-      setForm({ username: "", email: "", name: "", password: "", role: "LAB" });
+      setForm({ username: "", email: "", name: "", password: "", role: isLabOwner ? "DOCTOR" : "LAB" });
       load();
     } catch (err) {
       setCreateError(err?.response?.data?.error || "Failed to create user.");
@@ -70,8 +72,8 @@ const AdminUsers = () => {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Users</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage users in your organisation.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{isLabOwner ? "Technicians" : "Users"}</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{isLabOwner ? "Manage technicians in your lab." : "Manage users in your organisation."}</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
@@ -177,9 +179,15 @@ const AdminUsers = () => {
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Role</label>
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={inputCls}>
-                <option value="LAB">Lab Technician</option>
-                <option value="DOCTOR">Doctor</option>
-                <option value="ADMIN">Admin</option>
+                {isLabOwner ? (
+                  <option value="DOCTOR">Technician</option>
+                ) : (
+                  <>
+                    <option value="DOCTOR">Technician</option>
+                    <option value="LAB">Lab Owner</option>
+                    <option value="ADMIN">Admin</option>
+                  </>
+                )}
               </select>
             </div>
             {createError && (

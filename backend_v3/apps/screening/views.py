@@ -19,7 +19,7 @@ from apps.core.audit import log_phi_access
 from apps.core.crypto import encrypt_field
 from apps.core.exceptions import MLModelNotReadyError
 from apps.core.models import Role
-from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified
+from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified, IsOrgManager
 
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
@@ -147,14 +147,14 @@ class PredictView(APIView):
         if data.get('doctorId'):
             doctor = Doctor.objects.filter(code=data['doctorId']).first()
 
-        # Get or create patient with encrypted PHI fields
+        # Get or create patient with encrypted PHI fields, scoped to lab
         patient, _ = Patient.objects.update_or_create(
             patient_id=patient_id,
+            lab=lab,
             defaults={
                 'name_encrypted': encrypt_field((data.get('patientName') or '').strip()),
                 'age_encrypted': encrypt_field(str(int(cbc.get('Age', 0)))),
                 'sex_encrypted': encrypt_field(str(cbc.get('Sex', 'M'))),
-                'lab': lab,
                 'referring_doctor': doctor,
             }
         )
@@ -1074,7 +1074,7 @@ class AdminDoctorView(APIView):
     GET  /api/screening/admin/doctors   — list all doctors
     POST /api/screening/admin/doctors   — create a new doctor
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def get(self, request):
         lab_id = request.query_params.get('labId')
@@ -1140,7 +1140,7 @@ class AdminDoctorDetailView(APIView):
     PATCH  /api/screening/admin/doctors/<doctor_id>  — update fields
     DELETE /api/screening/admin/doctors/<doctor_id>  — soft-deactivate
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def _get_doctor(self, doctor_id):
         try:

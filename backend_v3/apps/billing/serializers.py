@@ -35,6 +35,7 @@ class UsageRecordSerializer(serializers.ModelSerializer):
 
 class SignupSerializer(serializers.Serializer):
     org_name = serializers.CharField(min_length=2, max_length=100)
+    admin_name = serializers.CharField(min_length=1, max_length=255, required=False, default='')
     admin_email = serializers.EmailField()
     admin_password = serializers.CharField(min_length=8, write_only=True)
     plan = serializers.ChoiceField(

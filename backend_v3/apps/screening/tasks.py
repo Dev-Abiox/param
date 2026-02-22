@@ -32,7 +32,7 @@ _CSV_TO_CBC = {
 _REQUIRED_COLS = {'patient_id', 'age', 'sex'} | set(_CSV_TO_CBC.keys())
 
 
-@shared_task(name='screening.process_bulk_import', bind=True, max_retries=0)
+@shared_task(name='screening.process_bulk_import', bind=True, max_retries=2, default_retry_delay=60)
 def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, username: str):
     """
     Process a CSV bulk import job.
@@ -108,14 +108,14 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
             if row.get('doctor_id', '').strip():
                 doctor = Doctor.objects.filter(code=row['doctor_id'].strip()).first()
 
-            # Upsert patient
+            # Upsert patient, scoped to lab to prevent cross-org data mixing
             patient, _ = Patient.objects.update_or_create(
                 patient_id=patient_id,
+                lab=lab,
                 defaults={
                     'name_encrypted': encrypt_field((row.get('patient_name') or '').strip()),
                     'age_encrypted':  encrypt_field(str(cbc['Age'])),
                     'sex_encrypted':  encrypt_field(cbc['Sex']),
-                    'lab': lab,
                     'referring_doctor': doctor,
                 }
             )

@@ -10,7 +10,7 @@ import Onboarding from "@/views/Onboarding";
 import Layout from "@/components/Layout";
 import UserWorkspace from "@/views/UserWorkspace";
 import AdminDashboard from "@/views/AdminDashboard";
-import DoctorDashboard from "@/views/DoctorDashboard";
+// DoctorDashboard removed — DOCTOR role now routes to /screening as technician
 import PatientRecords from "@/views/PatientRecords";
 import WorkQueue from "@/views/WorkQueue";
 import DoctorList from "@/views/DoctorList";
@@ -27,12 +27,11 @@ import PlatformCreateOrg from "@/views/platform/PlatformCreateOrg";
 import PlatformOrgDetail from "@/views/platform/PlatformOrgDetail";
 
 import { AuthService } from "@/services/api";
-import { Role } from "@/types";
+import { Role, isSuperAdmin, canManageOrg } from "@/types";
 
 // Route to view mapping for Layout activeView prop
 const routeToView = {
   "/dashboard": "admin_dashboard",
-  "/doctor-dashboard": "doctor_dashboard",
   "/screening": "workspace",
   "/labs": "admin_labs",
   "/doctors": "lab_doctors",
@@ -44,18 +43,19 @@ const routeToView = {
   "/portal/doctors": "admin_doctors_mgmt",
   "/portal/usage": "admin_usage",
   "/portal/billing": "admin_billing",
+  "/platform-admin": "platform_dashboard",
+  "/platform-admin/orgs": "platform_orgs",
 };
 
 // Get default route based on user role
 const getDefaultRoute = (role) => {
   switch (role) {
     case Role.SUPER_ADMIN:
-      return "/platform-admin";
+      return "/dashboard";
     case Role.ADMIN:
       return "/dashboard";
-    case Role.DOCTOR:
-      return "/doctor-dashboard";
     case Role.LAB:
+    case Role.DOCTOR:
     default:
       return "/screening";
   }
@@ -190,7 +190,6 @@ const App = () => {
 
     const viewToRoute = {
       admin_dashboard: "/dashboard",
-      doctor_dashboard: "/doctor-dashboard",
       workspace: "/screening",
       admin_labs: "/labs",
       lab_doctors: "/doctors",
@@ -202,6 +201,8 @@ const App = () => {
       admin_doctors_mgmt: "/portal/doctors",
       admin_usage: "/portal/usage",
       admin_billing: "/portal/billing",
+      platform_dashboard: "/platform-admin",
+      platform_orgs: "/platform-admin/orgs",
     };
 
     navigate(viewToRoute[view] || "/");
@@ -271,11 +272,11 @@ const App = () => {
         </div>
       )}
       <Routes>
-        {/* Admin Dashboard */}
+        {/* Admin Dashboard (SUPER_ADMIN only) */}
         <Route
           path="/dashboard"
           element={
-            user.role === Role.ADMIN ? (
+            isSuperAdmin(user) ? (
               <AdminDashboard />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -283,19 +284,7 @@ const App = () => {
           }
         />
 
-        {/* Doctor Dashboard */}
-        <Route
-          path="/doctor-dashboard"
-          element={
-            user.role === Role.DOCTOR ? (
-              <DoctorDashboard user={user} />
-            ) : (
-              <Navigate to={getDefaultRoute(user.role)} replace />
-            )
-          }
-        />
-
-        {/* Screening Workspace */}
+        {/* Screening Workspace (LAB + DOCTOR/Technician) */}
         <Route
           path="/screening"
           element={
@@ -307,11 +296,11 @@ const App = () => {
           }
         />
 
-        {/* Labs List (Admin only) */}
+        {/* Labs List (SUPER_ADMIN only) */}
         <Route
           path="/labs"
           element={
-            user.role === Role.ADMIN ? (
+            isSuperAdmin(user) ? (
               <LabList onSelectLab={handleSelectLab} />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -319,12 +308,12 @@ const App = () => {
           }
         />
 
-        {/* Doctors List */}
+        {/* Doctors List (SUPER_ADMIN + LAB) */}
         <Route
           path="/doctors"
           element={
-            user.role === Role.ADMIN || user.role === Role.LAB ? (
-              user.role === Role.ADMIN ? (
+            isSuperAdmin(user) || user.role === Role.LAB ? (
+              isSuperAdmin(user) ? (
                 selectedLabId ? (
                   <DoctorList
                     labId={selectedLabId}
@@ -352,11 +341,11 @@ const App = () => {
           }
         />
 
-        {/* Patient Records */}
+        {/* Patient Records (all roles) */}
         <Route
           path="/records"
           element={
-            user.role === Role.ADMIN ? (
+            isSuperAdmin(user) ? (
               <PatientRecords
                 doctorId={selectedDoctorId}
                 doctorName={selectedDoctorName}
@@ -376,11 +365,11 @@ const App = () => {
           }
         />
 
-        {/* Work Queue (LAB role) */}
+        {/* Work Queue (LAB + DOCTOR + SUPER_ADMIN) */}
         <Route
           path="/work-queue"
           element={
-            user.role === Role.LAB || user.role === Role.ADMIN ? (
+            user.role === Role.LAB || user.role === Role.DOCTOR || isSuperAdmin(user) ? (
               <WorkQueue />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -391,39 +380,39 @@ const App = () => {
         {/* Settings */}
         <Route path="/settings" element={<Settings user={user} />} />
 
-        {/* Onboarding wizard (post-signup, ADMIN only) */}
+        {/* Onboarding wizard (SUPER_ADMIN + LAB owners) */}
         <Route
           path="/onboarding"
-          element={user.role === Role.ADMIN ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
-        {/* Admin Portal — Management section (ADMIN only) */}
+        {/* Management — Users/Doctors/Usage/Billing (SUPER_ADMIN + LAB) */}
         <Route
           path="/portal/users"
-          element={user.role === Role.ADMIN ? <AdminUsers /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <AdminUsers user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
           path="/portal/labs"
-          element={user.role === Role.ADMIN ? <AdminLabs /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={isSuperAdmin(user) ? <AdminLabs /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
           path="/portal/doctors"
-          element={user.role === Role.ADMIN ? <AdminDoctors /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <AdminDoctors /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
           path="/portal/usage"
-          element={user.role === Role.ADMIN ? <AdminUsage /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <AdminUsage /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
           path="/portal/billing"
-          element={user.role === Role.ADMIN ? <AdminBilling /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <AdminBilling /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
-        {/* Platform Super Admin (SUPER_ADMIN role only) */}
+        {/* Platform Super Admin (SUPER_ADMIN only) */}
         <Route
           path="/platform-admin"
           element={
-            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+            isSuperAdmin(user) ? (
               <PlatformDashboard />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -433,7 +422,7 @@ const App = () => {
         <Route
           path="/platform-admin/orgs"
           element={
-            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+            isSuperAdmin(user) ? (
               <PlatformOrgList />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -443,7 +432,7 @@ const App = () => {
         <Route
           path="/platform-admin/orgs/new"
           element={
-            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+            isSuperAdmin(user) ? (
               <PlatformCreateOrg />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -453,7 +442,7 @@ const App = () => {
         <Route
           path="/platform-admin/orgs/:schema"
           element={
-            user.role === Role.SUPER_ADMIN || user.is_superuser ? (
+            isSuperAdmin(user) ? (
               <PlatformOrgDetail />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
