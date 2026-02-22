@@ -461,21 +461,28 @@ class TestAdminDoctorView:
 
 
 class TestRoleEnforcement:
-    """Non-admin users should get 403 from admin views."""
+    """Non-admin/non-org-manager users should get 403 from admin views."""
 
     @pytest.mark.django_db
-    def test_non_admin_gets_403_on_user_list(self, api_rf):
-        """Non-admin user should be rejected from admin endpoints."""
+    def test_non_manager_gets_403_on_user_list(self, api_rf):
+        """Non-manager user (DOCTOR) should be rejected from admin user endpoints."""
         from apps.core.views import AdminUserListView
 
-        request = _make_non_admin_request(api_rf, '/api/admin/users')
+        # The permission classes enforce IsOrgManager (ADMIN, SUPER_ADMIN, LAB)
+        # DOCTOR role should be rejected
+        assert any(
+            pc.__name__ == 'IsOrgManager'
+            for pc in AdminUserListView.permission_classes
+            if hasattr(pc, '__name__')
+        )
 
-        view = AdminUserListView.as_view()
+    @pytest.mark.django_db
+    def test_lab_list_requires_admin(self, api_rf):
+        """Lab management should require IsAdmin (not org manager)."""
+        from apps.screening.views import AdminLabView
 
-        # The permission classes will reject non-admin users
-        # We test this by checking the view enforces IsAdmin
         assert any(
             pc.__name__ == 'IsAdmin'
-            for pc in AdminUserListView.permission_classes
+            for pc in AdminLabView.permission_classes
             if hasattr(pc, '__name__')
         )
