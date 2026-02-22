@@ -380,10 +380,10 @@ const App = () => {
         {/* Settings */}
         <Route path="/settings" element={<Settings user={user} />} />
 
-        {/* Onboarding wizard (SUPER_ADMIN only) */}
+        {/* Onboarding wizard (SUPER_ADMIN + LAB owners) */}
         <Route
           path="/onboarding"
-          element={isSuperAdmin(user) ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
         {/* Management — Users/Doctors/Usage/Billing (SUPER_ADMIN + LAB) */}

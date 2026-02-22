@@ -73,7 +73,7 @@ class SignupView(APIView):
 
     POST /api/signup/
     Creates a new Organisation, provisions its PostgreSQL schema,
-    creates an ADMIN user, and issues a JWT so the admin is immediately
+    creates a LAB owner user, and issues a JWT so the owner is immediately
     logged in.
     """
     permission_classes = [AllowAny]
@@ -85,6 +85,7 @@ class SignupView(APIView):
         data = serializer.validated_data
 
         org_name = data['org_name'].strip()
+        admin_name = (data.get('admin_name') or '').strip() or org_name
         admin_email = data['admin_email'].lower().strip()
         admin_password = data['admin_password']
         plan_name = data['plan']
@@ -147,8 +148,8 @@ class SignupView(APIView):
                 user = User(
                     username=username,
                     email=admin_email,
-                    name=org_name,
-                    role=Role.ADMIN,
+                    name=admin_name,
+                    role=Role.LAB,
                     organization=org,
                     is_active=True,
                 )
@@ -180,13 +181,16 @@ class SignupView(APIView):
         logger.info('signup.success', org=org.name, schema=org.schema_name, user=user.username)
 
         # 6. Fire welcome email asynchronously (non-blocking, best-effort)
-        from apps.billing.tasks import send_welcome_email
-        send_welcome_email.delay(
-            user_id=str(user.id),
-            org_name=org.name,
-            plan_name=plan.display_name,
-            trial_end_iso=trial_end.isoformat(),
-        )
+        try:
+            from apps.billing.tasks import send_welcome_email
+            send_welcome_email.delay(
+                user_id=str(user.id),
+                org_name=org.name,
+                plan_name=plan.display_name,
+                trial_end_iso=trial_end.isoformat(),
+            )
+        except Exception:
+            logger.warning('signup.welcome_email_queue_failed', user=user.username)
 
         response = Response({
             'access_token': access_token,
@@ -215,7 +219,7 @@ class OnboardingStatusView(APIView):
     Allows the frontend wizard to mark steps as completed.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN]
+    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
