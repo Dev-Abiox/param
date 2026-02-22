@@ -156,6 +156,7 @@ class TestTokenFunctions:
         mock_user.role = 'LAB'
         mock_user.organization_id = uuid.uuid4()
         mock_user.is_superuser = False
+        mock_user.is_super_admin = False
 
         token = create_access_token(mock_user, mfa_verified=True)
         payload = decode_token(token, token_type='access')
@@ -175,6 +176,7 @@ class TestTokenFunctions:
         mock_user.role = 'LAB'
         mock_user.organization_id = uuid.uuid4()
         mock_user.is_superuser = False
+        mock_user.is_super_admin = False
 
         token = create_access_token(mock_user)
         with pytest.raises(jwt.InvalidTokenError, match='Expected refresh.*got access'):
