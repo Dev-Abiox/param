@@ -562,6 +562,7 @@ class TestLabOwnerUserScoping:
 
         with patch('apps.core.views.Role') as MockRole:
             MockRole.values = ['ADMIN', 'DOCTOR', 'LAB', 'SUPER_ADMIN']
+            MockRole.LAB = 'LAB'
             MockRole.DOCTOR = 'DOCTOR'
 
             view = AdminUserListView()
@@ -589,6 +590,7 @@ class TestLabOwnerUserScoping:
              patch('apps.core.views.Role') as MockRole, \
              patch('apps.core.views.validate_password'):
             MockRole.values = ['ADMIN', 'DOCTOR', 'LAB', 'SUPER_ADMIN']
+            MockRole.LAB = 'LAB'
             MockRole.DOCTOR = 'DOCTOR'
             MockUser.objects.filter.return_value.exists.return_value = False
 
