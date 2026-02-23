@@ -253,55 +253,40 @@ services:
           cpus: '0.05'
           memory: 128M
 
-  prometheus:
-    image: prom/prometheus:v2.51.2
-    restart: always
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.enable-lifecycle'
-    expose:
-      - "9090"
-    networks:
-      - clinomic_network
-    deploy:                         # C3: resource limits
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 256M
+  # TODO: Re-enable monitoring when config files are provisioned on server
+  # prometheus:
+  #   image: prom/prometheus:v2.51.2
+  #   restart: always
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prometheus_data:/prometheus
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--storage.tsdb.retention.time=30d'
+  #     - '--web.enable-lifecycle'
+  #   expose:
+  #     - "9090"
+  #   networks:
+  #     - clinomic_network
 
-  grafana:
-    image: grafana/grafana:10.4.2
-    restart: always
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
-      - GF_SERVER_SERVE_FROM_SUB_PATH=true
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-    expose:
-      - "3000"
-    depends_on:
-      - prometheus
-    networks:
-      - clinomic_network
-    deploy:                         # C3: resource limits
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
+  # grafana:
+  #   image: grafana/grafana:10.4.2
+  #   restart: always
+  #   environment:
+  #     - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+  #     - GF_USERS_ALLOW_SIGN_UP=false
+  #     - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+  #     - GF_SERVER_SERVE_FROM_SUB_PATH=true
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #     - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+  #   expose:
+  #     - "3000"
+  #   depends_on:
+  #     - prometheus
+  #   networks:
+  #     - clinomic_network
 
 volumes:
   postgres_data:
@@ -309,8 +294,6 @@ volumes:
   redis_data:
   static_testing_volume:
     external: true
-  prometheus_data:
-  grafana_data:
 
 networks:
   clinomic_network:
