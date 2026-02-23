@@ -13,6 +13,7 @@ from apps.core.config.validation import validate_required_secrets
 # A secret that passes _assert_secret (32+ chars, not a placeholder)
 GOOD_SECRET = "a" * 32
 SHORT_SECRET = "short"
+VALIDATION_LOGGER = "apps.core.config.validation"
 
 
 class TestDevEnvironment:
@@ -84,38 +85,38 @@ class TestProductionBillingSecrets:
         )
 
     def test_missing_razorpay_key_id_warns(self, caplog):
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             self._call_with_billing(razorpay_key_id="")
         assert "RAZORPAY_KEY_ID" in caplog.text
 
     def test_missing_razorpay_key_secret_warns(self, caplog):
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             self._call_with_billing(razorpay_key_secret="")
         assert "RAZORPAY_KEY_SECRET" in caplog.text
 
     def test_missing_razorpay_webhook_secret_warns(self, caplog):
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             self._call_with_billing(razorpay_webhook_secret="")
         assert "RAZORPAY_WEBHOOK_SECRET" in caplog.text
 
     def test_missing_email_host_user_warns(self, caplog):
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             self._call_with_billing(email_host_user="")
         assert "EMAIL_HOST_USER" in caplog.text
 
     def test_missing_email_host_password_warns(self, caplog):
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             self._call_with_billing(email_host_password="")
         assert "EMAIL_HOST_PASSWORD" in caplog.text
 
     def test_placeholder_razorpay_key_warns(self, caplog):
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             self._call_with_billing(razorpay_key_id="change-me")
         assert "RAZORPAY_KEY_ID" in caplog.text
 
     def test_staging_also_warns(self, caplog):
         """Staging should warn (same as production) but not raise."""
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.WARNING, logger=VALIDATION_LOGGER):
             validate_required_secrets(
                 "staging", GOOD_SECRET, GOOD_SECRET, GOOD_SECRET,
                 razorpay_key_id="",
