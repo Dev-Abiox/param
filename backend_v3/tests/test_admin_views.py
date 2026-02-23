@@ -503,12 +503,12 @@ class TestRoleEnforcement:
         )
 
     @pytest.mark.django_db
-    def test_lab_list_requires_admin(self, api_rf):
-        """Lab management should require IsAdmin (not org manager)."""
+    def test_lab_list_requires_org_manager(self, api_rf):
+        """Lab management should require IsOrgManager (ADMIN, SUPER_ADMIN, LAB)."""
         from apps.screening.views import AdminLabView
 
         assert any(
-            pc.__name__ == 'IsAdmin'
+            pc.__name__ == 'IsOrgManager'
             for pc in AdminLabView.permission_classes
             if hasattr(pc, '__name__')
         )

@@ -980,7 +980,7 @@ class AdminLabView(APIView):
     GET  /api/screening/admin/labs   — list all labs
     POST /api/screening/admin/labs   — create a new lab
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def get(self, request):
         labs = Lab.objects.all().order_by('name')
@@ -1030,7 +1030,7 @@ class AdminLabDetailView(APIView):
     PATCH  /api/screening/admin/labs/<lab_id>  — update fields
     DELETE /api/screening/admin/labs/<lab_id>  — soft-deactivate
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified, IsAdmin]
+    permission_classes = [IsAuthenticated, IsMFAVerified, IsOrgManager]
 
     def _get_lab(self, lab_id):
         try:
