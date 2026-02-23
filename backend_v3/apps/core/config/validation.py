@@ -63,12 +63,12 @@ def validate_required_secrets(
     _assert_secret("MASTER_ENCRYPTION_KEY", master_key)
     _assert_secret("AUDIT_SIGNING_KEY", audit_key)
 
-    # Billing and email are required in production to prevent silent failures
-    _assert_present("RAZORPAY_KEY_ID", razorpay_key_id)
-    _assert_present("RAZORPAY_KEY_SECRET", razorpay_key_secret)
-    _assert_present("RAZORPAY_WEBHOOK_SECRET", razorpay_webhook_secret)
-    _assert_present("EMAIL_HOST_USER", email_host_user)
-    _assert_present("EMAIL_HOST_PASSWORD", email_host_password)
+    # Billing and email — warn if missing (allow gradual rollout)
+    _warn_if_missing("RAZORPAY_KEY_ID", razorpay_key_id)
+    _warn_if_missing("RAZORPAY_KEY_SECRET", razorpay_key_secret)
+    _warn_if_missing("RAZORPAY_WEBHOOK_SECRET", razorpay_webhook_secret)
+    _warn_if_missing("EMAIL_HOST_USER", email_host_user)
+    _warn_if_missing("EMAIL_HOST_PASSWORD", email_host_password)
 
 
 def _assert_present(name: str, value: str) -> None:
@@ -91,6 +91,18 @@ def _assert_secret(name: str, value: str) -> None:
         raise ImproperlyConfigured(
             f"[Security] {name} is too short ({len(value)} chars). "
             f"Minimum required: {MIN_KEY_LENGTH} characters."
+        )
+
+
+def _warn_if_missing(name: str, value: str) -> None:
+    """Log a warning if a non-critical production secret is missing."""
+    import logging
+    log = logging.getLogger(__name__)
+    if not value or value.strip().lower() in FORBIDDEN_VALUES:
+        log.warning(
+            "[Config] %s is not configured. "
+            "Related features (billing/email) will not work until it is set.",
+            name,
         )
 
 
