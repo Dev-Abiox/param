@@ -382,7 +382,20 @@ class AdminUsageView(APIView):
             try:
                 sub = TenantSubscription.objects.select_related('plan').get(organization=org)
             except TenantSubscription.DoesNotExist:
-                return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
+                # Auto-provision an enterprise trial for orgs that lack one
+                enterprise = SubscriptionPlan.objects.filter(name='enterprise').first()
+                if not enterprise:
+                    return Response({'error': 'No subscription or plan found'}, status=status.HTTP_404_NOT_FOUND)
+                now = timezone.now()
+                sub = TenantSubscription.objects.create(
+                    organization=org,
+                    plan=enterprise,
+                    status='trial',
+                    current_period_start=now,
+                    current_period_end=now + timedelta(days=30),
+                    current_period_count=0,
+                    trial_end=now + timedelta(days=14),
+                )
 
             lim = sub.plan.monthly_limit
             pct = (
@@ -424,7 +437,20 @@ class AdminBillingView(APIView):
             try:
                 sub = TenantSubscription.objects.select_related('plan').get(organization=org)
             except TenantSubscription.DoesNotExist:
-                return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
+                # Auto-provision an enterprise trial for orgs that lack one
+                enterprise = SubscriptionPlan.objects.filter(name='enterprise').first()
+                if not enterprise:
+                    return Response({'error': 'No subscription or plan found'}, status=status.HTTP_404_NOT_FOUND)
+                now = timezone.now()
+                sub = TenantSubscription.objects.create(
+                    organization=org,
+                    plan=enterprise,
+                    status='trial',
+                    current_period_start=now,
+                    current_period_end=now + timedelta(days=30),
+                    current_period_count=0,
+                    trial_end=now + timedelta(days=14),
+                )
 
             all_plans = SubscriptionPlan.objects.filter(is_active=True).order_by('price_monthly')
 
