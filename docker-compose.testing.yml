@@ -36,6 +36,7 @@ services:
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - ALLOWED_HOSTS=testing.clinomiclabs.com,localhost
+      - FRONTEND_URL=https://testing.clinomiclabs.com
       - CORS_ORIGINS=https://testing.clinomiclabs.com
       - CSRF_TRUSTED_ORIGINS=https://testing.clinomiclabs.com
       - REDIS_URL=redis://redis_testing:6379/0
