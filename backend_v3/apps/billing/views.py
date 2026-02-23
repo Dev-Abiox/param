@@ -27,6 +27,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django_tenants.utils import schema_context
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -375,30 +376,33 @@ class AdminUsageView(APIView):
         if not org:
             return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            sub = TenantSubscription.objects.select_related('plan').get(organization=org)
-        except TenantSubscription.DoesNotExist:
-            return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
+        # Billing tables live in the public schema (SHARED_APPS), but
+        # JWTTenantMiddleware may have switched to the tenant schema.
+        with schema_context('public'):
+            try:
+                sub = TenantSubscription.objects.select_related('plan').get(organization=org)
+            except TenantSubscription.DoesNotExist:
+                return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
 
-        lim = sub.plan.monthly_limit
-        pct = (
-            round(sub.current_period_count / lim * 100, 1)
-            if lim > 0 else 0
-        )
+            lim = sub.plan.monthly_limit
+            pct = (
+                round(sub.current_period_count / lim * 100, 1)
+                if lim > 0 else 0
+            )
 
-        history = UsageRecord.objects.filter(organization=org).order_by('-period_start')[:6]
+            history = UsageRecord.objects.filter(organization=org).order_by('-period_start')[:6]
 
-        return Response({
-            'plan': sub.plan.display_name,
-            'monthly_limit': lim,            # -1 = unlimited
-            'current_count': sub.current_period_count,
-            'period_start': sub.current_period_start,
-            'period_end': sub.current_period_end,
-            'pct_used': pct,
-            'status': sub.status,
-            'trial_end': sub.trial_end,
-            'history': UsageRecordSerializer(history, many=True).data,
-        })
+            return Response({
+                'plan': sub.plan.display_name,
+                'monthly_limit': lim,            # -1 = unlimited
+                'current_count': sub.current_period_count,
+                'period_start': sub.current_period_start,
+                'period_end': sub.current_period_end,
+                'pct_used': pct,
+                'status': sub.status,
+                'trial_end': sub.trial_end,
+                'history': UsageRecordSerializer(history, many=True).data,
+            })
 
 
 # ── Admin — Billing ────────────────────────────────────────────────────────────
@@ -416,17 +420,18 @@ class AdminBillingView(APIView):
         if not org:
             return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            sub = TenantSubscription.objects.select_related('plan').get(organization=org)
-        except TenantSubscription.DoesNotExist:
-            return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
+        with schema_context('public'):
+            try:
+                sub = TenantSubscription.objects.select_related('plan').get(organization=org)
+            except TenantSubscription.DoesNotExist:
+                return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
 
-        all_plans = SubscriptionPlan.objects.filter(is_active=True).order_by('price_monthly')
+            all_plans = SubscriptionPlan.objects.filter(is_active=True).order_by('price_monthly')
 
-        return Response({
-            'subscription': TenantSubscriptionSerializer(sub).data,
-            'available_plans': SubscriptionPlanSerializer(all_plans, many=True).data,
-        })
+            return Response({
+                'subscription': TenantSubscriptionSerializer(sub).data,
+                'available_plans': SubscriptionPlanSerializer(all_plans, many=True).data,
+            })
 
 
 class AdminBillingUpgradeView(APIView):
@@ -448,55 +453,56 @@ class AdminBillingUpgradeView(APIView):
         if not plan_name:
             return Response({'error': 'plan is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            new_plan = SubscriptionPlan.objects.get(name=plan_name, is_active=True)
-        except SubscriptionPlan.DoesNotExist:
-            return Response({'error': f'Unknown plan: {plan_name}'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not new_plan.razorpay_plan_id:
-            return Response(
-                {'error': f'Plan "{plan_name}" is not linked to a Razorpay plan.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         org = getattr(request.user, 'organization', None)
         if not org:
             return Response({'error': 'No organisation found'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            sub = TenantSubscription.objects.get(organization=org)
-        except TenantSubscription.DoesNotExist:
-            return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
+        with schema_context('public'):
+            try:
+                new_plan = SubscriptionPlan.objects.get(name=plan_name, is_active=True)
+            except SubscriptionPlan.DoesNotExist:
+                return Response({'error': f'Unknown plan: {plan_name}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if sub.plan.name == plan_name:
-            return Response({'error': 'Already on this plan.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not new_plan.razorpay_plan_id:
+                return Response(
+                    {'error': f'Plan "{plan_name}" is not linked to a Razorpay plan.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        # Create a Razorpay subscription for the new plan
-        import razorpay
-        try:
-            client = razorpay.Client(
-                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-            )
-            rz_sub = client.subscription.create({
-                'plan_id': new_plan.razorpay_plan_id,
-                'total_count': 12,  # 12 billing cycles
-                'notes': {
-                    'org_id': str(org.id),
-                    'org_name': org.name,
-                    'old_plan': sub.plan.name,
-                    'new_plan': plan_name,
-                },
-            })
-        except Exception as exc:
-            logger.error('billing.razorpay_create_sub_failed', error=str(exc), org=org.name)
-            return Response(
-                {'error': 'Failed to create payment subscription. Please try again.'},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            try:
+                sub = TenantSubscription.objects.get(organization=org)
+            except TenantSubscription.DoesNotExist:
+                return Response({'error': 'No subscription found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Store the Razorpay subscription ID so the webhook can match it
-        sub.razorpay_sub_id = rz_sub['id']
-        sub.save(update_fields=['razorpay_sub_id', 'updated_at'])
+            if sub.plan.name == plan_name:
+                return Response({'error': 'Already on this plan.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Create a Razorpay subscription for the new plan
+            import razorpay
+            try:
+                client = razorpay.Client(
+                    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+                )
+                rz_sub = client.subscription.create({
+                    'plan_id': new_plan.razorpay_plan_id,
+                    'total_count': 12,  # 12 billing cycles
+                    'notes': {
+                        'org_id': str(org.id),
+                        'org_name': org.name,
+                        'old_plan': sub.plan.name,
+                        'new_plan': plan_name,
+                    },
+                })
+            except Exception as exc:
+                logger.error('billing.razorpay_create_sub_failed', error=str(exc), org=org.name)
+                return Response(
+                    {'error': 'Failed to create payment subscription. Please try again.'},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            # Store the Razorpay subscription ID so the webhook can match it
+            sub.razorpay_sub_id = rz_sub['id']
+            sub.save(update_fields=['razorpay_sub_id', 'updated_at'])
 
         logger.info(
             'billing.upgrade_initiated',
