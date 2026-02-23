@@ -118,6 +118,10 @@ class HasAPIKeyScope(permissions.BasePermission):
 class IsMFAVerified(permissions.BasePermission):
     """
     Require MFA verification for sensitive operations.
+
+    If the user has not enabled MFA yet, access is granted so they can
+    complete onboarding (set up MFA, access billing, etc.).  Once MFA is
+    enabled, the JWT must contain ``mfa_verified=True``.
     """
     message = 'MFA verification required.'
 
@@ -125,5 +129,14 @@ class IsMFAVerified(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
+        # If user hasn't set up MFA yet, don't block them
+        try:
+            mfa_settings = request.user.mfa_settings
+        except Exception:
+            mfa_settings = None
+        if mfa_settings is None or not mfa_settings.is_enabled:
+            return True
+
+        # MFA is enabled — require mfa_verified claim in the token
         token_payload = getattr(request, 'token_payload', {})
         return token_payload.get('mfa_verified', False)

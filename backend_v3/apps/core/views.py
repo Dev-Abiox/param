@@ -296,7 +296,7 @@ class MFASetupView(APIView):
 
     POST /api/mfa/setup
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = MFASetupSerializer(data=request.data)
@@ -316,7 +316,7 @@ class MFAVerifySetupView(APIView):
 
     POST /api/mfa/verify-setup
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = MFACodeSerializer(data=request.data)
@@ -339,7 +339,7 @@ class MFAStatusView(APIView):
 
     GET /api/mfa/status
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         mfa_status = MFAManager.get_mfa_status(request.user)
