@@ -123,7 +123,8 @@ jobs:
         run: |
           SSH_OPTS="-o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
           SERVER="deploy@${{ secrets.HOST_IP }}"
-          ssh $SSH_OPTS $SERVER "sudo mkdir -p /opt/clinomic-b12-platform/ml/models /opt/clinomic-b12-platform/monitoring/grafana/provisioning && sudo chown -R deploy:deploy /opt/clinomic-b12-platform/monitoring"
+          ssh $SSH_OPTS $SERVER "mkdir -p /opt/clinomic-b12-platform/ml/models"
+          ssh $SSH_OPTS $SERVER 'docker run --rm -v /opt/clinomic-b12-platform/monitoring:/monitoring alpine sh -c "mkdir -p /monitoring/grafana/provisioning/datasources /monitoring/grafana/provisioning/dashboards && chmod -R 777 /monitoring"'
           scp $SSH_OPTS docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
           scp $SSH_OPTS nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
           scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/
