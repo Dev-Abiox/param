@@ -13,7 +13,6 @@ Does NOT modify:
 Only ensures required tenant/domain seed exists.
 """
 
-import uuid
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from apps.core.models import Domain, Organization
@@ -37,17 +36,16 @@ class Command(BaseCommand):
         
         self.stdout.write("Ensuring required domains exist...")
         
-        # Get or create public tenant (typically the first organization)
+        # Get or create the public-schema tenant that owns platform-level domains.
+        # This must be schema_name='public' so django-tenants routes requests
+        # to the public schema, allowing signup and other shared endpoints to work.
         try:
-            public_tenant = Organization.objects.first()
-            if not public_tenant:
-                self.stdout.write(
-                    self.style.WARNING(
-                        "No organization found. Run migrations and seed_demo_data first."
-                    )
-                )
-                return
-                
+            public_tenant, created = Organization.objects.get_or_create(
+                schema_name='public',
+                defaults={'name': 'Clinomic Platform', 'is_active': True},
+            )
+            if created:
+                self.stdout.write(self.style.SUCCESS("  Created public tenant: Clinomic Platform"))
             self.stdout.write(f"Using tenant: {public_tenant.name} (schema: {public_tenant.schema_name})")
         except Exception as e:
             self.stdout.write(
