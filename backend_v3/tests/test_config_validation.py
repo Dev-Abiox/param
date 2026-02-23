@@ -2,6 +2,8 @@
 Tests for startup environment validation (apps.core.config.validation).
 """
 
+from unittest.mock import patch
+
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
@@ -11,6 +13,7 @@ from apps.core.config.validation import validate_required_secrets
 # A secret that passes _assert_secret (32+ chars, not a placeholder)
 GOOD_SECRET = "a" * 32
 SHORT_SECRET = "short"
+_WARN_PATH = "apps.core.config.validation._warn_if_missing"
 
 
 class TestDevEnvironment:
@@ -81,31 +84,38 @@ class TestProductionBillingSecrets:
             **defaults,
         )
 
-    def test_missing_razorpay_key_id_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_missing_razorpay_key_id_warns(self, mock_warn):
         self._call_with_billing(razorpay_key_id="")
-        assert "RAZORPAY_KEY_ID" in capfd.readouterr().err
+        mock_warn.assert_any_call("RAZORPAY_KEY_ID", "")
 
-    def test_missing_razorpay_key_secret_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_missing_razorpay_key_secret_warns(self, mock_warn):
         self._call_with_billing(razorpay_key_secret="")
-        assert "RAZORPAY_KEY_SECRET" in capfd.readouterr().err
+        mock_warn.assert_any_call("RAZORPAY_KEY_SECRET", "")
 
-    def test_missing_razorpay_webhook_secret_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_missing_razorpay_webhook_secret_warns(self, mock_warn):
         self._call_with_billing(razorpay_webhook_secret="")
-        assert "RAZORPAY_WEBHOOK_SECRET" in capfd.readouterr().err
+        mock_warn.assert_any_call("RAZORPAY_WEBHOOK_SECRET", "")
 
-    def test_missing_email_host_user_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_missing_email_host_user_warns(self, mock_warn):
         self._call_with_billing(email_host_user="")
-        assert "EMAIL_HOST_USER" in capfd.readouterr().err
+        mock_warn.assert_any_call("EMAIL_HOST_USER", "")
 
-    def test_missing_email_host_password_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_missing_email_host_password_warns(self, mock_warn):
         self._call_with_billing(email_host_password="")
-        assert "EMAIL_HOST_PASSWORD" in capfd.readouterr().err
+        mock_warn.assert_any_call("EMAIL_HOST_PASSWORD", "")
 
-    def test_placeholder_razorpay_key_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_placeholder_razorpay_key_warns(self, mock_warn):
         self._call_with_billing(razorpay_key_id="change-me")
-        assert "RAZORPAY_KEY_ID" in capfd.readouterr().err
+        mock_warn.assert_any_call("RAZORPAY_KEY_ID", "change-me")
 
-    def test_staging_also_warns(self, capfd):
+    @patch(_WARN_PATH)
+    def test_staging_also_warns(self, mock_warn):
         """Staging should warn (same as production) but not raise."""
         validate_required_secrets(
             "staging", GOOD_SECRET, GOOD_SECRET, GOOD_SECRET,
@@ -115,4 +125,4 @@ class TestProductionBillingSecrets:
             email_host_user="u",
             email_host_password="p",
         )
-        assert "RAZORPAY_KEY_ID" in capfd.readouterr().err
+        mock_warn.assert_any_call("RAZORPAY_KEY_ID", "")
