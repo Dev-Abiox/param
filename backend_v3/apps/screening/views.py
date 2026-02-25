@@ -135,12 +135,15 @@ class PredictView(APIView):
 
         now = datetime.now(timezone.utc)
 
-        # Get or create lab (use default if not specified)
+        # Get or create lab - REQUIRED (no silent fallback!)
         lab = None
         if data.get('labId'):
             lab = Lab.objects.filter(code=data['labId']).first()
         if not lab:
-            lab = Lab.objects.filter(is_active=True).first()
+            return Response(
+                {'error': 'labId is required or no matching lab found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Get or create doctor
         doctor = None
@@ -340,29 +343,30 @@ class ConsentRecordView(APIView):
 
     POST /api/screening/consent/record
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified]
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
 
     def post(self, request):
         serializer = ConsentRecordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        # Get default lab (first active lab in the system)
-        default_lab = Lab.objects.filter(is_active=True).first()
-        if not default_lab:
+        # Get lab by labId (REQUIRED)
+        lab = Lab.objects.filter(code=data['labId']).first()
+        if not lab:
             return Response(
-                {'error': 'No active lab found in the system'},
+                {'error': 'labId not found or inactive'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Get or create patient
+        # Get or create patient scoped to lab
         patient, _ = Patient.objects.get_or_create(
             patient_id=data['patientId'],
+            lab=lab,
             defaults={
                 'name_encrypted': '',
                 'age_encrypted': encrypt_field('0'),
                 'sex_encrypted': encrypt_field('M'),
-                'lab': default_lab,
             }
         )
 
@@ -390,7 +394,8 @@ class ConsentStatusView(APIView):
 
     GET /api/screening/consent/status/{patientId}
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified]
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
 
     def get(self, request, patient_id):
         try:
@@ -736,8 +741,22 @@ class BulkImportView(APIView):
         # Create job record
         job = BulkImportJob.objects.create(submitted_by=request.user.username)
 
-        # Get default lab code from the requesting user's lab context
-        lab_code = request.query_params.get('labId', '')
+        # Get lab code from query params (REQUIRED)
+        lab_code = request.query_params.get('labId', '').strip()
+        if not lab_code:
+            return Response(
+                {'error': 'labId query parameter is required for bulk import'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate lab exists
+        from .models import Lab
+        lab = Lab.objects.filter(code=lab_code, is_active=True).first()
+        if not lab:
+            return Response(
+                {'error': 'labId not found or inactive'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Enqueue Celery task
         from .tasks import process_bulk_import
@@ -828,6 +847,20 @@ class FHIRBundleView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Get lab from query param or bundle (REQUIRED - no silent fallback!)
+        lab_code = request.query_params.get('labId')
+        if not lab_code:
+            return Response(
+                {'error': 'labId query parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lab = Lab.objects.filter(code=lab_code, is_active=True).first()
+        if not lab:
+            return Response(
+                {'error': 'labId not found or inactive'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         entries = bundle.get('entry', [])
         patient_resource = None
         observations = {}   # cbc_key → value
@@ -896,14 +929,13 @@ class FHIRBundleView(APIView):
         import hashlib as _hashlib, uuid as _uuid
         from datetime import datetime, timezone
 
-        lab = Lab.objects.filter(is_active=True).first()
         patient, _ = Patient.objects.update_or_create(
             patient_id=patient_id,
+            lab=lab,
             defaults={
                 'name_encrypted': encrypt_field(patient_resource.get('name', [{}])[0].get('text', '') if patient_resource.get('name') else ''),
                 'age_encrypted': encrypt_field(str(age)),
                 'sex_encrypted': encrypt_field(sex),
-                'lab': lab,
             }
         )
 

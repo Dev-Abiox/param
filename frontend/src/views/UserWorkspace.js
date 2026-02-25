@@ -21,13 +21,13 @@ const UserWorkspace = ({ user }) => {
     age: 0,
     sex: "F",
     date: new Date().toISOString().split("T")[0],
-    labId: user?.lab_code || "LAB-2024-001",
+    labId: user?.lab_code || "",
     referringDoctor: user?.role === Role.DOCTOR ? (user?.doctor_code || "") : "",
   });
 
   // Fetch doctors when component mounts (for LAB role)
   useEffect(() => {
-    if (user?.role === Role.LAB) {
+    if (user?.role === Role.LAB && user?.lab_code) {
       const fetchDoctors = async () => {
         setLoadingDoctors(true);
         try {
@@ -217,8 +217,13 @@ const UserWorkspace = ({ user }) => {
           <section className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-sm shadow-sm overflow-hidden">
             <div className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between">
               <h3 className="font-bold text-slate-700 dark:text-slate-300 text-sm uppercase tracking-wide">Patient Registration</h3>
-              <span className="text-xs font-mono text-slate-500 dark:text-slate-400">{patient.labId}</span>
+              <span className="text-xs font-mono text-slate-500 dark:text-slate-400">{patient.labId || "No lab configured"}</span>
             </div>
+            {!user?.lab_code && user?.role === Role.LAB && (
+              <div className="px-4 py-3 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-100 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-400">
+                <p>No lab has been configured for this account. Please contact an administrator to assign a lab.</p>
+              </div>
+            )}
             <div className="p-4 grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Full Name</label>

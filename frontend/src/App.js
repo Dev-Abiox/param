@@ -53,7 +53,7 @@ const getDefaultRoute = (role) => {
     case Role.SUPER_ADMIN:
       return "/dashboard";
     case Role.ADMIN:
-      return "/dashboard";
+      return "/portal/labs";
     case Role.LAB:
     case Role.DOCTOR:
     default:
@@ -272,11 +272,11 @@ const App = () => {
         </div>
       )}
       <Routes>
-        {/* Admin Dashboard (SUPER_ADMIN only) */}
+        {/* Admin Dashboard (SUPER_ADMIN + ADMIN) */}
         <Route
           path="/dashboard"
           element={
-            isSuperAdmin(user) ? (
+            isSuperAdmin(user) || user.role === Role.ADMIN ? (
               <AdminDashboard />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -296,11 +296,11 @@ const App = () => {
           }
         />
 
-        {/* Labs List (SUPER_ADMIN only) */}
+        {/* Labs List (ADMIN + LAB managers can view) */}
         <Route
           path="/labs"
           element={
-            isSuperAdmin(user) ? (
+            canManageOrg(user.role) ? (
               <LabList onSelectLab={handleSelectLab} />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -308,11 +308,11 @@ const App = () => {
           }
         />
 
-        {/* Doctors List (SUPER_ADMIN + LAB) */}
+        {/* Doctors List (SUPER_ADMIN + ADMIN + LAB) */}
         <Route
           path="/doctors"
           element={
-            isSuperAdmin(user) || user.role === Role.LAB ? (
+            canManageOrg(user.role) ? (
               isSuperAdmin(user) ? (
                 selectedLabId ? (
                   <DoctorList
@@ -341,11 +341,11 @@ const App = () => {
           }
         />
 
-        {/* Patient Records (all roles) */}
+        {/* Patient Records (SUPER_ADMIN + ADMIN + DOCTOR + LAB) */}
         <Route
           path="/records"
           element={
-            isSuperAdmin(user) ? (
+            isSuperAdmin(user) || user.role === Role.ADMIN ? (
               <PatientRecords
                 doctorId={selectedDoctorId}
                 doctorName={selectedDoctorName}
@@ -365,11 +365,11 @@ const App = () => {
           }
         />
 
-        {/* Work Queue (LAB + DOCTOR + SUPER_ADMIN) */}
+        {/* Work Queue (LAB + DOCTOR + SUPER_ADMIN + ADMIN) */}
         <Route
           path="/work-queue"
           element={
-            user.role === Role.LAB || user.role === Role.DOCTOR || isSuperAdmin(user) ? (
+            user.role === Role.LAB || user.role === Role.DOCTOR || isSuperAdmin(user) || user.role === Role.ADMIN ? (
               <WorkQueue />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -393,7 +393,7 @@ const App = () => {
         />
         <Route
           path="/portal/labs"
-          element={isSuperAdmin(user) ? <AdminLabs /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <AdminLabs /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
         <Route
           path="/portal/doctors"

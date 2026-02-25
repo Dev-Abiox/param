@@ -319,15 +319,13 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               onClick={() => handleNavClick("admin_users")}
               roleColor={config.color}
             />
-            {_isSuperAdmin && (
-              <NavItem
-                icon={Building2}
-                label="Labs"
-                active={activeView === "admin_labs_mgmt"}
-                onClick={() => handleNavClick("admin_labs_mgmt")}
-                roleColor={config.color}
-              />
-            )}
+            <NavItem
+              icon={Building2}
+              label="Labs"
+              active={activeView === "admin_labs_mgmt"}
+              onClick={() => handleNavClick("admin_labs_mgmt")}
+              roleColor={config.color}
+            />
             <NavItem
               icon={Stethoscope}
               label="Doctors"

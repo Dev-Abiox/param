@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { LisService } from "../services/api";
-import { ScreeningLabel } from "../types";
+import { ScreeningLabel, Role } from "../types";
 import { Search, Filter, FileText, Download, Eye, Calendar, User, ArrowLeft, X, Loader2, CheckCircle2, MessageSquare } from "lucide-react";
 import { generateReport, buildCbcRowsFromSnapshot, buildResultFromScreening } from "@/lib/generateReport";
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
@@ -398,7 +398,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
                       </div>
                     </div>
                   ) : (
-                    userRole === "DOCTOR" && (
+                    userRole === Role.DOCTOR && (
                       <div className="space-y-2">
                         <textarea
                           rows={2}
