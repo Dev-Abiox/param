@@ -24,14 +24,14 @@ from django.http import JsonResponse
 logger = logging.getLogger(__name__)
 
 
-def _extract_org_id(request) -> str | None:
+def _extract_jwt_claims(request) -> dict:
     """
-    Decode the Bearer token from the Authorization header and return the
-    `org_id` claim, or None if the header is absent / token is invalid / expired.
+    Decode the Bearer token from the Authorization header and return
+    relevant claims (org_id, is_super_admin), or empty dict if absent/invalid.
     """
     auth = request.META.get('HTTP_AUTHORIZATION', '')
     if not auth.startswith('Bearer '):
-        return None
+        return {}
     token = auth[7:]
     try:
         payload = jwt.decode(
@@ -39,12 +39,15 @@ def _extract_org_id(request) -> str | None:
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
         )
-        return payload.get('org_id') or None
+        return {
+            'org_id': payload.get('org_id') or None,
+            'is_super_admin': payload.get('is_super_admin', False),
+        }
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        return None
+        return {}
     except Exception:
         logger.warning("JWTTenantMiddleware: unexpected error decoding token", exc_info=True)
-        return None
+        return {}
 
 
 class JWTTenantMiddleware:
@@ -55,24 +58,64 @@ class JWTTenantMiddleware:
     Must be placed immediately after TenantMainMiddleware in MIDDLEWARE so
     that connection.tenant / request.tenant are overwritten before any view
     code runs.
+
+    For SUPER_ADMIN users whose org resolves to the public schema, the
+    middleware checks for an ``X-Org-Id`` header to select a target tenant.
+    If no header is present, it auto-selects the first non-public tenant
+    so that admin views can query tenant-specific tables.
     """
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        org_id = _extract_org_id(request)
+        claims = _extract_jwt_claims(request)
+        org_id = claims.get('org_id')
         if org_id:
             from apps.core.models import Organization
             try:
                 org = Organization.objects.get(id=org_id, is_active=True)
                 connection.set_tenant(org)
                 request.tenant = org
+
+                # SUPER_ADMIN on public schema: resolve a real tenant so
+                # tenant-specific tables (labs, doctors, etc.) are reachable.
+                if org.schema_name == 'public' and claims.get('is_super_admin'):
+                    target = self._resolve_target_tenant(request, Organization)
+                    if target:
+                        connection.set_tenant(target)
+                        request.tenant = target
+
             except Organization.DoesNotExist:
                 logger.warning("JWTTenantMiddleware: org_id %s not found", org_id)
             except Exception as exc:
                 logger.error("JWTTenantMiddleware: failed to set tenant: %s", exc)
         return self.get_response(request)
+
+    @staticmethod
+    def _resolve_target_tenant(request, Organization):
+        """
+        For SUPER_ADMIN, pick the tenant to operate in:
+        1. Explicit ``X-Org-Id`` header (for future org-selector UI).
+        2. Fall back to the first non-public active organisation.
+        """
+        header_org_id = request.META.get('HTTP_X_ORG_ID')
+        if header_org_id:
+            try:
+                target = Organization.objects.get(id=header_org_id, is_active=True)
+                if target.schema_name != 'public':
+                    return target
+            except Organization.DoesNotExist:
+                logger.warning("JWTTenantMiddleware: X-Org-Id %s not found", header_org_id)
+
+        # Auto-select the first non-public tenant
+        return (
+            Organization.objects
+            .exclude(schema_name='public')
+            .filter(is_active=True)
+            .order_by('created_at')
+            .first()
+        )
 
 
 class PlanLimitMiddleware:
