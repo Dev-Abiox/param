@@ -647,6 +647,7 @@ def send_lab_created_email(
     Email the admin user when a super admin creates a new lab on their behalf.
     Contains temporary credentials and login instructions.
     """
+    from django.conf import settings
     from django.core.mail import send_mail
     from apps.core.models import User
 

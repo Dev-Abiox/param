@@ -47,7 +47,7 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
         age, sex
     """
     from datetime import datetime, timezone
-    import hashlib, uuid as _uuid
+    import hashlib, json, uuid as _uuid
 
     from apps.core.crypto import encrypt_field
     from apps.screening.ml_engine import get_ml_engine
@@ -124,8 +124,8 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
             result = engine.predict(cbc)
 
             # Build reproducibility hashes
-            req_hash  = hashlib.sha256(f"{patient_id}:{cbc}".encode()).hexdigest()
-            resp_hash = hashlib.sha256(f"{result}".encode()).hexdigest()
+            req_hash  = hashlib.sha256(f"{patient_id}:{json.dumps(cbc, sort_keys=True)}".encode()).hexdigest()
+            resp_hash = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
             sid       = _uuid.uuid4()
             s_hash    = hashlib.sha256(f"{sid}:{req_hash}:{resp_hash}".encode()).hexdigest()
 
