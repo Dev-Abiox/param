@@ -118,9 +118,12 @@ VALID_BUNDLE = {
 }
 
 
-def _post_bundle(bundle, user=None):
+def _post_bundle(bundle, user=None, lab_id="LAB-001"):
     factory = APIRequestFactory()
-    request = factory.post("/api/screening/fhir/bundle", bundle, format="json")
+    url = "/api/screening/fhir/bundle"
+    if lab_id:
+        url += f"?labId={lab_id}"
+    request = factory.post(url, bundle, format="json")
     user = user or _make_user()
     force_authenticate(request, user=user)
     request.token_payload = {"mfa_verified": True}
@@ -135,13 +138,17 @@ class TestFHIRBundleView:
         response = FHIRBundleView.as_view()(request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_missing_patient_resource_returns_400(self):
+    @patch("apps.screening.views.Lab.objects.filter")
+    def test_missing_patient_resource_returns_400(self, mock_lab):
+        mock_lab.return_value.first.return_value = MagicMock()
         bundle = {"resourceType": "Bundle", "type": "transaction", "entry": []}
         request = _post_bundle(bundle)
         response = FHIRBundleView.as_view()(request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_missing_observations_returns_400(self):
+    @patch("apps.screening.views.Lab.objects.filter")
+    def test_missing_observations_returns_400(self, mock_lab):
+        mock_lab.return_value.first.return_value = MagicMock()
         bundle = {
             "resourceType": "Bundle",
             "type": "transaction",
@@ -159,7 +166,9 @@ class TestFHIRBundleView:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Missing Observation" in str(response.data.get("error", ""))
 
-    def test_invalid_birth_date_returns_400(self):
+    @patch("apps.screening.views.Lab.objects.filter")
+    def test_invalid_birth_date_returns_400(self, mock_lab):
+        mock_lab.return_value.first.return_value = MagicMock()
         bundle = {
             **VALID_BUNDLE,
             "entry": [
