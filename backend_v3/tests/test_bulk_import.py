@@ -37,13 +37,16 @@ def _make_user(role=Role.LAB):
     return user
 
 
-def _csv_request(csv_text: str, user=None):
+def _csv_request(csv_text: str, user=None, lab_id="LAB-001"):
     factory = APIRequestFactory()
     csv_file = io.BytesIO(csv_text.encode())
     csv_file.name = "import.csv"
     csv_file.size = len(csv_text)
+    url = "/api/screening/bulk-import"
+    if lab_id:
+        url += f"?labId={lab_id}"
     request = factory.post(
-        "/api/screening/bulk-import",
+        url,
         {"file": csv_file},
         format="multipart",
     )
