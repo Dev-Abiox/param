@@ -10,6 +10,44 @@ const TIER_COLORS = {
   pilot: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
 };
 
+const INPUT_CLS = "block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
+
+const LabForm = ({ isEdit, form, setForm, formError, formLoading, onSubmit, onCancel }) => (
+  <form onSubmit={onSubmit} className="space-y-4">
+    {!isEdit && (
+      <div>
+        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Lab Code</label>
+        <input required type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={INPUT_CLS} placeholder="LAB-001" />
+      </div>
+    )}
+    <div>
+      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Lab Name</label>
+      <input required type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={INPUT_CLS} placeholder="City General Hospital" />
+    </div>
+    <div>
+      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tier</label>
+      <select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })} className={INPUT_CLS}>
+        <option value="standard">Standard</option>
+        <option value="enterprise">Enterprise</option>
+        <option value="pilot">Pilot</option>
+      </select>
+    </div>
+    <div>
+      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Contact Email</label>
+      <input type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} className={INPUT_CLS} placeholder="lab@hospital.com" />
+    </div>
+    {formError && (
+      <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-3 py-2 rounded border border-red-200 dark:border-red-800">{formError}</p>
+    )}
+    <div className="flex gap-3">
+      <button type="button" onClick={onCancel} className="flex-1 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+      <button type="submit" disabled={formLoading} className="flex-1 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:opacity-50">
+        {formLoading ? "Saving..." : isEdit ? "Save Changes" : "Create Lab"}
+      </button>
+    </div>
+  </form>
+);
+
 const AdminLabs = () => {
   const [labs, setLabs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,43 +109,7 @@ const AdminLabs = () => {
     }
   };
 
-  const inputCls = "block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
-
-  const LabForm = ({ isEdit }) => (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {!isEdit && (
-        <div>
-          <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Lab Code</label>
-          <input required type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={inputCls} placeholder="LAB-001" />
-        </div>
-      )}
-      <div>
-        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Lab Name</label>
-        <input required type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="City General Hospital" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tier</label>
-        <select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })} className={inputCls}>
-          <option value="standard">Standard</option>
-          <option value="enterprise">Enterprise</option>
-          <option value="pilot">Pilot</option>
-        </select>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Contact Email</label>
-        <input type="email" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} className={inputCls} placeholder="lab@hospital.com" />
-      </div>
-      {formError && (
-        <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-3 py-2 rounded border border-red-200 dark:border-red-800">{formError}</p>
-      )}
-      <div className="flex gap-3">
-        <button type="button" onClick={() => { setShowCreate(false); setEditLab(null); }} className="flex-1 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
-        <button type="submit" disabled={formLoading} className="flex-1 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:opacity-50">
-          {formLoading ? "Saving..." : isEdit ? "Save Changes" : "Create Lab"}
-        </button>
-      </div>
-    </form>
-  );
+  const handleCancelForm = () => { setShowCreate(false); setEditLab(null); };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -192,12 +194,12 @@ const AdminLabs = () => {
 
       {showCreate && (
         <Modal title="Add Lab" onClose={() => setShowCreate(false)}>
-          <LabForm isEdit={false} />
+          <LabForm isEdit={false} form={form} setForm={setForm} formError={formError} formLoading={formLoading} onSubmit={handleSubmit} onCancel={handleCancelForm} />
         </Modal>
       )}
       {editLab && (
         <Modal title="Edit Lab" onClose={() => setEditLab(null)}>
-          <LabForm isEdit={true} />
+          <LabForm isEdit={true} form={form} setForm={setForm} formError={formError} formLoading={formLoading} onSubmit={handleSubmit} onCancel={handleCancelForm} />
         </Modal>
       )}
       {confirmDeactivate && (

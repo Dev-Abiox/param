@@ -101,7 +101,7 @@ class Patient(models.Model):
 
     class Meta:
         db_table = 'patients'
-        unique_together = ['patient_id']
+        unique_together = ['patient_id', 'lab']
         verbose_name = 'Patient'
         verbose_name_plural = 'Patients'
 

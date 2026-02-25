@@ -35,6 +35,7 @@ const ConsentCapture = ({ patient, onConsentCaptured, onCancel }) => {
 
       const consentData = {
         patientId: patient.id,
+        labId: patient.labId,
         consentType: "screening", // Type of consent (screening, research, etc.)
         consentMethod: consentType, // Method: verbal, written, electronic
         consentText: consentTextParts.join(" "),

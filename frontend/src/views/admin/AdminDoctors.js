@@ -4,6 +4,53 @@ import { AdminService } from "@/services/api";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
+const INPUT_CLS = "block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
+
+const DoctorForm = ({ isEdit, form, setForm, labs, formError, formLoading, onSubmit, onCancel }) => (
+  <form onSubmit={onSubmit} className="space-y-4">
+    {!isEdit && (
+      <div>
+        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Doctor Code</label>
+        <input required type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={INPUT_CLS} placeholder="D001" />
+      </div>
+    )}
+    <div>
+      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
+      <input required type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={INPUT_CLS} placeholder="Dr. Jane Smith" />
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Department</label>
+        <input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className={INPUT_CLS} placeholder="Haematology" />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Specialization</label>
+        <input type="text" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} className={INPUT_CLS} placeholder="B12 Disorders" />
+      </div>
+    </div>
+    <div>
+      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
+      <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={INPUT_CLS} placeholder="doctor@hospital.com" />
+    </div>
+    <div>
+      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Lab</label>
+      <select required value={form.lab_id} onChange={(e) => setForm({ ...form, lab_id: e.target.value })} className={INPUT_CLS}>
+        <option value="">Select a lab…</option>
+        {labs.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}
+      </select>
+    </div>
+    {formError && (
+      <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-3 py-2 rounded border border-red-200 dark:border-red-800">{formError}</p>
+    )}
+    <div className="flex gap-3">
+      <button type="button" onClick={onCancel} className="flex-1 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
+      <button type="submit" disabled={formLoading} className="flex-1 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:opacity-50">
+        {formLoading ? "Saving..." : isEdit ? "Save Changes" : "Create Doctor"}
+      </button>
+    </div>
+  </form>
+);
+
 const AdminDoctors = () => {
   const [doctors, setDoctors] = useState([]);
   const [labs, setLabs] = useState([]);
@@ -76,52 +123,7 @@ const AdminDoctors = () => {
     }
   };
 
-  const inputCls = "block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
-
-  const DoctorForm = ({ isEdit }) => (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {!isEdit && (
-        <div>
-          <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Doctor Code</label>
-          <input required type="text" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={inputCls} placeholder="D001" />
-        </div>
-      )}
-      <div>
-        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Full Name</label>
-        <input required type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="Dr. Jane Smith" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Department</label>
-          <input type="text" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className={inputCls} placeholder="Haematology" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Specialization</label>
-          <input type="text" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} className={inputCls} placeholder="B12 Disorders" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
-        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={inputCls} placeholder="doctor@hospital.com" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Lab</label>
-        <select required value={form.lab_id} onChange={(e) => setForm({ ...form, lab_id: e.target.value })} className={inputCls}>
-          <option value="">Select a lab…</option>
-          {labs.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}
-        </select>
-      </div>
-      {formError && (
-        <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-3 py-2 rounded border border-red-200 dark:border-red-800">{formError}</p>
-      )}
-      <div className="flex gap-3">
-        <button type="button" onClick={() => { setShowCreate(false); setEditDoctor(null); }} className="flex-1 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">Cancel</button>
-        <button type="submit" disabled={formLoading} className="flex-1 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:opacity-50">
-          {formLoading ? "Saving..." : isEdit ? "Save Changes" : "Create Doctor"}
-        </button>
-      </div>
-    </form>
-  );
+  const handleCancelForm = () => { setShowCreate(false); setEditDoctor(null); };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -202,12 +204,12 @@ const AdminDoctors = () => {
 
       {showCreate && (
         <Modal title="Add Doctor" onClose={() => setShowCreate(false)}>
-          <DoctorForm isEdit={false} />
+          <DoctorForm isEdit={false} form={form} setForm={setForm} labs={labs} formError={formError} formLoading={formLoading} onSubmit={handleSubmit} onCancel={handleCancelForm} />
         </Modal>
       )}
       {editDoctor && (
         <Modal title="Edit Doctor" onClose={() => setEditDoctor(null)}>
-          <DoctorForm isEdit={true} />
+          <DoctorForm isEdit={true} form={form} setForm={setForm} labs={labs} formError={formError} formLoading={formLoading} onSubmit={handleSubmit} onCancel={handleCancelForm} />
         </Modal>
       )}
       {confirmDeactivate && (
