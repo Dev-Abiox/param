@@ -738,10 +738,7 @@ class BulkImportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create job record
-        job = BulkImportJob.objects.create(submitted_by=request.user.username)
-
-        # Get lab code from query params (REQUIRED)
+        # Get lab code from query params (REQUIRED) — validate before creating job
         lab_code = request.query_params.get('labId', '').strip()
         if not lab_code:
             return Response(
@@ -757,6 +754,9 @@ class BulkImportView(APIView):
                 {'error': 'labId not found or inactive'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Create job record
+        job = BulkImportJob.objects.create(submitted_by=request.user.username)
 
         # Enqueue Celery task
         from .tasks import process_bulk_import

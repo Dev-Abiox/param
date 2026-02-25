@@ -76,7 +76,13 @@ class TestBulkImportView:
     @patch("apps.screening.tasks.process_bulk_import")
     @patch("apps.screening.views.BulkImportJob.objects.create")
     @patch("apps.screening.views.log_phi_access")
-    def test_valid_csv_accepted_and_job_created(self, mock_log, mock_create, mock_task):
+    @patch("apps.screening.models.Lab.objects.filter")
+    def test_valid_csv_accepted_and_job_created(self, mock_lab_filter, mock_log, mock_create, mock_task):
+        # Mock lab lookup
+        mock_lab = MagicMock()
+        mock_lab.code = "LAB-001"
+        mock_lab_filter.return_value.first.return_value = mock_lab
+
         job = MagicMock()
         job.id = uuid.uuid4()
         job.status = BulkImportJob.JobStatus.PENDING
