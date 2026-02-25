@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 /**
@@ -13,12 +13,18 @@ import { X } from "lucide-react";
 const Modal = ({ title, onClose, children }) => {
   const dialogRef = useRef(null);
   const previousFocus = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  // Trap focus within the modal
-  const handleKeyDown = useCallback(
-    (e) => {
+  // Stable keydown handler — reads onClose from ref to avoid
+  // re-running the effect (which would steal input focus).
+  useEffect(() => {
+    previousFocus.current = document.activeElement;
+    dialogRef.current?.focus();
+
+    const handleKeyDown = (e) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -42,22 +48,14 @@ const Modal = ({ title, onClose, children }) => {
           first.focus();
         }
       }
-    },
-    [onClose]
-  );
+    };
 
-  useEffect(() => {
-    previousFocus.current = document.activeElement;
-    // Focus the dialog itself on mount
-    dialogRef.current?.focus();
     document.addEventListener("keydown", handleKeyDown);
-
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      // Restore focus on unmount
       previousFocus.current?.focus();
     };
-  }, [handleKeyDown]);
+  }, []); // mount-only: focus once, attach listener once
 
   return (
     <div
