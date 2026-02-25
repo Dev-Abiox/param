@@ -243,12 +243,9 @@ class Command(BaseCommand):
         ]
 
         for config in user_configs:
-            user_id = deterministic_uuid(DEMO_NAMESPACE, f"user:{config['key']}")
-
             user, created = User.objects.update_or_create(
-                id=user_id,
+                username=config["username"],
                 defaults={
-                    "username": config["username"],
                     "role": config["role"],
                     "name": config["name"],
                     "email": config["email"],
