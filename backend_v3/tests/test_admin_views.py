@@ -110,7 +110,11 @@ class TestAdminUserListView:
         ]
 
         with patch('apps.core.views.User') as MockUser:
-            MockUser.objects.filter.return_value.order_by.return_value = mock_users
+            mock_qs = MagicMock()
+            MockUser.objects.filter.return_value.order_by.return_value = mock_qs
+            # LAB role triggers .exclude(role=SUPER_ADMIN), which should return the user list
+            mock_qs.exclude.return_value = mock_users
+            mock_qs.__iter__ = lambda self: iter(mock_users)
 
             view = AdminUserListView()
             view.request = request
