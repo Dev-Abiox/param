@@ -10,8 +10,23 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { INITIAL_CBC_ROWS } from "@/constants";
 
-// Map cbc_snapshot field names to INITIAL_CBC_ROWS keys
+// Map cbc_snapshot field names to INITIAL_CBC_ROWS keys.
+// Short keys (Hb, RBC, …) are the actual format stored by the DRF serializer;
+// long keys (Hb_g_dL, …) are kept for backward-compat with any legacy snapshots.
 const SNAPSHOT_KEY_MAP = {
+  // Short keys — actual stored format
+  Hb:            "hb",
+  RBC:           "rbc",
+  WBC:           "wbc",
+  Platelets:     "plt",
+  HCT:           "hct",
+  MCV:           "mcv",
+  MCH:           "mch",
+  MCHC:          "mchc",
+  RDW:           "rdw",
+  Neutrophils:   "neu_pct",
+  Lymphocytes:   "lym_pct",
+  // Long keys — backward compatibility
   Hb_g_dL:            "hb",
   RBC_million_uL:      "rbc",
   WBC_10_3_uL:         "wbc",
@@ -117,7 +132,10 @@ export async function generateReport(patient, result, cbcRows) {
   doc.setFontSize(11);
 
   doc.setFont("helvetica", "bold"); doc.text("Patient Name:", 14, 30);
-  doc.setFont("helvetica", "normal"); doc.text(patient.name || "N/A", 42, 30);
+  doc.setFont("helvetica", "normal");
+  // Wrap long patient names (max 90mm before hitting the Date column)
+  const nameLines = doc.splitTextToSize(patient.name || "N/A", 90);
+  doc.text(nameLines, 42, 30);
 
   doc.setFont("helvetica", "bold"); doc.text("Patient ID:", 14, 36);
   doc.setFont("helvetica", "normal"); doc.text(patient.id || "N/A", 36, 36);
@@ -129,18 +147,28 @@ export async function generateReport(patient, result, cbcRows) {
   doc.setFont("helvetica", "normal"); doc.text(patient.date || "N/A", 152, 30);
 
   doc.setFont("helvetica", "bold"); doc.text("Lab Name:", 140, 36);
-  doc.setFont("helvetica", "normal"); doc.text(patient.labId || "N/A", 162, 36);
+  doc.setFont("helvetica", "normal");
+  // Dynamically wrap long lab names (34mm available: 196 right margin - 162 start)
+  const labName = patient.labId || "N/A";
+  const labLines = doc.splitTextToSize(labName, 34);
+  if (labLines.length > 1) {
+    doc.setFontSize(9); // Slightly smaller for multi-line lab names
+  }
+  doc.text(labLines, 162, 36);
+  doc.setFontSize(11); // Reset font size
 
   doc.setDrawColor(200, 200, 200);
   doc.setLineWidth(0.1);
   doc.line(14, 48, 196, 48);
 
   // ── Result ───────────────────────────────────────────────────────────────
-  const { normal: pN, borderline: pB, deficient: pD } = result.probabilities;
+  // Use the authoritative risk_class (result.label) from the ML model
+  // instead of re-deriving from probabilities, which can disagree when
+  // clinical rules or thresholds are applied.
   let labelText = "Normal";
   let color = [34, 197, 94];
-  if (pD > Math.max(pN, pB)) { labelText = "Deficient";  color = [239, 68, 68]; }
-  else if (pB > Math.max(pN, pD)) { labelText = "Borderline"; color = [245, 158, 11]; }
+  if (result.label === 3) { labelText = "Deficient"; color = [239, 68, 68]; }
+  else if (result.label === 2) { labelText = "Borderline"; color = [245, 158, 11]; }
 
   doc.setFontSize(14);
   doc.setFont("helvetica", "normal");

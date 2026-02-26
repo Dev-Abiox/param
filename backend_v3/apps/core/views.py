@@ -117,6 +117,31 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        # Block login when the parent organization is deactivated
+        if user.organization and not user.organization.is_active:
+            return Response(
+                {'error': 'Organization account is disabled'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Block LAB users when no active lab exists in their tenant
+        if user.role == Role.LAB:
+            from apps.screening.models import Lab
+            if not Lab.objects.filter(is_active=True).exists():
+                return Response(
+                    {'error': 'Lab account is inactive. Contact your administrator.'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+        # Block DOCTOR users when their doctor record is inactive
+        if user.role == Role.DOCTOR and user.email:
+            from apps.screening.models import Doctor
+            if not Doctor.objects.filter(email=user.email, is_active=True).exists():
+                return Response(
+                    {'error': 'Doctor account is inactive. Contact your administrator.'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
         # Check if MFA is required
         mfa_status = MFAManager.get_mfa_status(user)
 

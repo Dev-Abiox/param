@@ -44,12 +44,18 @@ class UserSerializer(serializers.ModelSerializer):
         return None
 
     def get_lab_code(self, obj):
-        """Return the primary lab code for the user's tenant (LAB or ADMIN role)."""
+        """Return the primary lab code for the user."""
         if obj.role in ('LAB', 'ADMIN') and obj.organization:
             from apps.screening.models import Lab
             # Use tenant-scoped query: get the oldest active lab (first created)
             lab = Lab.objects.filter(is_active=True).order_by('created_at').first()
             return lab.code if lab else None
+        if obj.role == 'DOCTOR' and obj.email:
+            from apps.screening.models import Doctor
+            doctor = Doctor.objects.filter(
+                email=obj.email, is_active=True
+            ).select_related('lab').first()
+            return doctor.lab.code if doctor and doctor.lab else None
         return None
 
 
