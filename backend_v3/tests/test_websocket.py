@@ -195,38 +195,15 @@ class TestWorkQueueConsumerRoles:
         consumer.accept.assert_called_once()
         consumer.close.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_accepts_admin_role(self):
-        from apps.screening.consumers import WorkQueueConsumer
-
-        user = MagicMock()
-        user.is_authenticated = True
-        user.role = "ADMIN"
-        user.username = "admin_user"
-
-        tenant = MagicMock()
-        tenant.schema_name = "clinic_a"
-
-        consumer = WorkQueueConsumer()
-        consumer.scope = {"user": user, "tenant": tenant}
-        consumer.channel_layer = AsyncMock()
-        consumer.channel_name = "test-channel"
-        consumer.close = AsyncMock()
-        consumer.accept = AsyncMock()
-
-        await consumer.connect()
-        consumer.accept.assert_called_once()
-
-
 class TestDoctorAlertConsumerRoles:
 
     @pytest.mark.asyncio
-    async def test_rejects_lab_role(self):
+    async def test_rejects_superadmin_role(self):
         from apps.screening.consumers import DoctorAlertConsumer
 
         user = MagicMock()
         user.is_authenticated = True
-        user.role = "LAB"
+        user.role = "SUPER_ADMIN"
 
         consumer = DoctorAlertConsumer()
         consumer.scope = {"user": user}
@@ -240,12 +217,12 @@ class TestDoctorAlertConsumerRoles:
         consumer.accept.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_accepts_admin_role(self):
+    async def test_accepts_lab_role(self):
         from apps.screening.consumers import DoctorAlertConsumer
 
         user = MagicMock()
         user.is_authenticated = True
-        user.role = "ADMIN"
+        user.role = "LAB"
 
         tenant = MagicMock()
         tenant.schema_name = "t1"

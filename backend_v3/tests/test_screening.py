@@ -153,7 +153,7 @@ class TestCaseListView:
         ordered_qs.__getitem__ = MagicMock(name="slice", return_value=iter([]))
         mock_select.return_value.order_by.return_value = ordered_qs
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         request = _make_request("get", "/api/screening/cases", params={"doctorId": "D001"}, user=user)
         response = CaseListView.as_view()(request)
 
@@ -170,7 +170,7 @@ class TestCaseListView:
         ordered_qs.__getitem__ = MagicMock(name="slice", return_value=iter([]))
         mock_select.return_value.order_by.return_value = ordered_qs
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         request = _make_request("get", "/api/screening/cases", params={"labId": "LAB-001"}, user=user)
         response = CaseListView.as_view()(request)
 
@@ -185,7 +185,7 @@ class TestCaseListView:
         ordered_qs.__getitem__ = MagicMock(name="slice", return_value=iter([]))
         mock_select.return_value.order_by.return_value = ordered_qs
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         request = _make_request("get", "/api/screening/cases", user=user)
         response = CaseListView.as_view()(request)
 
@@ -312,19 +312,6 @@ class TestConsentRevokeView:
         return uuid.uuid4()
 
     @patch("apps.screening.views.Consent.objects.select_related")
-    def test_admin_can_revoke_any_consent(self, mock_qs):
-        consent = MagicMock()
-        mock_qs.return_value.get.return_value = consent
-
-        user = _make_user(role=Role.ADMIN)
-        cid = self._consent_id()
-        request = _make_request("post", f"/api/screening/consent/revoke/{cid}", user=user)
-        response = ConsentRevokeView.as_view()(request, consent_id=cid)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data == {'status': 'revoked'}
-
-    @patch("apps.screening.views.Consent.objects.select_related")
     def test_lab_can_revoke_any_consent(self, mock_qs):
         consent = MagicMock()
         mock_qs.return_value.get.return_value = consent
@@ -335,6 +322,7 @@ class TestConsentRevokeView:
         response = ConsentRevokeView.as_view()(request, consent_id=cid)
 
         assert response.status_code == status.HTTP_200_OK
+        assert response.data == {'status': 'revoked'}
 
     @patch("apps.screening.views.Doctor.objects.filter")
     @patch("apps.screening.views.Consent.objects.select_related")
@@ -395,7 +383,7 @@ class TestConsentRevokeView:
         from apps.screening.models import Consent
         mock_qs.return_value.get.side_effect = Consent.DoesNotExist
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         cid = self._consent_id()
         request = _make_request("post", f"/api/screening/consent/revoke/{cid}", user=user)
         response = ConsentRevokeView.as_view()(request, consent_id=cid)

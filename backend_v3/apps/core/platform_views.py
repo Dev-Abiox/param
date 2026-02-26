@@ -159,7 +159,7 @@ class PlatformOrgListView(APIView):
             u.organization_id: u.email
             for u in User.objects.filter(
                 organization_id__in=org_ids,
-                role=Role.ADMIN,
+                role=Role.LAB,
                 is_active=True,
             ).only('organization_id', 'email')
         }
@@ -288,12 +288,12 @@ class PlatformCreateOrgView(APIView):
                     username = f'{username_base}{counter}'
                     counter += 1
 
-                # 4. Create admin user
+                # 4. Create LAB manager user
                 user = User(
                     username=username,
                     email=admin_email,
                     name=admin_name,
-                    role=Role.ADMIN,
+                    role=Role.LAB,
                     organization=org,
                     is_active=True,
                 )
@@ -590,9 +590,9 @@ class PlatformOrgUsersView(APIView):
 
         if not email:
             return Response({'error': '"email" is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if role_str not in (Role.ADMIN, Role.LAB, Role.DOCTOR):
+        if role_str not in (Role.LAB, Role.DOCTOR):
             return Response(
-                {'error': f'role must be ADMIN, LAB, or DOCTOR.'},
+                {'error': 'role must be LAB or DOCTOR.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

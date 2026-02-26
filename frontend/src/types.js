@@ -1,7 +1,6 @@
 export const Role = {
   SUPER_ADMIN: "SUPER_ADMIN",
   LAB: "LAB",
-  ADMIN: "ADMIN",
   DOCTOR: "DOCTOR",
   PUBLIC: "PUBLIC",
 };
@@ -12,7 +11,7 @@ export const isSuperAdmin = (user) =>
 
 /** True for roles that can manage an organization (users, doctors, billing, usage). */
 export const canManageOrg = (role) =>
-  role === Role.SUPER_ADMIN || role === Role.ADMIN || role === Role.LAB;
+  role === Role.SUPER_ADMIN || role === Role.LAB;
 
 export const Flag = {
   LOW: "L",

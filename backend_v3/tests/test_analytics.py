@@ -52,7 +52,7 @@ class TestSummaryView:
     @patch("apps.analytics.views.Screening.objects.all")
     def test_cache_hit_skips_db(self, mock_all, mock_cache):
         mock_cache.get.return_value = {"totalCases": 5, "cached": True}
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         response = SummaryView.as_view()(_get("/api/analytics/summary", user))
         assert response.status_code == status.HTTP_200_OK
         assert response.data.get("cached") is True
@@ -69,7 +69,7 @@ class TestSummaryView:
         qs.select_related.return_value.order_by.return_value.__getitem__ = MagicMock(return_value=[])
         mock_all.return_value = qs
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         response = SummaryView.as_view()(_get("/api/analytics/summary", user))
         assert response.status_code == status.HTTP_200_OK
         mock_cache.set.assert_called_once()
@@ -90,7 +90,7 @@ class TestLabStatsView:
 
     @patch("apps.analytics.views.cache")
     @patch("apps.analytics.views.Lab.objects.filter")
-    def test_admin_sees_labs(self, mock_filter, mock_cache):
+    def test_superadmin_sees_labs(self, mock_filter, mock_cache):
         mock_cache.get.return_value = None
         lab = MagicMock()
         lab.id = "00000000-0000-0000-0000-000000000001"
@@ -98,7 +98,7 @@ class TestLabStatsView:
         lab.doctors_count, lab.cases_count = 3, 10
         mock_filter.return_value.annotate.return_value = [lab]
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.SUPER_ADMIN)
         response = LabStatsView.as_view()(_get("/api/analytics/labs", user))
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data) == 1
@@ -171,7 +171,7 @@ class TestPatientTrendView:
         mock_cache.get.return_value = None
         mock_get.side_effect = Patient.DoesNotExist
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         response = PatientTrendView.as_view()(_get("/api/analytics/trend/UNKNOWN", user), patient_id="UNKNOWN")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -211,7 +211,7 @@ class TestScreeningDetailView:
 
         import uuid
         sid = uuid.uuid4()
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         response = ScreeningDetailView.as_view()(
             _get(f"/api/analytics/screening/{sid}", user),
             screening_id=sid,
@@ -221,7 +221,7 @@ class TestScreeningDetailView:
     @patch("apps.analytics.views.log_phi_access")
     @patch("apps.analytics.views.ScreeningSerializer")
     @patch("apps.analytics.views.Screening.objects.select_related")
-    def test_admin_can_view_any_screening(self, mock_sel, mock_ser, mock_log):
+    def test_lab_can_view_any_screening(self, mock_sel, mock_ser, mock_log):
         import uuid
         sid = uuid.uuid4()
 
@@ -233,7 +233,7 @@ class TestScreeningDetailView:
         mock_ser_instance.data = {"id": str(sid)}
         mock_ser.return_value = mock_ser_instance
 
-        user = _make_user(role=Role.ADMIN)
+        user = _make_user(role=Role.LAB)
         response = ScreeningDetailView.as_view()(
             _get(f"/api/analytics/screening/{sid}", user),
             screening_id=sid,

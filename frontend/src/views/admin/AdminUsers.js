@@ -1,19 +1,17 @@
 import React, { useState, useEffect } from "react";
-import { UserPlus, Edit2, UserX, Check, RefreshCw } from "lucide-react";
+import { UserPlus, Edit2, UserX, UserCheck, Trash2, Check, RefreshCw } from "lucide-react";
 import { AdminService } from "@/services/api";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
-const ROLE_LABELS = { SUPER_ADMIN: "Platform Owner", ADMIN: "Admin", LAB: "Lab Owner", DOCTOR: "Technician" };
+const ROLE_LABELS = { SUPER_ADMIN: "Platform Owner", LAB: "Lab Manager", DOCTOR: "Technician" };
 const ROLE_COLORS = {
   SUPER_ADMIN: "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400",
-  ADMIN: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
   LAB: "bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400",
   DOCTOR: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
 };
 
 const AdminUsers = ({ user: currentUser }) => {
-  const isLabOwner = currentUser?.role === "LAB";
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,8 +20,9 @@ const AdminUsers = ({ user: currentUser }) => {
   const [createLoading, setCreateLoading] = useState(false);
 
   const [confirmDeactivate, setConfirmDeactivate] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
-  const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: isLabOwner ? "DOCTOR" : "LAB" });
+  const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: "DOCTOR" });
 
   const load = async () => {
     setLoading(true);
@@ -66,14 +65,33 @@ const AdminUsers = ({ user: currentUser }) => {
     }
   };
 
+  const handleReactivate = async (user) => {
+    try {
+      await AdminService.reactivateUser(user.id);
+      load();
+    } catch {
+      // silent
+    }
+  };
+
+  const handlePermanentDelete = async (user) => {
+    try {
+      await AdminService.permanentDeleteUser(user.id);
+      setConfirmDelete(null);
+      load();
+    } catch {
+      // silent
+    }
+  };
+
   const inputCls = "block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100";
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{isLabOwner ? "Technicians" : "Users"}</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{isLabOwner ? "Manage technicians in your lab." : "Manage users in your organisation."}</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Users</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage users in your organisation.</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
@@ -138,15 +156,36 @@ const AdminUsers = ({ user: currentUser }) => {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {u.is_active && (
-                      <button
-                        onClick={() => setConfirmDeactivate(u)}
-                        aria-label={`Deactivate ${u.name || u.username}`}
-                        className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors"
-                      >
-                        <UserX className="h-4 w-4" />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1 justify-end">
+                      {u.is_active ? (
+                        <button
+                          onClick={() => setConfirmDeactivate(u)}
+                          aria-label={`Deactivate ${u.name || u.username}`}
+                          className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors"
+                        >
+                          <UserX className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleReactivate(u)}
+                            aria-label={`Reactivate ${u.name || u.username}`}
+                            title="Reactivate"
+                            className="p-1.5 rounded hover:bg-green-50 dark:hover:bg-green-900/30 text-slate-400 dark:text-slate-500 hover:text-green-600 transition-colors"
+                          >
+                            <UserCheck className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(u)}
+                            aria-label={`Delete ${u.name || u.username}`}
+                            title="Permanently remove"
+                            className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -179,15 +218,8 @@ const AdminUsers = ({ user: currentUser }) => {
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Role</label>
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={inputCls}>
-                {isLabOwner ? (
-                  <option value="DOCTOR">Technician</option>
-                ) : (
-                  <>
-                    <option value="DOCTOR">Technician</option>
-                    <option value="LAB">Lab Owner</option>
-                    <option value="ADMIN">Admin</option>
-                  </>
-                )}
+                <option value="DOCTOR">Technician</option>
+                <option value="LAB">Lab Manager</option>
               </select>
             </div>
             {createError && (
@@ -212,6 +244,16 @@ const AdminUsers = ({ user: currentUser }) => {
           destructive
           onConfirm={() => handleDeactivate(confirmDeactivate)}
           onCancel={() => setConfirmDeactivate(null)}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Permanently Remove User"
+          message={`Are you sure you want to permanently remove "${confirmDelete.name || confirmDelete.username}"? This action cannot be undone.`}
+          confirmText="Remove Permanently"
+          destructive
+          onConfirm={() => handlePermanentDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </div>

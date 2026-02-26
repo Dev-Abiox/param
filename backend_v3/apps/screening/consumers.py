@@ -55,7 +55,7 @@ class WorkQueueConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
     - A new screening is created (status=pending)
     - A screening status changes
 
-    Only LAB and ADMIN roles can connect.
+    Only LAB role can connect.
     """
 
     async def connect(self):
@@ -65,7 +65,7 @@ class WorkQueueConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
             return
 
         role = getattr(user, 'role', '')
-        if role not in ('LAB', 'ADMIN'):
+        if role != 'LAB':
             await self.close(code=4003)
             return
 
@@ -143,12 +143,12 @@ class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
     WebSocket for DOCTOR high-risk alert notifications.
 
     Group: alerts_{schema_name}_{doctor_id}  (for DOCTORs)
-           alerts_{schema_name}_all          (for ADMINs)
+           alerts_{schema_name}_all          (for LAB managers)
 
     Receives messages when:
     - A screening linked to this doctor is classified as DEFICIENT (risk_class=3)
 
-    Only DOCTOR and ADMIN roles can connect.
+    Only DOCTOR and LAB roles can connect.
     """
 
     async def connect(self):
@@ -158,7 +158,7 @@ class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
             return
 
         role = getattr(user, 'role', '')
-        if role not in ('DOCTOR', 'ADMIN'):
+        if role not in ('DOCTOR', 'LAB'):
             await self.close(code=4003)
             return
 
@@ -169,7 +169,7 @@ class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
         schema = tenant.schema_name
 
         # For DOCTOR role, subscribe to their specific doctor group
-        # For ADMIN role, subscribe to the tenant-wide alert group
+        # For LAB role, subscribe to the tenant-wide alert group
         if role == 'DOCTOR':
             doctor_id = await self._get_doctor_id(user.email)
             if not doctor_id:
@@ -177,7 +177,7 @@ class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
                 return
             self.group_name = f'alerts_{schema}_{doctor_id}'
         else:
-            # ADMIN sees all high-risk alerts in the tenant
+            # LAB sees all high-risk alerts in the tenant
             self.group_name = f'alerts_{schema}_all'
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)

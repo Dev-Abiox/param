@@ -21,9 +21,9 @@ class TestUserModel:
         """Test User role choices are defined."""
         from apps.core.models import Role
 
-        assert Role.ADMIN == "ADMIN"
         assert Role.LAB == "LAB"
         assert Role.DOCTOR == "DOCTOR"
+        assert Role.SUPER_ADMIN == "SUPER_ADMIN"
 
     def test_user_str_representation(self):
         """Test User string representation."""

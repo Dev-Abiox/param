@@ -37,9 +37,9 @@ class UserFactory(DjangoModelFactory):
         return obj
 
 
-class AdminUserFactory(UserFactory):
-    role = Role.ADMIN
-    username = factory.Sequence(lambda n: f"admin{n}")
+class LabManagerFactory(UserFactory):
+    role = Role.LAB
+    username = factory.Sequence(lambda n: f"labmgr{n}")
 
 
 class DoctorUserFactory(UserFactory):

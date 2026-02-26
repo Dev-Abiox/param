@@ -238,7 +238,7 @@ class Screening(models.Model):
 
 class BulkImportJob(models.Model):
     """
-    Tracks a CSV bulk-import job submitted by a LAB or ADMIN user.
+    Tracks a CSV bulk-import job submitted by a LAB user.
 
     The Celery task processes rows asynchronously and updates this record.
     Clients poll GET /api/screening/bulk-import/<id>/status for progress.

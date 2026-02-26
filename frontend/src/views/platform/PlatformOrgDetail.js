@@ -33,7 +33,6 @@ const UsageBar = ({ count, limit, pct }) => {
 };
 
 const ROLE_COLORS = {
-  ADMIN:  "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
   LAB:    "bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400",
   DOCTOR: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
 };
@@ -330,8 +329,7 @@ const PlatformOrgDetail = () => {
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Role</label>
                 <select value={userForm.role} onChange={(e) => setUserForm((f) => ({ ...f, role: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                  <option value="ADMIN">Admin</option>
-                  <option value="LAB">Lab Technician</option>
+                  <option value="LAB">Lab Manager</option>
                   <option value="DOCTOR">Doctor</option>
                 </select>
               </div>

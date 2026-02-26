@@ -18,11 +18,11 @@ def api_rf():
 
 
 def _make_admin_request(rf, method, path, data=None, **kwargs):
-    """Create a request with a mocked admin user."""
+    """Create a request with a mocked LAB manager user (org manager)."""
     user = MagicMock()
     user.is_authenticated = True
     user.is_superuser = False
-    user.role = 'ADMIN'
+    user.role = 'LAB'
     user.organization = MagicMock(id=uuid.uuid4())
 
     # Mock MFA verification
@@ -139,7 +139,7 @@ class TestAdminUserListView:
         with patch('apps.core.views.User') as MockUser, \
              patch('apps.core.views.Role') as MockRole, \
              patch('apps.core.views.validate_password'):  # isolate from password policy
-            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockRole.values = ['DOCTOR', 'LAB', 'SUPER_ADMIN']
             MockUser.objects.filter.return_value.exists.return_value = False
 
             mock_user = MagicMock(
@@ -193,7 +193,7 @@ class TestAdminUserListView:
         with patch('apps.core.views.User') as MockUser, \
              patch('apps.core.views.Role') as MockRole, \
              patch('apps.core.views.validate_password') as mock_vp:
-            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockRole.values = ['DOCTOR', 'LAB', 'SUPER_ADMIN']
             MockUser.objects.filter.return_value.exists.return_value = False
             mock_vp.side_effect = ValidationError(['This password is too short.'])
 
@@ -220,7 +220,7 @@ class TestAdminUserListView:
 
         with patch('apps.core.views.User') as MockUser, \
              patch('apps.core.views.Role') as MockRole:
-            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockRole.values = ['DOCTOR', 'LAB', 'SUPER_ADMIN']
             MockUser.objects.filter.return_value.exists.return_value = True  # username taken
 
             view = AdminUserListView()
@@ -245,7 +245,7 @@ class TestAdminUserListView:
         request = _make_admin_request(api_rf, 'post', '/api/admin/users', data)
 
         with patch('apps.core.views.Role') as MockRole:
-            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB']
+            MockRole.values = ['DOCTOR', 'LAB', 'SUPER_ADMIN']
 
             view = AdminUserListView()
             view.request = request
@@ -494,7 +494,7 @@ class TestRoleEnforcement:
         """Non-manager user (DOCTOR) should be rejected from admin user endpoints."""
         from apps.core.views import AdminUserListView
 
-        # The permission classes enforce IsOrgManager (ADMIN, SUPER_ADMIN, LAB)
+        # The permission classes enforce IsOrgManager (SUPER_ADMIN, LAB)
         # DOCTOR role should be rejected
         assert any(
             pc.__name__ == 'IsOrgManager'
@@ -504,7 +504,7 @@ class TestRoleEnforcement:
 
     @pytest.mark.django_db
     def test_lab_list_requires_org_manager(self, api_rf):
-        """Lab management should require IsOrgManager (ADMIN, SUPER_ADMIN, LAB)."""
+        """Lab management should require IsOrgManager (SUPER_ADMIN, LAB)."""
         from apps.screening.views import AdminLabView
 
         assert any(
@@ -515,16 +515,16 @@ class TestRoleEnforcement:
 
 
 class TestLabOwnerUserScoping:
-    """LAB owners should only see/manage DOCTOR (technician) users."""
+    """LAB managers see all org users except SUPER_ADMIN."""
 
     @pytest.mark.django_db
-    def test_lab_get_only_sees_doctors(self, api_rf):
-        """LAB owner GET /admin/users should only return DOCTOR users."""
+    def test_lab_get_excludes_superadmin(self, api_rf):
+        """LAB owner GET /admin/users should exclude SUPER_ADMIN users."""
         from apps.core.views import AdminUserListView
 
         request = _make_lab_owner_request(api_rf, 'get', '/api/admin/users')
 
-        mock_doctors = [
+        mock_users = [
             MagicMock(
                 id=uuid.uuid4(), username='tech1', email='t1@test.com',
                 name='Tech One', role='DOCTOR', is_active=True,
@@ -534,9 +534,9 @@ class TestLabOwnerUserScoping:
 
         with patch('apps.core.views.User') as MockUser:
             # The view calls .filter(organization=org).order_by(...)
-            # Then for LAB, it calls .filter(role=Role.DOCTOR) on the result
+            # Then for LAB, it calls .exclude(role=Role.SUPER_ADMIN) on the result
             qs = MockUser.objects.filter.return_value.order_by.return_value
-            qs.filter.return_value = mock_doctors
+            qs.exclude.return_value = mock_users
 
             view = AdminUserListView()
             view.request = request
@@ -545,23 +545,23 @@ class TestLabOwnerUserScoping:
             response = view.get(request)
 
         assert response.status_code == 200
-        # Verify .filter(role='DOCTOR') was called on the queryset
-        qs.filter.assert_called_once()
+        # Verify .exclude(role='SUPER_ADMIN') was called on the queryset
+        qs.exclude.assert_called_once()
 
     @pytest.mark.django_db
-    def test_lab_cannot_create_admin(self, api_rf):
-        """LAB owner should not be able to create ADMIN users."""
+    def test_lab_cannot_create_superadmin(self, api_rf):
+        """LAB owner should not be able to create SUPER_ADMIN users."""
         from apps.core.views import AdminUserListView
 
         data = {
             'username': 'hacker',
             'password': 'StrongP@ss1!xy',
-            'role': 'ADMIN',
+            'role': 'SUPER_ADMIN',
         }
         request = _make_lab_owner_request(api_rf, 'post', '/api/admin/users', data)
 
         with patch('apps.core.views.Role') as MockRole:
-            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB', 'SUPER_ADMIN']
+            MockRole.values = ['DOCTOR', 'LAB', 'SUPER_ADMIN']
             MockRole.LAB = 'LAB'
             MockRole.DOCTOR = 'DOCTOR'
 
@@ -589,7 +589,7 @@ class TestLabOwnerUserScoping:
         with patch('apps.core.views.User') as MockUser, \
              patch('apps.core.views.Role') as MockRole, \
              patch('apps.core.views.validate_password'):
-            MockRole.values = ['ADMIN', 'DOCTOR', 'LAB', 'SUPER_ADMIN']
+            MockRole.values = ['DOCTOR', 'LAB', 'SUPER_ADMIN']
             MockRole.LAB = 'LAB'
             MockRole.DOCTOR = 'DOCTOR'
             MockUser.objects.filter.return_value.exists.return_value = False

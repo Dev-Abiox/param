@@ -39,7 +39,7 @@ class SummaryView(APIView):
     For DOCTOR role: returns only their own stats filtered by doctor email.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.LAB, Role.DOCTOR]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request):
         ck = _cache_key('summary', request.user.pk)
@@ -136,7 +136,7 @@ class LabStatsView(APIView):
     GET /api/analytics/labs
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.SUPER_ADMIN]
 
     def get(self, request):
         ck = _cache_key('labs')
@@ -178,7 +178,7 @@ class DoctorStatsView(APIView):
     GET /api/analytics/doctors?labId=LAB-001
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.LAB]
+    required_roles = [Role.LAB]
 
     def get(self, request):
         lab_id = request.query_params.get('labId', '')
@@ -224,10 +224,10 @@ class CaseStatsView(APIView):
     Access rules:
     - DOCTOR: always sees only their own cases; doctorId param is ignored and
               rejected with 403 if it doesn't belong to the requesting user.
-    - LAB/ADMIN: may filter by doctorId and labId query params.
+    - LAB: may filter by doctorId and labId query params.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.LAB, Role.DOCTOR]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request):
         queryset = Screening.objects.select_related(
@@ -247,7 +247,7 @@ class CaseStatsView(APIView):
                 return Response([], status=status.HTTP_200_OK)
             queryset = queryset.filter(doctor=doctor)
         else:
-            # LAB / ADMIN: optional query param filtering
+            # LAB: optional query param filtering
             doctor_id = request.query_params.get('doctorId')
             lab_id = request.query_params.get('labId')
             if doctor_id:
@@ -312,7 +312,7 @@ class PatientTrendView(APIView):
     DOCTOR role is scoped to their own patients only.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.LAB, Role.DOCTOR]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request, patient_id):
         # Cache key includes user_id so DOCTOR isolation is preserved across cache hits
@@ -375,10 +375,10 @@ class ScreeningDetailView(APIView):
 
     Access rules mirror CaseStatsView:
     - DOCTOR: may only retrieve screenings linked to their own doctor record.
-    - LAB / ADMIN: unrestricted within the tenant.
+    - LAB: unrestricted within the tenant.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.LAB, Role.DOCTOR]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request, screening_id):
         try:
@@ -411,10 +411,10 @@ class PopulationTrendsView(APIView):
 
     Returns a time series of risk class counts per month, showing how the
     distribution of Normal / Borderline / Deficient has shifted over time.
-    ADMIN-only — provides cross-patient aggregate data.
+    SUPER_ADMIN-only — provides cross-patient aggregate data.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.SUPER_ADMIN]
 
     def get(self, request):
         try:
@@ -475,10 +475,10 @@ class PopulationCohortsView(APIView):
 
     Returns a matrix showing risk distribution across demographic cohorts,
     enabling identification of high-risk population segments.
-    ADMIN-only.
+    SUPER_ADMIN-only.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.SUPER_ADMIN]
 
     AGE_GROUPS = [
         ('pediatric', 0, 17),
@@ -536,10 +536,10 @@ class LabComparisonView(APIView):
 
     Returns per-lab aggregate statistics (total screenings, deficiency rate)
     to enable benchmarking across collection sites.
-    ADMIN-only.
+    SUPER_ADMIN-only.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.SUPER_ADMIN]
 
     def get(self, request):
         ck = _cache_key('lab_comparison')

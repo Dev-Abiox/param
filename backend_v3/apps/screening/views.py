@@ -49,7 +49,7 @@ class PredictView(APIView):
     POST /api/screening/predict
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole, HasAPIKeyScope]
-    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+    required_roles = [Role.LAB, Role.DOCTOR]
     required_api_key_scope = 'screening:write'
     throttle_classes = [ScreeningRateThrottle]
 
@@ -265,7 +265,7 @@ class LabListView(APIView):
     GET /api/screening/labs
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN]
+    required_roles = [Role.LAB, Role.SUPER_ADMIN]
 
     def get(self, request):
         labs = Lab.objects.filter(is_active=True).prefetch_related('doctors', 'screenings')
@@ -280,7 +280,7 @@ class DoctorListView(APIView):
     GET /api/screening/doctors?labId=LAB-001
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.LAB]
+    required_roles = [Role.LAB]
 
     def get(self, request):
         lab_id = request.query_params.get('labId')
@@ -300,7 +300,7 @@ class CaseListView(APIView):
     GET /api/screening/cases?doctorId=D001&labId=LAB-001&page=1&page_size=50
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole, HasAPIKeyScope]
-    required_roles = [Role.ADMIN, Role.LAB]
+    required_roles = [Role.LAB]
     required_api_key_scope = 'screening:read'
 
     def get(self, request):
@@ -344,7 +344,7 @@ class ConsentRecordView(APIView):
     POST /api/screening/consent/record
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def post(self, request):
         serializer = ConsentRecordSerializer(data=request.data)
@@ -395,7 +395,7 @@ class ConsentStatusView(APIView):
     GET /api/screening/consent/status/{patientId}
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request, patient_id):
         try:
@@ -447,7 +447,6 @@ class ConsentRevokeView(APIView):
     POST /api/screening/consent/revoke/{consentId}
 
     Authorization:
-    - ADMIN: always permitted.
     - LAB: permitted for any patient in the tenant (lab users manage all
       patient records within their organisation).
     - DOCTOR: permitted only if they are the patient's referring doctor.
@@ -470,7 +469,7 @@ class ConsentRevokeView(APIView):
             doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
             if not doctor or consent.patient.referring_doctor_id != doctor.id:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
-        elif user_role not in (Role.ADMIN, Role.LAB):
+        elif user_role != Role.LAB:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         consent.status = 'revoked'
@@ -488,7 +487,7 @@ class WorkQueueView(APIView):
     Returns per-status counts + items for the requested status.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.ADMIN]
+    required_roles = [Role.LAB]
 
     def get(self, request):
         queue_status = request.query_params.get('status', ScreeningStatus.PENDING)
@@ -549,7 +548,7 @@ class ScreeningStatusView(APIView):
     Body: { "status": "in_progress" | "completed" | "pending" }
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.ADMIN]
+    required_roles = [Role.LAB]
 
     ALLOWED_TRANSITIONS = {
         ScreeningStatus.PENDING: [ScreeningStatus.IN_PROGRESS, ScreeningStatus.COMPLETED],
@@ -593,7 +592,7 @@ class ReviewScreeningView(APIView):
     Body: { "clinical_note": "..." }  (optional)
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.DOCTOR, Role.ADMIN]
+    required_roles = [Role.DOCTOR, Role.LAB]
 
     def patch(self, request, screening_id):
         try:
@@ -637,7 +636,7 @@ class ExplainView(APIView):
     Returns feature importances ranked by absolute SHAP value.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request, screening_id):
         try:
@@ -709,7 +708,7 @@ class BulkImportView(APIView):
         { "jobId": "<uuid>", "status": "pending", "totalRows": N }
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.ADMIN]
+    required_roles = [Role.LAB]
 
     def post(self, request):
         uploaded = request.FILES.get('file')
@@ -778,7 +777,7 @@ class BulkImportStatusView(APIView):
     GET /api/screening/bulk-import/<job_id>/status
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.ADMIN]
+    required_roles = [Role.LAB]
 
     def get(self, request, job_id):
         try:
@@ -837,7 +836,7 @@ class FHIRBundleView(APIView):
     }
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.LAB, Role.DOCTOR, Role.ADMIN]
+    required_roles = [Role.LAB, Role.DOCTOR]
 
     def post(self, request):
         bundle = request.data
@@ -1211,6 +1210,17 @@ class AdminDoctorDetailView(APIView):
         doctor = self._get_doctor(doctor_id)
         if not doctor:
             return Response({'error': 'Doctor not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # ?permanent=true → hard-delete (only for already-inactive doctors)
+        if request.query_params.get('permanent') == 'true':
+            if doctor.is_active:
+                return Response(
+                    {'error': 'Deactivate the doctor first before permanently removing'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            doctor.delete()
+            return Response({'detail': 'Doctor permanently removed'})
+
         doctor.is_active = False
         doctor.save(update_fields=['is_active', 'updated_at'])
         return Response({'detail': 'Doctor deactivated'})

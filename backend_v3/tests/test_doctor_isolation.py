@@ -100,8 +100,8 @@ class TestDoctorIsolation:
 
     @patch("apps.analytics.views.Doctor.objects.filter")
     @patch("apps.analytics.views.Screening.objects.select_related")
-    def test_admin_can_filter_by_doctorId(self, mock_select, mock_doctor_filter):
-        """ADMIN role may pass doctorId param freely."""
+    def test_lab_manager_can_filter_by_doctorId(self, mock_select, mock_doctor_filter):
+        """LAB role may pass doctorId param freely."""
         mock_qs = MagicMock()
         mock_qs.filter.return_value = mock_qs
         mock_qs.order_by.return_value = mock_qs
@@ -109,7 +109,7 @@ class TestDoctorIsolation:
         mock_qs.__iter__ = MagicMock(return_value=iter([]))
         mock_select.return_value = mock_qs
 
-        user = make_user(Role.ADMIN, email="admin@example.com")
+        user = make_user(Role.LAB, email="lab@example.com")
         request = make_request(user, params={"doctorId": "DOCTOR_B_CODE"})
 
         view = CaseStatsView.as_view()

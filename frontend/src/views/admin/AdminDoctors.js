@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Edit2, Power, RefreshCw } from "lucide-react";
+import { Plus, Edit2, Power, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { AdminService } from "@/services/api";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -61,6 +61,7 @@ const AdminDoctors = () => {
   const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [confirmDeactivate, setConfirmDeactivate] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const emptyForm = { code: "", name: "", department: "", specialization: "", email: "", lab_id: "" };
   const [form, setForm] = useState(emptyForm);
@@ -117,6 +118,25 @@ const AdminDoctors = () => {
     try {
       await AdminService.deactivateDoctor(doc.id);
       setConfirmDeactivate(null);
+      load();
+    } catch {
+      // silent
+    }
+  };
+
+  const handleReactivate = async (doc) => {
+    try {
+      await AdminService.reactivateDoctor(doc.id);
+      load();
+    } catch {
+      // silent
+    }
+  };
+
+  const handlePermanentDelete = async (doc) => {
+    try {
+      await AdminService.permanentDeleteDoctor(doc.id);
+      setConfirmDelete(null);
       load();
     } catch {
       // silent
@@ -188,10 +208,19 @@ const AdminDoctors = () => {
                       <button onClick={() => openEdit(doc)} aria-label={`Edit ${doc.name}`} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-teal-600">
                         <Edit2 className="h-4 w-4" />
                       </button>
-                      {doc.is_active && (
+                      {doc.is_active ? (
                         <button onClick={() => setConfirmDeactivate(doc)} aria-label={`Deactivate ${doc.name}`} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500">
                           <Power className="h-4 w-4" />
                         </button>
+                      ) : (
+                        <>
+                          <button onClick={() => handleReactivate(doc)} aria-label={`Reactivate ${doc.name}`} title="Reactivate" className="p-1.5 rounded hover:bg-green-50 dark:hover:bg-green-900/30 text-slate-400 dark:text-slate-500 hover:text-green-600 transition-colors">
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => setConfirmDelete(doc)} aria-label={`Delete ${doc.name}`} title="Permanently remove" className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -220,6 +249,16 @@ const AdminDoctors = () => {
           destructive
           onConfirm={() => handleDeactivate(confirmDeactivate)}
           onCancel={() => setConfirmDeactivate(null)}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Permanently Remove Doctor"
+          message={`Are you sure you want to permanently remove "${confirmDelete.name}"? This action cannot be undone.`}
+          confirmText="Remove Permanently"
+          destructive
+          onConfirm={() => handlePermanentDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </div>

@@ -81,10 +81,9 @@ class Command(BaseCommand):
                 f"  Organization: {org.name} (schema: {org.schema_name})\n"
                 f"  Domains: demo.localhost, localhost\n"
                 f"  Users:\n"
-                f"    superadmin (superuser, Django admin access) — SuperAdmin@2024\n"
-                f"    admin_demo (admin role)                     — Demo@2024\n"
-                f"    lab_demo   (lab role)                       — Demo@2024\n"
-                f"    doctor_demo (doctor role)                   — Demo@2024\n"
+                f"    superadmin  (superuser, Django admin access) — SuperAdmin@2024\n"
+                f"    lab_demo    (lab manager)                    — Demo@2024\n"
+                f"    doctor_demo (doctor role)                    — Demo@2024\n"
             )
         )
 
@@ -209,16 +208,6 @@ class Command(BaseCommand):
                 "is_staff": True,
                 "is_superuser": True,
                 "password": superadmin_password,
-            },
-            {
-                "key": "admin_demo",
-                "username": "admin_demo",
-                "role": Role.ADMIN,
-                "name": "Demo Administrator",
-                "email": "admin@demo.clinomic.local",
-                "is_staff": True,
-                "is_superuser": False,
-                "password": default_password,
             },
             {
                 "key": "lab_demo",

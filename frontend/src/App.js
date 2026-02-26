@@ -52,8 +52,6 @@ const getDefaultRoute = (role) => {
   switch (role) {
     case Role.SUPER_ADMIN:
       return "/dashboard";
-    case Role.ADMIN:
-      return "/portal/labs";
     case Role.LAB:
     case Role.DOCTOR:
     default:
@@ -272,11 +270,11 @@ const App = () => {
         </div>
       )}
       <Routes>
-        {/* Admin Dashboard (SUPER_ADMIN + ADMIN) */}
+        {/* Admin Dashboard (SUPER_ADMIN) */}
         <Route
           path="/dashboard"
           element={
-            isSuperAdmin(user) || user.role === Role.ADMIN ? (
+            isSuperAdmin(user) ? (
               <AdminDashboard />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
@@ -296,7 +294,7 @@ const App = () => {
           }
         />
 
-        {/* Labs List (ADMIN + LAB managers can view) */}
+        {/* Labs List (SUPER_ADMIN + LAB managers can view) */}
         <Route
           path="/labs"
           element={
@@ -308,7 +306,7 @@ const App = () => {
           }
         />
 
-        {/* Doctors List (SUPER_ADMIN + ADMIN + LAB) */}
+        {/* Doctors List (SUPER_ADMIN + LAB) */}
         <Route
           path="/doctors"
           element={
@@ -341,11 +339,11 @@ const App = () => {
           }
         />
 
-        {/* Patient Records (SUPER_ADMIN + ADMIN + DOCTOR + LAB) */}
+        {/* Patient Records (SUPER_ADMIN + DOCTOR + LAB) */}
         <Route
           path="/records"
           element={
-            isSuperAdmin(user) || user.role === Role.ADMIN ? (
+            isSuperAdmin(user) ? (
               <PatientRecords
                 doctorId={selectedDoctorId}
                 doctorName={selectedDoctorName}
@@ -365,11 +363,11 @@ const App = () => {
           }
         />
 
-        {/* Work Queue (LAB + DOCTOR + SUPER_ADMIN + ADMIN) */}
+        {/* Work Queue (LAB + DOCTOR + SUPER_ADMIN) */}
         <Route
           path="/work-queue"
           element={
-            user.role === Role.LAB || user.role === Role.DOCTOR || isSuperAdmin(user) || user.role === Role.ADMIN ? (
+            user.role === Role.LAB || user.role === Role.DOCTOR || isSuperAdmin(user) ? (
               <WorkQueue />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />

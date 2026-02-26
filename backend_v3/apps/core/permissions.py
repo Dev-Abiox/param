@@ -8,13 +8,13 @@ from .models import Role
 
 
 class IsAdmin(permissions.BasePermission):
-    """Allow admin-level users (ADMIN, SUPER_ADMIN, or Django superuser)."""
+    """Allow SUPER_ADMIN or Django superuser only."""
     message = 'Admin access required.'
 
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            (request.user.role in (Role.ADMIN, Role.SUPER_ADMIN)
+            (request.user.role == Role.SUPER_ADMIN
              or request.user.is_superuser)
         )
 
@@ -26,18 +26,18 @@ class IsLabOrDoctor(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            request.user.role in [Role.LAB, Role.DOCTOR, Role.ADMIN, Role.SUPER_ADMIN]
+            request.user.role in [Role.LAB, Role.DOCTOR, Role.SUPER_ADMIN]
         )
 
 
 class IsOrgManager(permissions.BasePermission):
-    """ADMIN, SUPER_ADMIN, or LAB owner can manage their organization."""
+    """SUPER_ADMIN or LAB can manage their organization."""
     message = 'Organization management access required.'
 
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            (request.user.role in (Role.ADMIN, Role.SUPER_ADMIN, Role.LAB)
+            (request.user.role in (Role.SUPER_ADMIN, Role.LAB)
              or request.user.is_superuser)
         )
 
@@ -59,7 +59,7 @@ class HasRole(permissions.BasePermission):
 
     Usage in views:
         permission_classes = [HasRole]
-        required_roles = [Role.ADMIN, Role.LAB]
+        required_roles = [Role.LAB]
     """
     message = 'Insufficient permissions.'
 

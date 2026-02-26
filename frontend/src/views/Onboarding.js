@@ -249,9 +249,8 @@ const Onboarding = ({ user }) => {
               <div>
                 <label className={labelCls}>Role</label>
                 <select value={userForm.role} onChange={(e) => setField("user", "role", e.target.value)} className={inputCls}>
-                  <option value="LAB">Lab Technician</option>
+                  <option value="LAB">Lab Manager</option>
                   <option value="DOCTOR">Doctor</option>
-                  <option value="ADMIN">Admin</option>
                 </select>
               </div>
               <button type="submit" disabled={loading} className={btnCls}>

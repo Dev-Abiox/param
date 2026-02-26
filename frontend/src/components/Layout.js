@@ -35,16 +35,6 @@ const roleConfig = {
     title: "Platform Owner",
     subtitle: "Platform Management",
   },
-  [Role.ADMIN]: {
-    color: "purple",
-    bgGradient: "from-purple-600 to-purple-700",
-    lightBg: "bg-purple-50 dark:bg-purple-900/30",
-    textColor: "text-purple-700 dark:text-purple-400",
-    borderColor: "border-purple-200 dark:border-purple-700",
-    icon: UserCog,
-    title: "Administrator",
-    subtitle: "System Management",
-  },
   [Role.LAB]: {
     color: "teal",
     bgGradient: "from-teal-600 to-teal-700",
@@ -52,7 +42,7 @@ const roleConfig = {
     textColor: "text-teal-700 dark:text-teal-400",
     borderColor: "border-teal-200 dark:border-teal-700",
     icon: Building2,
-    title: "Lab Owner",
+    title: "Lab Manager",
     subtitle: "Lab Management",
   },
   [Role.DOCTOR]: {

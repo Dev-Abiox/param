@@ -220,7 +220,7 @@ class OnboardingStatusView(APIView):
     Allows the frontend wizard to mark steps as completed.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -369,7 +369,7 @@ class AdminUsageView(APIView):
     Returns current usage stats and 6-month history for the admin's org.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -426,7 +426,7 @@ class AdminBillingView(APIView):
     Returns the current plan + all available plans for the upgrade picker.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -472,7 +472,7 @@ class AdminBillingUpgradeView(APIView):
     the Razorpay `subscription.activated` webhook arrives.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def post(self, request):
         plan_name = (request.data.get('plan') or '').strip().lower()
@@ -565,7 +565,7 @@ class APIKeyListView(APIView):
         }
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
         org = getattr(request.user, 'organization', None)
@@ -678,7 +678,7 @@ class APIKeyDetailView(APIView):
         The key is not physically removed so audit logs remain intact.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN, Role.LAB]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def delete(self, request, pk):
         org = getattr(request.user, 'organization', None)
@@ -737,7 +737,7 @@ class WebhookListView(APIView):
         shown.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN]
+    required_roles = [Role.SUPER_ADMIN]
 
     _valid_events = frozenset(WebhookEndpoint.SUPPORTED_EVENTS)
 
@@ -830,7 +830,7 @@ class WebhookDetailView(APIView):
         Future deliveries to this URL will immediately stop.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
-    required_roles = [Role.ADMIN, Role.SUPER_ADMIN]
+    required_roles = [Role.SUPER_ADMIN]
 
     def delete(self, request, pk):
         org = getattr(request.user, 'organization', None)
