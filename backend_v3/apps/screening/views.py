@@ -1091,6 +1091,16 @@ class AdminLabDetailView(APIView):
         lab = self._get_lab(lab_id)
         if not lab:
             return Response({'error': 'Lab not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.query_params.get('permanent') == 'true':
+            if lab.is_active:
+                return Response(
+                    {'error': 'Deactivate the lab first before permanently removing'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            lab.delete()
+            return Response({'detail': 'Lab permanently removed'})
+
         lab.is_active = False
         lab.save(update_fields=['is_active', 'updated_at'])
         return Response({'detail': 'Lab deactivated'})

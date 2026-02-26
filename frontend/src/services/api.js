@@ -394,6 +394,14 @@ export const AdminService = {
     const res = await API.delete(`/v1/admin/labs/${labId}`);
     return res.data;
   },
+  reactivateLab: async (labId) => {
+    const res = await API.patch(`/v1/admin/labs/${labId}`, { is_active: true });
+    return res.data;
+  },
+  permanentDeleteLab: async (labId) => {
+    const res = await API.delete(`/v1/admin/labs/${labId}?permanent=true`);
+    return res.data;
+  },
 
   // ── Doctor Management ────────────────────────────────────────────────────────
   getDoctors: async (labId = null) => {
