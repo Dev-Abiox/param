@@ -110,7 +110,11 @@ class TestAdminUserListView:
         ]
 
         with patch('apps.core.views.User') as MockUser:
-            MockUser.objects.filter.return_value.order_by.return_value = mock_users
+            mock_qs = MagicMock()
+            mock_qs.__iter__ = lambda self: iter(mock_users)
+            mock_qs.__len__ = lambda self: len(mock_users)
+            mock_qs.exclude.return_value = mock_qs
+            MockUser.objects.filter.return_value.order_by.return_value = mock_qs
 
             view = AdminUserListView()
             view.request = request
