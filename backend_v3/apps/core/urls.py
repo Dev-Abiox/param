@@ -17,6 +17,7 @@ from .views import (
     MeView,
     MFABackupCodesView,
     MFADisableView,
+    MFAResendOTPView,
     MFASetupView,
     MFAStatusView,
     MFAVerifySetupView,
@@ -52,6 +53,7 @@ urlpatterns = [
     path('mfa/status', MFAStatusView.as_view(), name='mfa-status'),
     path('mfa/disable', MFADisableView.as_view(), name='mfa-disable'),
     path('mfa/backup-codes/regenerate', MFABackupCodesView.as_view(), name='mfa-backup-codes'),
+    path('mfa/resend-otp', MFAResendOTPView.as_view(), name='mfa-resend-otp'),
 
     # Notifications
     path('notifications/', NotificationListView.as_view(), name='notifications-list'),

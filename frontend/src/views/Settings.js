@@ -20,7 +20,7 @@ const Settings = ({ user }) => {
       const status = await MFAService.getStatus();
       setMfaStatus(status);
 
-      if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
+      if (user.role === Role.SUPER_ADMIN) {
         const health = await AdminService.getSystemHealth();
         setSystemHealth(health);
       }
@@ -63,7 +63,7 @@ const Settings = ({ user }) => {
   const tabs = [
     { id: "security", label: "Security", icon: Shield },
     { id: "account", label: "Account", icon: User },
-    ...(user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN ? [{ id: "system", label: "System", icon: Server }] : []),
+    ...(user.role === Role.SUPER_ADMIN ? [{ id: "system", label: "System", icon: Server }] : []),
   ];
 
   const renderSecurityTab = () => (
@@ -101,15 +101,19 @@ const Settings = ({ user }) => {
           ) : (
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
-                Add an extra layer of security to your account by enabling two-factor authentication using an authenticator app.
+                Add an extra layer of security to your account by enabling two-factor authentication.
               </p>
 
               {mfaStatus?.is_enabled ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <div>
-                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Backup Codes Remaining</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Use these if you lose access to your authenticator</p>
+                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Method: {mfaStatus?.mfa_method === 'EMAIL' ? 'Email Code' : 'Authenticator App'}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Backup codes remaining: {mfaStatus?.backup_codes_remaining || 0}
+                      </p>
                     </div>
                     <span className="text-lg font-bold text-teal-600">{mfaStatus?.backup_codes_remaining || 0}</span>
                   </div>
@@ -240,7 +244,7 @@ const Settings = ({ user }) => {
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Role</label>
               <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN ? "bg-purple-100 text-purple-700" :
+                user.role === Role.SUPER_ADMIN ? "bg-purple-100 text-purple-700" :
                 user.role === Role.DOCTOR ? "bg-blue-100 text-blue-700" :
                 "bg-teal-100 text-teal-700"
               }`}>
@@ -416,7 +420,7 @@ const Settings = ({ user }) => {
       {/* Tab Content */}
       {activeTab === "security" && renderSecurityTab()}
       {activeTab === "account" && renderAccountTab()}
-      {activeTab === "system" && (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && renderSystemTab()}
+      {activeTab === "system" && (user.role === Role.SUPER_ADMIN) && renderSystemTab()}
     </div>
   );
 };

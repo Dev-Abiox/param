@@ -186,6 +186,7 @@ REST_FRAMEWORK = {
         'login': '5/minute',
         'screening': '50/minute',
         'mfa_verify': '5/5minute',  # 5 TOTP attempts per 5-minute window (0.3 / 0.4)
+        'mfa_resend': '3/5minute',  # 3 OTP resends per 5-minute window
     },
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
@@ -237,7 +238,7 @@ JWT_ACCESS_TOKEN_LIFETIME = timedelta(minutes=int(os.environ.get('ACCESS_TOKEN_E
 JWT_REFRESH_TOKEN_LIFETIME = timedelta(days=int(os.environ.get('REFRESH_TOKEN_EXPIRE_DAYS', '30')))
 
 # MFA Settings
-MFA_REQUIRED_ROLES = os.environ.get('MFA_REQUIRED_ROLES', 'ADMIN,DOCTOR').split(',')
+MFA_REQUIRED_ROLES = os.environ.get('MFA_REQUIRED_ROLES', 'LAB,DOCTOR').split(',')
 MFA_ISSUER_NAME = 'Clinomic'
 
 # PHI Encryption
@@ -317,6 +318,7 @@ CELERY_TASK_ROUTES = {
     'billing.send_usage_alert':      {'queue': 'email'},
     'billing.send_lab_created_email': {'queue': 'email'},
     'billing.send_welcome_email':    {'queue': 'email'},
+    'billing.send_mfa_otp_email':    {'queue': 'email'},
 }
 
 # Dead-letter: after max_retries are exhausted Celery marks the task FAILURE.

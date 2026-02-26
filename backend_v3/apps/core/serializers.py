@@ -45,7 +45,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_lab_code(self, obj):
         """Return the primary lab code for the user."""
-        if obj.role in ('LAB', 'ADMIN') and obj.organization:
+        if obj.role == 'LAB' and obj.organization:
             from apps.screening.models import Lab
             # Use tenant-scoped query: get the oldest active lab (first created)
             lab = Lab.objects.filter(is_active=True).order_by('created_at').first()
@@ -59,9 +59,15 @@ class UserSerializer(serializers.ModelSerializer):
         return None
 
 
+class MFAResendOTPSerializer(serializers.Serializer):
+    """MFA OTP resend request serializer."""
+    mfa_pending_token = serializers.CharField()
+
+
 class MFASetupSerializer(serializers.Serializer):
     """MFA setup request serializer."""
     email = serializers.EmailField(required=False)
+    method = serializers.ChoiceField(choices=['TOTP', 'EMAIL'], default='TOTP', required=False)
 
 
 class MFACodeSerializer(serializers.Serializer):
@@ -75,6 +81,7 @@ class MFAStatusSerializer(serializers.Serializer):
     verified = serializers.BooleanField()
     recovery_email = serializers.BooleanField()
     backup_codes_remaining = serializers.IntegerField()
+    mfa_method = serializers.CharField()
 
 
 class HealthSerializer(serializers.Serializer):

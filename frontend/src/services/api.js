@@ -76,6 +76,8 @@ export const AuthService = {
       return {
         mfaRequired: true,
         mfaPendingToken: res.data.mfa_pending_token,
+        mfaMethod: res.data.mfa_method || 'TOTP',
+        maskedEmail: res.data.masked_email || null,
         id: res.data.id,
         name: res.data.name,
         role: res.data.role,
@@ -168,24 +170,29 @@ export const MFAService = {
     const res = await API.get("/mfa/status");
     return res.data;
   },
-  
-  setup: async (email) => {
-    const res = await API.post("/mfa/setup", { email });
+
+  setup: async (email, method = 'TOTP') => {
+    const res = await API.post("/mfa/setup", { email, method });
     return res.data;
   },
-  
+
   verifySetup: async (code) => {
     const res = await API.post("/mfa/verify-setup", { code });
     return res.data;
   },
-  
+
   disable: async (code) => {
     const res = await API.post("/mfa/disable", { code });
     return res.data;
   },
-  
+
   regenerateBackupCodes: async (code) => {
     const res = await API.post("/mfa/backup-codes/regenerate", { code });
+    return res.data;
+  },
+
+  resendOTP: async (mfaPendingToken) => {
+    const res = await API.post("/mfa/resend-otp", { mfa_pending_token: mfaPendingToken });
     return res.data;
   },
 };
@@ -361,6 +368,14 @@ export const AdminService = {
     const res = await API.delete(`/v1/admin/users/${userId}`);
     return res.data;
   },
+  reactivateUser: async (userId) => {
+    const res = await API.patch(`/v1/admin/users/${userId}`, { is_active: true });
+    return res.data;
+  },
+  permanentDeleteUser: async (userId) => {
+    const res = await API.delete(`/v1/admin/users/${userId}?permanent=true`);
+    return res.data;
+  },
 
   // ── Lab Management ───────────────────────────────────────────────────────────
   getLabs: async () => {
@@ -396,6 +411,14 @@ export const AdminService = {
   },
   deactivateDoctor: async (doctorId) => {
     const res = await API.delete(`/v1/admin/doctors/${doctorId}`);
+    return res.data;
+  },
+  reactivateDoctor: async (doctorId) => {
+    const res = await API.patch(`/v1/admin/doctors/${doctorId}`, { is_active: true });
+    return res.data;
+  },
+  permanentDeleteDoctor: async (doctorId) => {
+    const res = await API.delete(`/v1/admin/doctors/${doctorId}?permanent=true`);
     return res.data;
   },
 };

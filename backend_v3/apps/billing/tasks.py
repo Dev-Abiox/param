@@ -233,14 +233,15 @@ def send_usage_alert(org_id: str, current_count: int, limit: int, threshold_pct:
         )
         return
 
-    # Find the ADMIN user for this organisation
-    admin_user = (
+    # Find the LAB owner for this organisation
+    lab_user = (
         User.objects
-        .filter(organization_id=org_id, role=Role.ADMIN, is_active=True)
+        .filter(organization_id=org_id, role=Role.LAB, is_active=True)
+        .order_by('created_at')
         .first()
     )
-    if not admin_user or not admin_user.email:
-        logger.warning('billing.usage_alert_no_admin_email', org_id=org_id)
+    if not lab_user or not lab_user.email:
+        logger.warning('billing.usage_alert_no_lab_email', org_id=org_id)
         return
 
     try:
@@ -288,14 +289,14 @@ def send_usage_alert(org_id: str, current_count: int, limit: int, threshold_pct:
             subject=subject,
             message=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[admin_user.email],
+            recipient_list=[lab_user.email],
             fail_silently=False,
         )
         logger.info(
             'billing.usage_alert_sent',
             org_id=org_id,
             threshold_pct=threshold_pct,
-            recipient=admin_user.email,
+            recipient=lab_user.email,
         )
     except Exception as exc:
         # Clear the dedup key so a retry can attempt delivery again
@@ -374,6 +375,127 @@ def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_is
             'billing.welcome_email_send_failed',
             user_id=user_id,
             org_name=org_name,
+            error=str(exc),
+        )
+        raise
+
+
+@shared_task(
+    name='billing.send_credentials_email',
+    max_retries=3,
+    default_retry_delay=30,
+    acks_late=True,
+)
+def send_credentials_email(user_id: str, plain_password: str, org_name: str) -> None:
+    """
+    Send login credentials to a newly created user (admin-created or onboarding).
+
+    Parameters
+    ----------
+    user_id        : str — UUID of the User record (public schema).
+    plain_password : str — The plain-text password assigned during creation.
+    org_name       : str — Human-readable organisation name.
+    """
+    from django.conf import settings
+    from django.core.mail import send_mail
+    from apps.core.models import User
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        logger.warning('billing.credentials_email_user_not_found', user_id=user_id)
+        return
+
+    if not user.email:
+        logger.warning('billing.credentials_email_no_email', user_id=user_id)
+        return
+
+    login_url = f'{settings.FRONTEND_URL}/login'
+    subject = f'Your Clinomic Account — {org_name}'
+    message = (
+        f'Hi {user.name or user.username},\n\n'
+        f'An account has been created for you on the Clinomic platform '
+        f'for organisation "{org_name}".\n\n'
+        f'Here are your login credentials:\n'
+        f'  Username : {user.username}\n'
+        f'  Password : {plain_password}\n\n'
+        f'Please sign in at: {login_url}\n\n'
+        f'For security, we recommend changing your password after your first login.\n\n'
+        f'If you have any questions, contact your administrator or reach out to '
+        f'support@clinomiclabs.com\n\n'
+        f'— The Clinomic Team'
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        logger.info(
+            'billing.credentials_email_sent',
+            user_id=user_id,
+            org_name=org_name,
+            recipient=user.email,
+        )
+    except Exception as exc:
+        logger.error(
+            'billing.credentials_email_send_failed',
+            user_id=user_id,
+            org_name=org_name,
+            error=str(exc),
+        )
+        raise
+
+
+@shared_task(
+    name='billing.send_mfa_otp_email',
+    max_retries=3,
+    default_retry_delay=10,
+    acks_late=True,
+)
+def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> None:
+    """
+    Send a 6-digit MFA verification code to the user's email.
+
+    Parameters
+    ----------
+    user_id         : str — UUID of the User record.
+    otp_code        : str — The 6-digit OTP code.
+    recipient_email : str — Email address to send the code to.
+    """
+    from django.conf import settings as django_settings
+    from django.core.mail import send_mail
+
+    subject = 'Your Clinomic verification code'
+    message = (
+        f'Your Clinomic verification code is:\n\n'
+        f'    {otp_code}\n\n'
+        f'This code expires in 5 minutes. If you did not request this code, '
+        f'please ignore this email.\n\n'
+        f'— The Clinomic Team'
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[recipient_email],
+            fail_silently=False,
+        )
+        logger.info(
+            'billing.mfa_otp_email_sent',
+            user_id=user_id,
+            recipient=recipient_email,
+        )
+    except Exception as exc:
+        logger.error(
+            'billing.mfa_otp_email_send_failed',
+            user_id=user_id,
+            recipient=recipient_email,
             error=str(exc),
         )
         raise

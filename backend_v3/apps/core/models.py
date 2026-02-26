@@ -58,8 +58,7 @@ class Domain(DomainMixin):
 class Role(models.TextChoices):
     """User roles in the system."""
     SUPER_ADMIN = 'SUPER_ADMIN', 'Platform Administrator'
-    ADMIN = 'ADMIN', 'Administrator'
-    LAB = 'LAB', 'Lab Technician'
+    LAB = 'LAB', 'Lab Manager'
     DOCTOR = 'DOCTOR', 'Doctor'
 
 
@@ -130,6 +129,12 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.is_superuser or self.role == Role.SUPER_ADMIN
 
 
+class MFAMethod(models.TextChoices):
+    """Supported MFA verification methods."""
+    TOTP = 'TOTP', 'Authenticator App'
+    EMAIL = 'EMAIL', 'Email Code'
+
+
 class MFASettings(models.Model):
     """
     MFA configuration for a user.
@@ -141,6 +146,11 @@ class MFASettings(models.Model):
         related_name='mfa_settings'
     )
     is_enabled = models.BooleanField(default=False)
+    mfa_method = models.CharField(
+        max_length=10,
+        choices=MFAMethod.choices,
+        default=MFAMethod.TOTP,
+    )
     secret_key = models.TextField(blank=True)  # Encrypted TOTP secret (Fernet ciphertext)
     backup_codes = models.JSONField(default=list)  # Hashed backup codes
     recovery_email = models.EmailField(blank=True, null=True)

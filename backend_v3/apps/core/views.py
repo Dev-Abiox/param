@@ -27,11 +27,12 @@ from .authentication import (
 )
 from .crypto import get_crypto_status
 from .mfa import MFAManager
-from .models import Role, User
+from .models import MFAMethod, Role, User
 from .permissions import IsAdmin, IsMFAVerified, IsOrgManager
 from .serializers import (
     LoginSerializer,
     MFACodeSerializer,
+    MFAResendOTPSerializer,
     MFASetupSerializer,
     MFAStatusSerializer,
     MFAVerifySerializer,
@@ -83,6 +84,17 @@ class MFATOTPThrottle(SimpleRateThrottle):
         return self.cache_format % {
             'scope': self.scope,
             'ident': ident,
+        }
+
+
+class MFAResendThrottle(SimpleRateThrottle):
+    """Rate limit OTP resend to 3 per 5 minutes per IP."""
+    scope = 'mfa_resend'
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            'scope': self.scope,
+            'ident': self.get_ident(request),
         }
 
 
@@ -145,10 +157,10 @@ class LoginView(APIView):
         # Check if MFA is required
         mfa_status = MFAManager.get_mfa_status(user)
 
-        # C4: ADMIN and DOCTOR must have MFA set up before accessing features.
+        # C4: LAB, DOCTOR, and SUPER_ADMIN must have MFA set up before accessing features.
         # If they haven't configured MFA yet, issue a restricted token that only
         # allows the MFA-setup endpoints (mfa_verified=False blocks everything else).
-        MFA_REQUIRED_ROLES = {Role.ADMIN, Role.DOCTOR, Role.SUPER_ADMIN}
+        MFA_REQUIRED_ROLES = {Role.LAB, Role.DOCTOR, Role.SUPER_ADMIN}
         if user.role in MFA_REQUIRED_ROLES and not mfa_status['enabled']:
             restricted_token = create_access_token(user, mfa_verified=False)
             refresh_token, _ = create_refresh_token(user)
@@ -164,15 +176,25 @@ class LoginView(APIView):
 
         if mfa_status['enabled']:
             if not mfa_code:
-                # Return MFA pending token
                 pending_token = create_mfa_pending_token(user)
-                return Response({
+                resp_data = {
                     'mfa_required': True,
                     'mfa_pending_token': pending_token,
+                    'mfa_method': mfa_status['mfa_method'],
                     'id': str(user.id),
                     'name': user.name or user.username,
                     'role': user.role,
-                })
+                }
+
+                # For email OTP, auto-send the code
+                if mfa_status['mfa_method'] == MFAMethod.EMAIL:
+                    from .mfa import _mask_email
+                    otp_email = MFAManager.get_otp_email(user)
+                    code = MFAManager.generate_email_otp(user)
+                    MFAManager._send_otp_email(user, code, otp_email)
+                    resp_data['masked_email'] = _mask_email(otp_email)
+
+                return Response(resp_data)
 
             # Verify MFA code
             if not MFAManager.verify_code(user, mfa_code):
@@ -329,8 +351,12 @@ class MFASetupView(APIView):
 
         result = MFAManager.setup_mfa(
             request.user,
-            email=serializer.validated_data.get('email')
+            email=serializer.validated_data.get('email'),
+            method=serializer.validated_data.get('method', 'TOTP'),
         )
+
+        if 'error' in result:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(result)
 
@@ -416,6 +442,61 @@ class MFABackupCodesView(APIView):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(result)
+
+
+class MFAResendOTPView(APIView):
+    """
+    Resend email OTP during login.
+
+    POST /api/mfa/resend-otp
+    Requires a valid mfa_pending_token. Rate-limited to 3 per 5 minutes.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [MFAResendThrottle]
+
+    def post(self, request):
+        serializer = MFAResendOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        pending_token = serializer.validated_data['mfa_pending_token']
+
+        try:
+            payload = decode_token(pending_token, token_type='mfa_pending')
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, KeyError, ValueError):
+            return Response(
+                {'error': 'Invalid or expired MFA token'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        try:
+            user = User.objects.get(id=payload['sub'])
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not MFAManager.can_resend_otp(user):
+            return Response(
+                {'error': 'Please wait before requesting a new code'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
+        otp_email = MFAManager.get_otp_email(user)
+        if not otp_email:
+            return Response(
+                {'error': 'No email address configured'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from .mfa import _mask_email
+        code = MFAManager.generate_email_otp(user)
+        MFAManager._send_otp_email(user, code, otp_email)
+
+        return Response({
+            'success': True,
+            'masked_email': _mask_email(otp_email),
+        })
 
 
 class HealthLiveView(APIView):
@@ -757,9 +838,9 @@ class AdminUserListView(APIView):
     def get(self, request):
         org = request.user.organization
         users = User.objects.filter(organization=org).order_by('name', 'username')
-        # LAB owners only see their staff (technicians / DOCTOR role)
+        # LAB users see all org users except SUPER_ADMIN
         if request.user.role == Role.LAB:
-            users = users.filter(role=Role.DOCTOR)
+            users = users.exclude(role=Role.SUPER_ADMIN)
         data = [
             {
                 'id': str(u.id),
@@ -790,10 +871,10 @@ class AdminUserListView(APIView):
         if role not in Role.values:
             return Response({'error': f'Invalid role. Must be one of: {Role.values}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # LAB owners can only create technician (DOCTOR) accounts
-        if request.user.role == Role.LAB and role != Role.DOCTOR:
+        # LAB users can create LAB and DOCTOR accounts (not SUPER_ADMIN)
+        if request.user.role == Role.LAB and role not in (Role.LAB, Role.DOCTOR):
             return Response(
-                {'error': 'Lab owners can only create technician accounts'},
+                {'error': 'You can only create LAB or DOCTOR accounts'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -813,6 +894,15 @@ class AdminUserListView(APIView):
             return Response({'error': e.messages}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(password)
         user.save()
+
+        # Send credentials email asynchronously (if email provided)
+        if user.email:
+            try:
+                from apps.billing.tasks import send_credentials_email
+                org_name = org.name if org else 'Clinomic'
+                send_credentials_email.delay(str(user.id), password, org_name)
+            except Exception:
+                pass  # Non-critical — don't block user creation
 
         return Response({
             'id': str(user.id),
@@ -836,8 +926,8 @@ class AdminUserDetailView(APIView):
     def _get_user(self, request, user_id):
         try:
             user = User.objects.get(id=user_id, organization=request.user.organization)
-            # LAB owners can only manage DOCTOR (technician) users
-            if request.user.role == Role.LAB and user.role != Role.DOCTOR:
+            # LAB users cannot manage SUPER_ADMIN users
+            if request.user.role == Role.LAB and user.role == Role.SUPER_ADMIN:
                 return None
             return user
         except User.DoesNotExist:
@@ -856,10 +946,10 @@ class AdminUserDetailView(APIView):
                     value = value.upper()
                     if value not in Role.values:
                         return Response({'error': f'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
-                    # LAB owners cannot assign privileged roles
-                    if request.user.role == Role.LAB and value != Role.DOCTOR:
+                    # LAB users can only assign LAB or DOCTOR roles
+                    if request.user.role == Role.LAB and value not in (Role.LAB, Role.DOCTOR):
                         return Response(
-                            {'error': 'Lab owners can only assign the technician role'},
+                            {'error': 'You can only assign LAB or DOCTOR roles'},
                             status=status.HTTP_403_FORBIDDEN,
                         )
                 setattr(user, field, value)
@@ -888,6 +978,16 @@ class AdminUserDetailView(APIView):
 
         if user.id == request.user.id:
             return Response({'error': 'Cannot deactivate your own account'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ?permanent=true → hard-delete (only for already-inactive users)
+        if request.query_params.get('permanent') == 'true':
+            if user.is_active:
+                return Response(
+                    {'error': 'Deactivate the user first before permanently removing'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            user.delete()
+            return Response({'detail': 'User permanently removed'})
 
         user.is_active = False
         user.save(update_fields=['is_active', 'updated_at'])
