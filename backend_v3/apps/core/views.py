@@ -136,6 +136,13 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        # Switch to the user's tenant schema so tenant-specific queries
+        # (Lab, Doctor) resolve correctly. Login requests have no JWT yet,
+        # so JWTTenantMiddleware cannot do this automatically.
+        if user.organization and user.organization.schema_name != 'public':
+            from django.db import connection as db_connection
+            db_connection.set_tenant(user.organization)
+
         # Block LAB users when no active lab exists in their tenant
         if user.role == Role.LAB:
             from apps.screening.models import Lab
