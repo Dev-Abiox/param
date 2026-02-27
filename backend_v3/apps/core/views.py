@@ -901,8 +901,8 @@ class AdminUserListView(APIView):
                 from apps.billing.tasks import send_credentials_email
                 org_name = org.name if org else 'Clinomic'
                 send_credentials_email.delay(str(user.id), password, org_name)
-            except Exception:
-                pass  # Non-critical — don't block user creation
+            except Exception as exc:
+                logger.warning('send_credentials_email_failed', user_id=str(user.id), error=str(exc))
 
         return Response({
             'id': str(user.id),

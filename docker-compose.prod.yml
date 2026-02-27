@@ -46,10 +46,10 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-https://clinomiclabs.com}
       - CORS_ORIGINS=${FRONTEND_URL:-https://clinomiclabs.com}
       - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://clinomiclabs.com}
-      - REDIS_URL=redis://redis:6379/0    # C5: Redis auth
-      - CACHE_REDIS_URL=redis://redis:6379/1
-      - CHANNELS_REDIS_URL=redis://redis:6379/2
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CHANNELS_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
       - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
@@ -79,7 +79,7 @@ services:
       - static_volume:/app/staticfiles
       - ./ml/models:/app/ml/models:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -f -H 'Host: clinomiclabs.com' http://localhost:8000/api/health/live || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health/live || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -154,7 +154,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
-    command: redis-server --save 60 1 --loglevel warning
+    command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
     healthcheck:
@@ -194,9 +194,9 @@ services:
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
       - FRONTEND_URL=${FRONTEND_URL:-https://clinomiclabs.com}
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_REDIS_URL=redis://redis:6379/1
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
       - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
@@ -242,9 +242,9 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_REDIS_URL=redis://redis:6379/1
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
       - SENTRY_DSN=${SENTRY_DSN:-}
     depends_on:
       db:

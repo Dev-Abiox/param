@@ -268,7 +268,11 @@ class LabListView(APIView):
     required_roles = [Role.LAB, Role.SUPER_ADMIN]
 
     def get(self, request):
-        labs = Lab.objects.filter(is_active=True).prefetch_related('doctors', 'screenings')
+        from django.db.models import Count
+        labs = Lab.objects.filter(is_active=True).annotate(
+            doctors_count=Count('doctors'),
+            cases_count=Count('screenings'),
+        )
         serializer = LabSerializer(labs, many=True)
         return Response(serializer.data)
 
@@ -285,7 +289,10 @@ class DoctorListView(APIView):
     def get(self, request):
         lab_id = request.query_params.get('labId')
 
-        queryset = Doctor.objects.filter(is_active=True).select_related('lab')
+        from django.db.models import Count
+        queryset = Doctor.objects.filter(is_active=True).select_related('lab').annotate(
+            cases_count=Count('screenings'),
+        )
         if lab_id:
             queryset = queryset.filter(lab__code=lab_id)
 
@@ -409,10 +416,8 @@ class ConsentStatusView(APIView):
                 now_utc = datetime.now(timezone.utc)
                 is_expired = bool(consent.expires_at and consent.expires_at < now_utc)
 
-                # Keep DB status in sync
-                if is_expired:
-                    consent.status = 'expired'
-                    consent.save(update_fields=['status', 'updated_at'])
+                # Note: expired consents are transitioned by Celery beat
+                # (purge_expired_consents). GET must not mutate state.
 
                 log_phi_access(request, patient_id, 'PHI_CONSENT_READ', {
                     'has_consent': not is_expired,

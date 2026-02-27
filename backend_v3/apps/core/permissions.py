@@ -4,7 +4,7 @@ Role-based permissions for Clinomic API.
 
 from rest_framework import permissions
 
-from .models import Role
+from .models import MFASettings, Role
 
 
 class IsAdmin(permissions.BasePermission):
@@ -132,7 +132,7 @@ class IsMFAVerified(permissions.BasePermission):
         # If user hasn't set up MFA yet, don't block them
         try:
             mfa_settings = request.user.mfa_settings
-        except Exception:
+        except MFASettings.DoesNotExist:
             mfa_settings = None
         if mfa_settings is None or not mfa_settings.is_enabled:
             return True

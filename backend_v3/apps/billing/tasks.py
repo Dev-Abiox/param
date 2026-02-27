@@ -755,11 +755,13 @@ def trigger_webhook(organization, event_name: str, payload: dict) -> None:
 
 @shared_task(
     name='billing.send_lab_created_email',
+    bind=True,
     max_retries=3,
     default_retry_delay=30,
     acks_late=True,
 )
 def send_lab_created_email(
+    self,
     user_id: str,
     org_name: str,
     plan_name: str,

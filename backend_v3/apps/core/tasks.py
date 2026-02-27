@@ -58,6 +58,24 @@ def purge_old_screenings() -> int:
     return deleted
 
 
+@shared_task(name='core.expire_stale_consents')
+def expire_stale_consents() -> int:
+    """
+    Transition active consents whose expires_at has passed to 'expired' status.
+    Runs hourly so the GET endpoint never needs to mutate state.
+    """
+    from apps.screening.models import Consent
+
+    now = datetime.now(timezone.utc)
+    updated = Consent.objects.filter(
+        status='active',
+        expires_at__lt=now,
+    ).update(status='expired')
+    if updated:
+        logger.info("consents_expired", count=updated)
+    return updated
+
+
 @shared_task(name='core.purge_old_consents')
 def purge_old_consents() -> int:
     """

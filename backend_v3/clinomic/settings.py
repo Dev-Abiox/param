@@ -334,6 +334,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'core.purge_expired_refresh_tokens',
         'schedule': 3600,   # seconds
     },
+    # Hourly: transition active consents whose expires_at has passed
+    'expire-stale-consents': {
+        'task': 'core.expire_stale_consents',
+        'schedule': 3600,   # seconds
+    },
     # Daily 02:00 UTC: enforce screening & consent retention policy
     'purge-old-screenings': {
         'task': 'core.purge_old_screenings',
