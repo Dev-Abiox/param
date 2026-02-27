@@ -206,7 +206,10 @@ def compute_monthly_rollups() -> int:
 @shared_task(
     name='billing.send_usage_alert',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_usage_alert(org_id: str, current_count: int, limit: int, threshold_pct: int) -> None:
@@ -313,7 +316,10 @@ def send_usage_alert(org_id: str, current_count: int, limit: int, threshold_pct:
 @shared_task(
     name='billing.send_welcome_email',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_iso: str) -> None:
@@ -383,7 +389,10 @@ def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_is
 @shared_task(
     name='billing.send_credentials_email',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_credentials_email(user_id: str, plain_password: str, org_name: str) -> None:
@@ -453,7 +462,10 @@ def send_credentials_email(user_id: str, plain_password: str, org_name: str) -> 
 @shared_task(
     name='billing.send_mfa_otp_email',
     max_retries=3,
-    default_retry_delay=10,
+    autoretry_for=(Exception,),
+    retry_backoff=10,
+    retry_backoff_max=120,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> None:
@@ -504,7 +516,10 @@ def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> Non
 @shared_task(
     name='billing.send_high_risk_alert',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_high_risk_alert(
@@ -687,7 +702,7 @@ def deliver_webhook(
             endpoint.url,
             data=body,
             headers=headers,
-            timeout=10,
+            timeout=(5, 10),
         )
         response.raise_for_status()
         logger.info(
@@ -757,7 +772,10 @@ def trigger_webhook(organization, event_name: str, payload: dict) -> None:
     name='billing.send_lab_created_email',
     bind=True,
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_lab_created_email(

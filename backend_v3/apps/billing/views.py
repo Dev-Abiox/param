@@ -277,12 +277,9 @@ class WebhookView(APIView):
             client.utility.verify_webhook_signature(
                 request.body.decode('utf-8'), sig, webhook_secret
             )
-        except razorpay.errors.SignatureVerificationError:
-            logger.warning('billing.webhook_invalid_signature')
+        except Exception as exc:
+            logger.warning('billing.webhook_invalid_signature', error=type(exc).__name__)
             return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
-        except (UnicodeDecodeError, ValueError) as exc:
-            logger.error('billing.webhook_decode_error', error=str(exc))
-            return Response({'error': 'malformed payload'}, status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data
         event_type = data.get('event', '')
