@@ -16,7 +16,7 @@ export async function parsePdf(file, onProgress) {
   let isOCR = false;
 
   if (lines.length === 0) {
-    console.log("No digital text found, falling back to OCR...");
+    // Digital text extraction failed — fall back to OCR
     if (onProgress) onProgress("Scanning image with OCR...");
     lines = await extractWithOCR(pdf);
     isOCR = true;
@@ -24,20 +24,8 @@ export async function parsePdf(file, onProgress) {
 
   const fullText = lines.join("\n");
 
-  // Detailed logging for debugging
-  console.log("=== PDF PARSER DEBUG ===");
-  console.log("Mode:", isOCR ? "OCR" : "Digital");
-  console.log("Lines count:", lines.length);
-  console.log("Lines:", lines);
-  console.log("Full text (3000 chars):", fullText.substring(0, 3000));
-
   const cbc = extractCBCValues(lines, fullText, isOCR);
   const patient = extractPatientInfo(lines, fullText);
-
-  console.log("=== RESULTS ===");
-  console.log("CBC:", JSON.stringify(cbc));
-  console.log("Patient:", JSON.stringify(patient));
-  console.log("CBC count:", Object.keys(cbc).length, "/ 11");
 
   return { cbc, patient };
 }
@@ -110,7 +98,7 @@ async function extractWithOCR(pdf) {
     const { data: ocrData } = await Tesseract.recognize(canvas, "eng", {
       logger: (m) => {
         if (m.status === "recognizing text") {
-          console.log(`OCR page ${i}: ${Math.round((m.progress || 0) * 100)}%`);
+          // OCR progress tracked internally
         }
       },
     });
@@ -121,7 +109,7 @@ async function extractWithOCR(pdf) {
       .filter((l) => l.length > 0);
 
     allLines.push(...ocrLines);
-    console.log(`OCR page ${i}: ${ocrLines.length} lines`);
+    // OCR extraction complete for page
   }
 
   return allLines;
@@ -284,7 +272,7 @@ function extractCBCValues(lines, fullText, isOCR) {
     const val = findValueInLines(lines, patterns, range, isOCR);
     if (val !== undefined) {
       cbc[key] = val;
-      console.log(`S1 pattern: ${key} = ${val}`);
+      // S1 matched
     }
   }
 
@@ -302,7 +290,7 @@ function extractCBCValues(lines, fullText, isOCR) {
       if (nums) {
         for (const n of nums) {
           const v = normalizeValue(parseFloat(n), range, isOCR);
-          if (v !== undefined) { cbc[key] = v; console.log(`S2 nums: ${key} = ${v}`); break; }
+          if (v !== undefined) { cbc[key] = v; break; }
         }
       }
       if (cbc[key] !== undefined) break;
@@ -311,7 +299,7 @@ function extractCBCValues(lines, fullText, isOCR) {
         const nxt = lines[i + 1].match(/^\s*(\d+\.?\d*)/);
         if (nxt) {
           const v = normalizeValue(parseFloat(nxt[1]), range, isOCR);
-          if (v !== undefined) { cbc[key] = v; console.log(`S2 next: ${key} = ${v}`); break; }
+          if (v !== undefined) { cbc[key] = v; break; }
         }
       }
     }
@@ -332,7 +320,7 @@ function extractCBCValues(lines, fullText, isOCR) {
       if (sectionIdx >= 0) break;
     }
     if (sectionIdx < 0) continue;
-    console.log(`Section found at line ${sectionIdx}: "${lines[sectionIdx]}"`);
+    // S3 section found
 
     let orderPos = 0;
     for (let i = sectionIdx + 1; i < lines.length && orderPos < section.order.length; i++) {
@@ -351,7 +339,7 @@ function extractCBCValues(lines, fullText, isOCR) {
             const v = normalizeValue(parseFloat(n), mapping.range, isOCR);
             if (v !== undefined) {
               cbc[key] = v;
-              console.log(`S3 section: ${key} = ${v} from "${line}"`);
+              // S3 matched
               break;
             }
           }
@@ -371,7 +359,7 @@ function extractCBCValues(lines, fullText, isOCR) {
         const v = normalizeValue(parseFloat(m[1]), range, isOCR);
         if (v !== undefined) {
           cbc[key] = v;
-          console.log(`S4 flat: ${key} = ${v}`);
+          // S4 matched
           break;
         }
       }
@@ -398,7 +386,7 @@ function extractPatientInfo(lines, fullText) {
         name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Reg|Sample|Lab|ID|Acc|Report|Bill|UHID|MRN|Referred|Barcode).*$/i, "").trim();
         if (name.length > 1 && name.length < 80) {
           patient.name = name;
-          console.log(`Patient name from: "${line}" → "${name}"`);
+          // Patient name extracted
         }
       }
     }
@@ -413,7 +401,7 @@ function extractPatientInfo(lines, fullText) {
         name = name.replace(/\s+(Age|Sex|Gender|DOB|Date|Ref|Reg|Sample|Lab|ID|Report|Referred|Result|Unit).*$/i, "").trim();
         if (name.length > 1 && name.length < 80 && !/^(Test|Result|Unit|Reference|Biological|Blood|Complete|Sample)/i.test(name)) {
           patient.name = name;
-          console.log(`Patient name (fallback) from: "${line}" → "${name}"`);
+          // Patient name extracted (fallback)
         }
       }
     }
@@ -428,7 +416,7 @@ function extractPatientInfo(lines, fullText) {
         if (age > 0 && age < 150) {
           patient.age = age;
           patient.sex = m[2].charAt(0).toUpperCase() === "M" ? "M" : "F";
-          console.log(`Age/Sex from: "${line}" → ${age}/${patient.sex}`);
+          // Age/Sex extracted
         }
       }
     }
@@ -459,7 +447,7 @@ function extractPatientInfo(lines, fullText) {
       const m = line.match(/(?:Sex|Gender)\s*[:;\-.\s]\s*(Male|Female|M|F)\b/i);
       if (m) {
         patient.sex = m[1].charAt(0).toUpperCase() === "M" ? "M" : "F";
-        console.log(`Sex from: "${line}" → ${patient.sex}`);
+        // Sex extracted
       }
     }
 
@@ -470,7 +458,7 @@ function extractPatientInfo(lines, fullText) {
       );
       if (m && m[1].trim().length > 1) {
         patient.id = m[1].trim();
-        console.log(`Patient ID from: "${line}" → "${patient.id}"`);
+        // Patient ID extracted
       }
     }
   }

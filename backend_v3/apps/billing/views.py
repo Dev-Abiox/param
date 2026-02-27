@@ -190,8 +190,8 @@ class SignupView(APIView):
                 plan_name=plan.display_name,
                 trial_end_iso=trial_end.isoformat(),
             )
-        except Exception:
-            logger.warning('signup.welcome_email_queue_failed', user=user.username)
+        except (OSError, ImportError) as exc:
+            logger.warning('signup.welcome_email_queue_failed', user=user.username, error=str(exc))
 
         response = Response({
             'access_token': access_token,
@@ -277,9 +277,12 @@ class WebhookView(APIView):
             client.utility.verify_webhook_signature(
                 request.body.decode('utf-8'), sig, webhook_secret
             )
-        except Exception:
+        except razorpay.errors.SignatureVerificationError:
             logger.warning('billing.webhook_invalid_signature')
             return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+        except (UnicodeDecodeError, ValueError) as exc:
+            logger.error('billing.webhook_decode_error', error=str(exc))
+            return Response({'error': 'malformed payload'}, status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data
         event_type = data.get('event', '')
