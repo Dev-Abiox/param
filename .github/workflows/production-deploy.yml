@@ -50,7 +50,6 @@ jobs:
           DJANGO_SECRET_KEY: ci-secret-key-not-for-production
           JWT_SECRET_KEY: ci-jwt-secret-key-not-for-production
           JWT_REFRESH_SECRET_KEY: ci-jwt-refresh-secret-not-for-production
-          MASTER_ENCRYPTION_KEY: ${{ secrets.CI_MASTER_ENCRYPTION_KEY }}
           AUDIT_SIGNING_KEY: ci-audit-signing-key-not-for-production-at-all
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
