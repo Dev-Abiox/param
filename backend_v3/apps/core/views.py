@@ -902,7 +902,7 @@ class AdminUserListView(APIView):
                 org_name = org.name if org else 'Clinomic'
                 send_credentials_email.delay(str(user.id), password, org_name)
             except Exception as exc:
-                logger.warning('send_credentials_email_failed', user_id=str(user.id), error=str(exc))
+                logger.warning('send_credentials_email_failed user_id=%s error=%s', user.id, exc)
 
         return Response({
             'id': str(user.id),
