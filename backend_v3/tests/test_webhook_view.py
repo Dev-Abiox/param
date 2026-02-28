@@ -165,16 +165,19 @@ class TestWebhookView:
         mock_pe.save.assert_called()
 
     @patch('apps.billing.views.settings')
+    @patch('apps.billing.views.transaction')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_subscription_charged_resets_counter(self, MockSub, MockPE,
-                                                  mock_settings, rf):
+                                                  mock_txn, mock_settings, rf):
         """subscription.charged should reset current_period_count to 0."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
+        mock_txn.atomic.return_value.__enter__ = MagicMock()
+        mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -185,6 +188,7 @@ class TestWebhookView:
         mock_sub.organization = MagicMock()
         mock_sub.current_period_count = 42
         MockSub.objects.filter.return_value.select_related.return_value.first.return_value = mock_sub
+        MockSub.objects.select_for_update.return_value.select_related.return_value.get.return_value = mock_sub
 
         payload = _subscription_payload('subscription.charged')
         request = _webhook_request(rf, payload)
@@ -196,16 +200,19 @@ class TestWebhookView:
         assert mock_sub.current_period_count == 0
 
     @patch('apps.billing.views.settings')
+    @patch('apps.billing.views.transaction')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_subscription_cancelled_sets_status(self, MockSub, MockPE,
-                                                 mock_settings, rf):
+                                                 mock_txn, mock_settings, rf):
         """subscription.cancelled should transition sub to CANCELLED."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
+        mock_txn.atomic.return_value.__enter__ = MagicMock()
+        mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -215,6 +222,7 @@ class TestWebhookView:
         mock_sub.organization_id = str(uuid.uuid4())
         mock_sub.organization = MagicMock()
         MockSub.objects.filter.return_value.select_related.return_value.first.return_value = mock_sub
+        MockSub.objects.select_for_update.return_value.select_related.return_value.get.return_value = mock_sub
         MockSub.Status.CANCELLED = 'CANCELLED'
 
         payload = _subscription_payload('subscription.cancelled')
@@ -227,16 +235,19 @@ class TestWebhookView:
         mock_sub.transition_to.assert_called_once_with('CANCELLED')
 
     @patch('apps.billing.views.settings')
+    @patch('apps.billing.views.transaction')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     def test_payment_failed_sets_past_due(self, MockSub, MockPE,
-                                           mock_settings, rf):
+                                           mock_txn, mock_settings, rf):
         """payment.failed should transition sub to PAST_DUE."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
+        mock_txn.atomic.return_value.__enter__ = MagicMock()
+        mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
@@ -246,6 +257,7 @@ class TestWebhookView:
         mock_sub.organization_id = str(uuid.uuid4())
         mock_sub.organization = MagicMock()
         MockSub.objects.filter.return_value.select_related.return_value.first.return_value = mock_sub
+        MockSub.objects.select_for_update.return_value.select_related.return_value.get.return_value = mock_sub
         MockSub.Status.PAST_DUE = 'PAST_DUE'
 
         payload = _subscription_payload('payment.failed')
