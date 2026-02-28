@@ -190,7 +190,7 @@ def authenticated_doctor_user(test_tenant, db):
 
 @pytest.fixture
 @pytest.mark.django_db
-def authenticated_superadmin(db):
+def authenticated_superadmin(db, public_tenant):
     """Create a SUPER_ADMIN user (no tenant) with a valid access token."""
     from apps.core.models import Role, User
     from apps.core.authentication import create_access_token
