@@ -43,8 +43,8 @@ services:
       - CACHE_REDIS_URL=redis://redis_testing:6379/1
       - CHANNELS_REDIS_URL=redis://redis_testing:6379/2
       - CELERY_BROKER_URL=redis://redis_testing:6379/0
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-REDACTED_ROTATED_2026_04_15}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-REDACTED_ROTATED_2026_04_15}
       - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
       - EMAIL_HOST=${EMAIL_HOST:-mail.arogyabiox.com}
       - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
@@ -123,6 +123,9 @@ services:
       - REDIS_URL=redis://redis_testing:6379/0
       - CACHE_REDIS_URL=redis://redis_testing:6379/1
       - CELERY_BROKER_URL=redis://redis_testing:6379/0
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-REDACTED_ROTATED_2026_04_15}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-REDACTED_ROTATED_2026_04_15}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
     depends_on:
       db_testing:
         condition: service_healthy
