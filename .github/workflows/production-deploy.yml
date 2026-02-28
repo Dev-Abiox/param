@@ -151,7 +151,8 @@ jobs:
           scp docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
           scp nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
           scp -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/
-          scp -r monitoring/ $SERVER:/opt/clinomic-b12-platform/monitoring/
+          scp monitoring/prometheus.yml $SERVER:/opt/clinomic-b12-platform/monitoring/prometheus.yml
+          scp -r monitoring/grafana/provisioning/ $SERVER:/opt/clinomic-b12-platform/monitoring/grafana/provisioning/
       - name: Deploy to Production
         run: |
           ssh deploy@${{ secrets.HOST_IP }} << 'EOF'
