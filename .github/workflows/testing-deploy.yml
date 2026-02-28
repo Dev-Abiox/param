@@ -166,7 +166,13 @@ jobs:
     - name: Add server to known hosts
       run: |
         mkdir -p ~/.ssh
-        ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
+        ssh-keyscan -t rsa -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
+        # Server only supports ssh-rsa — configure client to accept it
+        cat >> ~/.ssh/config << SSHEOF
+        Host ${{ secrets.HOST_IP }}
+          HostKeyAlgorithms +ssh-rsa
+          PubkeyAcceptedAlgorithms +ssh-rsa
+        SSHEOF
 
     - name: Copy config files to server
       run: |
