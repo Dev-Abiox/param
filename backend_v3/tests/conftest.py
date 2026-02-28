@@ -37,18 +37,10 @@ django.setup()
 TEST_ENCRYPTION_KEY = "vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ="
 
 
-@pytest.fixture(scope="session")
-def django_db_setup():
-    """Configure test database with tenant-aware backend."""
-    settings.DATABASES["default"] = {
-        "ENGINE": "django_tenants.postgresql_backend",
-        "NAME": "clinomic_test",
-        "USER": os.environ.get("POSTGRES_USER", "postgres"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "postgres"),
-        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-    }
-    settings.DATABASE_ROUTERS = ['django_tenants.routers.TenantSyncRouter']
+# NOTE: django_db_setup is NOT overridden here.
+# settings.py already configures ENGINE='django_tenants.postgresql_backend'
+# and DATABASE_ROUTERS. Letting pytest-django's default django_db_setup
+# handle test DB creation ensures migrate_schemas runs correctly.
 
 
 @pytest.fixture
