@@ -121,17 +121,23 @@ class TestWebhookView:
         assert response.data['status'] == 'already_processed'
 
     @patch('apps.billing.views.settings')
+    @patch('apps.billing.views.transaction')
     @patch('apps.billing.views.PaymentEvent')
     @patch('apps.billing.views.TenantSubscription')
     @patch('apps.billing.views.SubscriptionPlan')
     def test_subscription_activated_updates_status(self, MockPlan, MockSub,
-                                                    MockPE, mock_settings, rf):
+                                                    MockPE, mock_txn,
+                                                    mock_settings, rf):
         """subscription.activated should transition sub to ACTIVE."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
+
+        # Make transaction.atomic() a no-op context manager
+        mock_txn.atomic.return_value.__enter__ = MagicMock()
+        mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
 
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
