@@ -204,9 +204,12 @@ class TestWorkQueueView:
         response = WorkQueueView.as_view()(request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @patch("apps.screening.views.cache")
     @patch("apps.screening.views.Screening.objects.all")
-    def test_pending_status_returns_200(self, mock_all):
+    def test_pending_status_returns_200(self, mock_all, mock_cache):
+        mock_cache.get.return_value = None  # force aggregate path
         base_qs = MagicMock()
+        base_qs.aggregate.return_value = {'pending': 5, 'in_progress': 0, 'completed': 0}
         base_qs.filter.return_value.count.return_value = 5
         base_qs.filter.return_value.select_related.return_value.order_by.return_value.__getitem__ = MagicMock(return_value=[])
         mock_all.return_value = base_qs
