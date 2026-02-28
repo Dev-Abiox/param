@@ -70,9 +70,10 @@ class TestWebhookURLSSRF:
         assert error is not None
 
     def test_unresolvable_hostname_rejected(self):
+        import socket
         from apps.billing.views import _validate_webhook_url
 
-        with patch('apps.billing.views.socket.getaddrinfo', side_effect=Exception('DNS failed')):
+        with patch('apps.billing.views.socket.getaddrinfo', side_effect=socket.gaierror('DNS failed')):
             error = _validate_webhook_url('https://nonexistent.invalid/webhook')
             assert error is not None
 
