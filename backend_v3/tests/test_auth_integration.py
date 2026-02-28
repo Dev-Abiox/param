@@ -5,14 +5,17 @@ Tests real database interactions — no mocking of core auth logic.
 """
 
 import pytest
-from django.test import override_settings
+from unittest.mock import patch
 from rest_framework.test import APIClient
+
+from apps.core.views import LoginView
 
 
 @pytest.mark.django_db
 class TestLoginIntegration:
     """Test the POST /api/auth/login endpoint with real DB."""
 
+    @patch.object(LoginView, 'throttle_classes', [])
     def test_login_with_valid_credentials_returns_access_token(self, authenticated_lab_user, test_tenant):
         user, _ = authenticated_lab_user
         client = APIClient()
@@ -32,6 +35,7 @@ class TestLoginIntegration:
         assert 'access_token' in data
         assert data['role'] == 'LAB'
 
+    @patch.object(LoginView, 'throttle_classes', [])
     def test_login_with_invalid_password_returns_401(self, authenticated_lab_user):
         client = APIClient()
         response = client.post('/api/auth/login', {
@@ -42,11 +46,13 @@ class TestLoginIntegration:
         assert response.status_code == 401
         assert 'Invalid credentials' in response.json().get('error', '')
 
+    @patch.object(LoginView, 'throttle_classes', [])
     def test_login_with_missing_credentials_returns_400(self, public_tenant):
         client = APIClient()
         response = client.post('/api/auth/login', {}, format='json')
         assert response.status_code == 400
 
+    @patch.object(LoginView, 'throttle_classes', [])
     def test_login_inactive_user_returns_401(self, test_tenant, db):
         from django_tenants.utils import tenant_context
         from apps.core.models import Role, User
@@ -68,6 +74,7 @@ class TestLoginIntegration:
 
         assert response.status_code == 401
 
+    @patch.object(LoginView, 'throttle_classes', [])
     def test_login_inactive_org_returns_401(self, db, public_tenant):
         from apps.core.models import Domain, Organization, Role, User
 

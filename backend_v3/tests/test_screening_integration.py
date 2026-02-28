@@ -14,7 +14,7 @@ from apps.screening.models import Lab, Doctor, ScreeningStatus
 
 @pytest.mark.django_db
 class TestWorkQueueIntegration:
-    """Test GET /api/screening/work-queue."""
+    """Test GET /api/screening/queue."""
 
     def test_work_queue_returns_counts_and_items(self, authenticated_lab_user, test_tenant):
         user, token = authenticated_lab_user
@@ -22,7 +22,7 @@ class TestWorkQueueIntegration:
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
         # Set tenant context via X-Org-Id or let middleware handle it
-        response = client.get('/api/screening/work-queue?status=pending')
+        response = client.get('/api/screening/queue?status=pending')
         # May return 200 with empty list or items
         assert response.status_code == 200
         data = response.json()
@@ -41,7 +41,7 @@ class TestWorkQueueIntegration:
 
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/screening/work-queue?status=pending')
+        response = client.get('/api/screening/queue?status=pending')
 
         if response.status_code == 200:
             data = response.json()
@@ -56,14 +56,14 @@ class TestWorkQueueIntegration:
         user, token = authenticated_lab_user
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/screening/work-queue?status=invalid')
+        response = client.get('/api/screening/queue?status=invalid')
         assert response.status_code == 400
 
     def test_doctor_cannot_access_work_queue(self, authenticated_doctor_user):
         user, token = authenticated_doctor_user
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/screening/work-queue?status=pending')
+        response = client.get('/api/screening/queue?status=pending')
         assert response.status_code == 403
 
 
