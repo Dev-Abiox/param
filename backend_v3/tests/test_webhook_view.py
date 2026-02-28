@@ -81,8 +81,8 @@ class TestWebhookView:
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch('apps.billing.views.settings')
-    def test_invalid_signature_returns_400(self, mock_settings, rf):
-        """Should return 400 when Razorpay signature verification fails."""
+    def test_invalid_signature_returns_401(self, mock_settings, rf):
+        """Should return 401 when Razorpay signature verification fails."""
         from apps.billing.views import WebhookView
 
         mock_settings.RAZORPAY_WEBHOOK_SECRET = 'wh_secret'
@@ -97,7 +97,7 @@ class TestWebhookView:
         view = WebhookView.as_view()
         response = view(request)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch('apps.billing.views.settings')
     @patch('apps.billing.views.PaymentEvent')
