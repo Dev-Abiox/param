@@ -32,6 +32,7 @@ def validate_required_secrets(
     master_key: str,
     audit_key: str,
     *,
+    jwt_secret_key: str = "",
     razorpay_key_id: str = "",
     razorpay_key_secret: str = "",
     razorpay_webhook_secret: str = "",
@@ -62,6 +63,14 @@ def validate_required_secrets(
     _assert_secret("SECRET_KEY", secret_key)
     _assert_secret("MASTER_ENCRYPTION_KEY", master_key)
     _assert_secret("AUDIT_SIGNING_KEY", audit_key)
+
+    # JWT_SECRET_KEY must be set and must differ from DJANGO_SECRET_KEY
+    _assert_secret("JWT_SECRET_KEY", jwt_secret_key)
+    if jwt_secret_key == secret_key:
+        raise ImproperlyConfigured(
+            "[Security] JWT_SECRET_KEY must differ from DJANGO_SECRET_KEY. "
+            "Using the same key weakens security — if one is compromised, both are."
+        )
 
     # Billing and email — warn if missing (allow gradual rollout)
     _warn_if_missing("RAZORPAY_KEY_ID", razorpay_key_id)

@@ -363,6 +363,7 @@ CELERY_BEAT_SCHEDULE = {
 # ── Startup secret validation (must run after all secrets are read) ──────────
 validate_required_secrets(
     APP_ENV, SECRET_KEY, MASTER_ENCRYPTION_KEY, AUDIT_SIGNING_KEY,
+    jwt_secret_key=JWT_SECRET_KEY,
     razorpay_key_id=RAZORPAY_KEY_ID,
     razorpay_key_secret=RAZORPAY_KEY_SECRET,
     razorpay_webhook_secret=RAZORPAY_WEBHOOK_SECRET,

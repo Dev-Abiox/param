@@ -13,9 +13,28 @@ import uuid
 import factory
 from factory.django import DjangoModelFactory
 
-from apps.core.models import Role, User
+from apps.core.models import Domain, Organization, Role, User
 from apps.core.crypto import encrypt_field
 from apps.screening.models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
+
+
+class OrganizationFactory(DjangoModelFactory):
+    class Meta:
+        model = Organization
+
+    id = factory.LazyFunction(uuid.uuid4)
+    name = factory.Sequence(lambda n: f"Test Org {n}")
+    schema_name = factory.Sequence(lambda n: f"test_org_{n}")
+    is_active = True
+
+
+class DomainFactory(DjangoModelFactory):
+    class Meta:
+        model = Domain
+
+    domain = factory.LazyAttribute(lambda o: f"{o.tenant.schema_name}.localhost")
+    tenant = factory.SubFactory(OrganizationFactory)
+    is_primary = True
 
 
 class UserFactory(DjangoModelFactory):
@@ -27,6 +46,7 @@ class UserFactory(DjangoModelFactory):
     email    = factory.LazyAttribute(lambda o: f"{o.username}@clinomic.test")
     role     = Role.LAB
     is_active = True
+    organization = factory.SubFactory(OrganizationFactory)
 
     @classmethod
     def _create(cls, model_class, *args, **kwargs):

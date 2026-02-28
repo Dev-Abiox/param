@@ -30,6 +30,7 @@ const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"
 
 import { AuthService } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 // Route to view mapping for Layout activeView prop
 const routeToView = {
@@ -231,6 +232,7 @@ const App = () => {
   // Not logged in — allow /login and /signup; redirect everything else to /login
   if (!user) {
     return (
+      <ErrorBoundary>
       <Suspense fallback={routeFallback}>
       <Routes>
         <Route
@@ -257,11 +259,13 @@ const App = () => {
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
       </Suspense>
+      </ErrorBoundary>
     );
   }
 
   // Logged in - show app with Layout
   return (
+    <ErrorBoundary>
     <Layout
       user={user}
       onLogout={handleLogout}
@@ -473,6 +477,7 @@ const App = () => {
       </Routes>
       </Suspense>
     </Layout>
+    </ErrorBoundary>
   );
 };
 

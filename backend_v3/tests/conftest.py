@@ -1,5 +1,7 @@
 """
 Pytest configuration and fixtures for Clinomic v3 tests.
+
+Uses django_tenants.postgresql_backend for tenant-aware testing.
 """
 
 import os
@@ -13,10 +15,10 @@ from django.test import override_settings
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'clinomic.settings')
 
 # Set default environment variables for tests
-os.environ.setdefault('DJANGO_SECRET_KEY', 'test-secret-key-for-testing')
-os.environ.setdefault('MASTER_ENCRYPTION_KEY', 'vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=')  # Proper 32-byte base64 encoded test key
-os.environ.setdefault('AUDIT_SIGNING_KEY', 'test-audit-key')
-os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret')
+os.environ.setdefault('DJANGO_SECRET_KEY', 'test-secret-key-for-testing-only-not-production')
+os.environ.setdefault('MASTER_ENCRYPTION_KEY', 'vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ=')
+os.environ.setdefault('AUDIT_SIGNING_KEY', 'test-audit-key-for-testing-only-not-production')
+os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret-key-for-testing-only-not-prod')
 os.environ.setdefault('POSTGRES_DB', 'clinomic_test')
 os.environ.setdefault('POSTGRES_USER', 'postgres')
 os.environ.setdefault('POSTGRES_PASSWORD', 'postgres')
@@ -25,26 +27,28 @@ os.environ.setdefault('POSTGRES_PORT', '5432')
 os.environ.setdefault('ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver')
 os.environ.setdefault('CORS_ORIGINS', 'http://localhost:3000')
 os.environ.setdefault('DEBUG', 'True')
+os.environ.setdefault('APP_ENV', 'testing')
 
 # Ensure Django is configured
 import django
 django.setup()
 
 # Generate test encryption key
-TEST_ENCRYPTION_KEY = "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw=="  # Base64 encoded
+TEST_ENCRYPTION_KEY = "vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ="
 
 
 @pytest.fixture(scope="session")
 def django_db_setup():
-    """Configure test database."""
+    """Configure test database with tenant-aware backend."""
     settings.DATABASES["default"] = {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django_tenants.postgresql_backend",
         "NAME": "clinomic_test",
         "USER": os.environ.get("POSTGRES_USER", "postgres"),
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "postgres"),
         "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
+    settings.DATABASE_ROUTERS = ['django_tenants.routers.TenantSyncRouter']
 
 
 @pytest.fixture
@@ -103,3 +107,102 @@ def sample_cbc_deficient():
         "Basophils": 1.0,
         "LUC": 0.0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Tenant-aware fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+@pytest.mark.django_db
+def public_tenant(db):
+    """Create or retrieve the public schema tenant."""
+    from apps.core.models import Organization, Domain
+    tenant, _ = Organization.objects.get_or_create(
+        schema_name='public',
+        defaults={'name': 'Public', 'is_active': True},
+    )
+    Domain.objects.get_or_create(
+        domain='localhost',
+        tenant=tenant,
+        defaults={'is_primary': True},
+    )
+    return tenant
+
+
+@pytest.fixture
+@pytest.mark.django_db
+def test_tenant(db, public_tenant):
+    """Create a test tenant with its own schema."""
+    from apps.core.models import Organization, Domain
+    tenant = Organization.objects.create(
+        name='Test Org',
+        schema_name='test_org',
+        is_active=True,
+    )
+    Domain.objects.create(
+        domain='test-org.localhost',
+        tenant=tenant,
+        is_primary=True,
+    )
+    return tenant
+
+
+@pytest.fixture
+@pytest.mark.django_db
+def authenticated_lab_user(test_tenant, db):
+    """Create a LAB user with a valid access token for the test tenant."""
+    from django_tenants.utils import tenant_context
+    from apps.core.models import Role, User
+    from apps.core.authentication import create_access_token
+
+    with tenant_context(test_tenant):
+        user = User.objects.create_user(
+            username='testlab',
+            email='testlab@clinomic.test',
+            password='TestPass123!@#',
+            role=Role.LAB,
+            organization=test_tenant,
+        )
+    token = create_access_token(user, mfa_verified=True)
+    return user, token
+
+
+@pytest.fixture
+@pytest.mark.django_db
+def authenticated_doctor_user(test_tenant, db):
+    """Create a DOCTOR user with a valid access token for the test tenant."""
+    from django_tenants.utils import tenant_context
+    from apps.core.models import Role, User
+    from apps.core.authentication import create_access_token
+
+    with tenant_context(test_tenant):
+        user = User.objects.create_user(
+            username='testdoctor',
+            email='testdoctor@clinomic.test',
+            password='TestPass123!@#',
+            role=Role.DOCTOR,
+            organization=test_tenant,
+        )
+    token = create_access_token(user, mfa_verified=True)
+    return user, token
+
+
+@pytest.fixture
+@pytest.mark.django_db
+def authenticated_superadmin(db):
+    """Create a SUPER_ADMIN user (no tenant) with a valid access token."""
+    from apps.core.models import Role, User
+    from apps.core.authentication import create_access_token
+
+    user = User.objects.create_user(
+        username='testsuperadmin',
+        email='testsuperadmin@clinomic.test',
+        password='TestPass123!@#',
+        role=Role.SUPER_ADMIN,
+        is_superuser=True,
+        is_staff=True,
+        organization=None,
+    )
+    token = create_access_token(user, mfa_verified=True)
+    return user, token

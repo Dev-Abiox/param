@@ -23,10 +23,14 @@ const _refreshAPI = axios.create({
   withCredentials: true,
 });
 
-// Attach access token and cache-control header to every outbound request
+// Attach access token and cache-control header to outbound requests
 API.interceptors.request.use((config) => {
   config.headers = config.headers || {};
-  config.headers['Cache-Control'] = 'no-cache';
+
+  // Only bust cache for mutating requests (POST, PUT, PATCH, DELETE)
+  if (config.method && config.method.toUpperCase() !== 'GET') {
+    config.headers['Cache-Control'] = 'no-cache';
+  }
 
   if (_accessToken) {
     config.headers.Authorization = `Bearer ${_accessToken}`;

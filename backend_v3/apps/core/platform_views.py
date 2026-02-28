@@ -331,7 +331,6 @@ class PlatformCreateOrgView(APIView):
             user_id=str(user.id),
             org_name=org.name,
             plan_name=plan.display_name,
-            temp_password=temp_password,
         )
 
         return Response({

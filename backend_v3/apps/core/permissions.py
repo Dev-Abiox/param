@@ -2,9 +2,14 @@
 Role-based permissions for Clinomic API.
 """
 
+from django.conf import settings as django_settings
+from django.utils import timezone as dj_tz
 from rest_framework import permissions
 
 from .models import MFASettings, Role
+
+# Grace period (in hours) before MFA setup becomes mandatory for required roles.
+MFA_GRACE_PERIOD_HOURS = 24
 
 
 class IsAdmin(permissions.BasePermission):
@@ -129,12 +134,21 @@ class IsMFAVerified(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        # If user hasn't set up MFA yet, don't block them
+        # If user hasn't set up MFA yet, allow access during grace period
         try:
             mfa_settings = request.user.mfa_settings
         except MFASettings.DoesNotExist:
             mfa_settings = None
+
         if mfa_settings is None or not mfa_settings.is_enabled:
+            # Check if user's role requires MFA and grace period has expired
+            mfa_required_roles = getattr(django_settings, 'MFA_REQUIRED_ROLES', [])
+            if request.user.role in mfa_required_roles:
+                created_at = getattr(request.user, 'created_at', None)
+                if created_at is not None:
+                    hours_since_creation = (dj_tz.now() - created_at).total_seconds() / 3600
+                    if hours_since_creation > MFA_GRACE_PERIOD_HOURS:
+                        return False  # Grace period expired — force MFA setup
             return True
 
         # MFA is enabled — require mfa_verified claim in the token

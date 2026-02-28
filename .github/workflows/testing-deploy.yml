@@ -78,7 +78,7 @@ jobs:
         DEBUG: "False"
       run: |
         cd backend_v3
-        pytest --cov=apps --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=30 -x -q
+        pytest --cov=apps --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=70 -x -q
 
   test-frontend:
     runs-on: ubuntu-latest
@@ -102,7 +102,7 @@ jobs:
     - name: Run frontend tests
       run: |
         cd frontend
-        CI=true npm test -- --watchAll=false --passWithNoTests
+        CI=true npm test -- --watchAll=false
 
   build-test-images:
     needs: [test-backend, test-frontend]
@@ -163,26 +163,26 @@ jobs:
       with:
         ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+    - name: Add server to known hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.HOST_IP }} >> ~/.ssh/known_hosts
+
     - name: Copy config files to server
       run: |
-        SSH_OPTS="-o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
         SERVER="deploy@${{ secrets.HOST_IP }}"
         BASE="/opt/clinomic-b12-platform"
 
-        ssh $SSH_OPTS $SERVER "mkdir -p $BASE/ml/models"
-        scp $SSH_OPTS docker-compose.prod.yml $SERVER:$BASE/docker-compose.prod.yml
-        scp $SSH_OPTS docker-compose.testing.yml $SERVER:$BASE/docker-compose.testing.yml
-        scp $SSH_OPTS nginx.testing.conf $SERVER:$BASE/nginx.testing.conf
-        scp $SSH_OPTS nginx.prod.conf $SERVER:$BASE/nginx.prod.conf
-        scp $SSH_OPTS -r backend_v3/ml/models/ $SERVER:$BASE/ml/
+        ssh $SERVER "mkdir -p $BASE/ml/models"
+        scp docker-compose.prod.yml $SERVER:$BASE/docker-compose.prod.yml
+        scp docker-compose.testing.yml $SERVER:$BASE/docker-compose.testing.yml
+        scp nginx.testing.conf $SERVER:$BASE/nginx.testing.conf
+        scp nginx.prod.conf $SERVER:$BASE/nginx.prod.conf
+        scp -r backend_v3/ml/models/ $SERVER:$BASE/ml/
 
     - name: Deploy testing stack
       run: |
-        ssh \
-          -o StrictHostKeyChecking=no \
-          -o HostKeyAlgorithms=+ssh-rsa \
-          -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-          deploy@${{ secrets.HOST_IP }} << 'EOF'
+        ssh deploy@${{ secrets.HOST_IP }} << 'EOF'
 
         set -e
 
