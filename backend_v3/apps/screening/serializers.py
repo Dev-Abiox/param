@@ -49,25 +49,46 @@ class ScreeningResponseSerializer(serializers.Serializer):
 
 
 class LabSerializer(serializers.ModelSerializer):
-    """Lab serializer."""
-    doctors_count = serializers.SerializerMethodField()
-    cases_count = serializers.SerializerMethodField()
+    """Lab serializer.
+
+    For optimal performance, annotate the queryset with doctors_count and
+    cases_count before passing to this serializer::
+
+        Lab.objects.annotate(
+            doctors_count=Count('doctors'),
+            cases_count=Count('screenings'),
+        )
+
+    Falls back to per-object queries if annotations are missing.
+    """
+    doctors_count = serializers.IntegerField(read_only=True, default=None)
+    cases_count = serializers.IntegerField(read_only=True, default=None)
 
     class Meta:
         model = Lab
         fields = ['id', 'code', 'name', 'tier', 'doctors_count', 'cases_count', 'is_active']
 
-    def get_doctors_count(self, obj):
-        return obj.doctors.count()
-
-    def get_cases_count(self, obj):
-        return obj.screenings.count()
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if ret['doctors_count'] is None:
+            ret['doctors_count'] = instance.doctors.count()
+        if ret['cases_count'] is None:
+            ret['cases_count'] = instance.screenings.count()
+        return ret
 
 
 class DoctorSerializer(serializers.ModelSerializer):
-    """Doctor serializer."""
+    """Doctor serializer.
+
+    For optimal performance, annotate with cases_count and use
+    select_related('lab')::
+
+        Doctor.objects.select_related('lab').annotate(
+            cases_count=Count('screenings'),
+        )
+    """
     lab_name = serializers.SerializerMethodField()
-    cases_count = serializers.SerializerMethodField()
+    cases_count = serializers.IntegerField(read_only=True, default=None)
 
     class Meta:
         model = Doctor
@@ -76,8 +97,11 @@ class DoctorSerializer(serializers.ModelSerializer):
     def get_lab_name(self, obj):
         return obj.lab.name if obj.lab else None
 
-    def get_cases_count(self, obj):
-        return obj.screenings.count()
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if ret['cases_count'] is None:
+            ret['cases_count'] = instance.screenings.count()
+        return ret
 
 
 class PatientSerializer(serializers.ModelSerializer):

@@ -1,0 +1,107 @@
+"""
+Integration tests for the signup flow.
+
+Validates organization creation, tenant schema provisioning,
+user creation, and edge cases (duplicates, reserved names, passwords).
+"""
+
+import pytest
+from unittest.mock import patch
+from rest_framework.test import APIClient
+
+from apps.billing.views import SignupView
+
+
+@patch.object(SignupView, 'throttle_classes', [])
+@pytest.mark.django_db(transaction=True)
+class TestSignupFlow:
+    """Test the POST /api/signup/ endpoint."""
+
+    def _signup_payload(self, **overrides):
+        payload = {
+            'org_name': 'Test Hospital',
+            'admin_name': 'Admin User',
+            'admin_email': 'admin@testhospital.com',
+            'admin_password': 'StrongTestPass123!@#',
+            'tos_accepted': True,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_signup_creates_org_and_user(self, public_tenant):
+        client = APIClient()
+        response = client.post(
+            '/api/signup/',
+            self._signup_payload(),
+            format='json',
+        )
+
+        assert response.status_code in (200, 201), f"Signup failed: {response.json()}"
+        data = response.json()
+        assert 'access_token' in data
+
+    def test_signup_duplicate_org_name_returns_error(self, public_tenant):
+        client = APIClient()
+        # First signup
+        client.post('/api/signup/', self._signup_payload(), format='json')
+        # Second signup with same org name
+        response = client.post(
+            '/api/signup/',
+            self._signup_payload(
+                admin_email='admin2@testhospital.com',
+            ),
+            format='json',
+        )
+        assert response.status_code in (400, 409)
+
+    def test_signup_duplicate_email_returns_error(self, public_tenant):
+        client = APIClient()
+        client.post('/api/signup/', self._signup_payload(), format='json')
+        response = client.post(
+            '/api/signup/',
+            self._signup_payload(
+                org_name='Different Hospital',
+            ),
+            format='json',
+        )
+        assert response.status_code in (400, 409)
+
+    def test_signup_weak_password_returns_400(self, public_tenant):
+        client = APIClient()
+        response = client.post(
+            '/api/signup/',
+            self._signup_payload(admin_password='short'),
+            format='json',
+        )
+        assert response.status_code == 400
+
+    def test_signup_missing_fields_returns_400(self, public_tenant):
+        client = APIClient()
+        response = client.post('/api/signup/', {}, format='json')
+        assert response.status_code == 400
+
+    def test_signup_returns_mfa_not_verified_token(self, public_tenant):
+        """Post-signup token should have mfa_verified=False."""
+        import jwt as pyjwt
+        from django.conf import settings
+
+        client = APIClient()
+        response = client.post(
+            '/api/signup/',
+            self._signup_payload(
+                org_name='MFA Test Org',
+                admin_email='mfa@test.com',
+            ),
+            format='json',
+        )
+
+        if response.status_code in (200, 201):
+            token = response.json().get('access_token')
+            if token:
+                payload = pyjwt.decode(
+                    token,
+                    settings.JWT_SECRET_KEY,
+                    algorithms=['HS256'],
+                    options={'verify_exp': False},
+                )
+                assert payload.get('mfa_verified') is False

@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.db.models import Count, Q
 from django.db.models.functions import TruncMonth, TruncDate
+from redis.exceptions import RedisError
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -45,7 +46,8 @@ class SummaryView(APIView):
         ck = _cache_key('summary', request.user.pk)
         try:
             cached = cache.get(ck)
-        except Exception:
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
             cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
@@ -63,15 +65,20 @@ class SummaryView(APIView):
                 # No matching doctor record, return empty stats
                 queryset = Screening.objects.none()
 
-        # Total counts
-        total_cases = queryset.count()
-        normal_count = queryset.filter(risk_class=1).count()
-        borderline_count = queryset.filter(risk_class=2).count()
-        deficient_count = queryset.filter(risk_class=3).count()
-
-        # Daily tests (last 24 hours)
+        # Aggregate counts in a single query instead of 5 separate COUNT queries
         since = datetime.now(timezone.utc) - timedelta(hours=24)
-        daily_tests = queryset.filter(created_at__gte=since).count()
+        stats = queryset.aggregate(
+            total=Count('id'),
+            normal=Count('id', filter=Q(risk_class=1)),
+            borderline=Count('id', filter=Q(risk_class=2)),
+            deficient=Count('id', filter=Q(risk_class=3)),
+            daily=Count('id', filter=Q(created_at__gte=since)),
+        )
+        total_cases = stats['total']
+        normal_count = stats['normal']
+        borderline_count = stats['borderline']
+        deficient_count = stats['deficient']
+        daily_tests = stats['daily']
 
         # Recent cases
         recent_screenings = queryset.select_related(
@@ -99,6 +106,7 @@ class SummaryView(APIView):
             ml_engine = get_ml_engine()
             ml_status = ml_engine.get_status()
         except Exception:
+            logger.warning("ml_engine_status_failed")
             ml_status = {}
         vm = ml_status.get('validation_metrics', {})
 
@@ -124,7 +132,7 @@ class SummaryView(APIView):
         }
         try:
             cache.set(ck, payload, timeout=60)
-        except Exception:
+        except RedisError:
             logger.warning("cache_set_failed", key=ck)
         return Response(payload)
 
@@ -142,7 +150,8 @@ class LabStatsView(APIView):
         ck = _cache_key('labs')
         try:
             cached = cache.get(ck)
-        except Exception:
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
             cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
@@ -166,7 +175,7 @@ class LabStatsView(APIView):
 
         try:
             cache.set(ck, result, timeout=120)
-        except Exception:
+        except RedisError:
             logger.warning("cache_set_failed", key=ck)
         return Response(result)
 
@@ -185,7 +194,8 @@ class DoctorStatsView(APIView):
         ck = _cache_key('doctors', lab_id or 'all')
         try:
             cached = cache.get(ck)
-        except Exception:
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
             cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
@@ -210,7 +220,7 @@ class DoctorStatsView(APIView):
 
         try:
             cache.set(ck, result, timeout=60)
-        except Exception:
+        except RedisError:
             logger.warning("cache_set_failed", key=ck)
         return Response(result)
 
@@ -319,7 +329,8 @@ class PatientTrendView(APIView):
         ck = _cache_key('trend', request.user.pk, patient_id)
         try:
             cached = cache.get(ck)
-        except Exception:
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
             cached = None
         if cached is not None:
             logger.debug("cache_hit", key=ck)
@@ -362,7 +373,7 @@ class PatientTrendView(APIView):
         payload = {'patientId': patient_id, 'trend': trend}
         try:
             cache.set(ck, payload, timeout=60)
-        except Exception:
+        except RedisError:
             logger.warning("cache_set_failed", key=ck)
         return Response(payload)
 
@@ -385,7 +396,10 @@ class ScreeningDetailView(APIView):
             screening = Screening.objects.select_related(
                 'patient', 'lab', 'doctor'
             ).get(id=screening_id)
-        except (Screening.DoesNotExist, Exception):
+        except Screening.DoesNotExist:
+            return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception:
+            logger.exception("screening_detail_fetch_failed", screening_id=str(screening_id))
             return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
 
         # DOCTOR isolation: can only view their own patients' screenings
@@ -427,8 +441,8 @@ class PopulationTrendsView(APIView):
             cached = cache.get(ck)
             if cached is not None:
                 return Response(cached)
-        except Exception:
-            pass
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
 
         since = datetime.now(timezone.utc) - timedelta(days=months * 30)
         qs = (
@@ -462,8 +476,8 @@ class PopulationTrendsView(APIView):
 
         try:
             cache.set(ck, payload, timeout=300)
-        except Exception:
-            pass
+        except RedisError:
+            logger.warning("cache_set_failed", key=ck)
         return Response({'months': months, 'trends': payload})
 
 
@@ -493,38 +507,40 @@ class PopulationCohortsView(APIView):
             cached = cache.get(ck)
             if cached is not None:
                 return Response(cached)
-        except Exception:
-            pass
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
 
         cohorts = []
         for label, age_min, age_max in self.AGE_GROUPS:
             for sex in ('M', 'F'):
-                base_qs = Screening.objects.filter(
+                # Single aggregate query per cohort instead of 4 separate COUNTs
+                stats = Screening.objects.filter(
                     cbc_snapshot__Age__gte=age_min,
                     cbc_snapshot__Age__lte=age_max,
                     cbc_snapshot__Sex=sex,
+                ).aggregate(
+                    total=Count('id'),
+                    deficient=Count('id', filter=Q(risk_class=3)),
+                    borderline=Count('id', filter=Q(risk_class=2)),
+                    normal=Count('id', filter=Q(risk_class=1)),
                 )
-                total = base_qs.count()
-                if total == 0:
+                if stats['total'] == 0:
                     continue
-                deficient = base_qs.filter(risk_class=3).count()
-                borderline = base_qs.filter(risk_class=2).count()
-                normal = base_qs.filter(risk_class=1).count()
                 cohorts.append({
                     'age_group': label,
                     'sex': sex,
-                    'total': total,
-                    'normal': normal,
-                    'borderline': borderline,
-                    'deficient': deficient,
-                    'deficient_rate': round(deficient / total * 100, 1),
+                    'total': stats['total'],
+                    'normal': stats['normal'],
+                    'borderline': stats['borderline'],
+                    'deficient': stats['deficient'],
+                    'deficient_rate': round(stats['deficient'] / stats['total'] * 100, 1),
                 })
 
         payload = {'cohorts': cohorts}
         try:
             cache.set(ck, payload, timeout=600)
-        except Exception:
-            pass
+        except RedisError:
+            logger.warning("cache_set_failed", key=ck)
         return Response(payload)
 
 
@@ -547,8 +563,8 @@ class LabComparisonView(APIView):
             cached = cache.get(ck)
             if cached is not None:
                 return Response(cached)
-        except Exception:
-            pass
+        except RedisError:
+            logger.warning("cache_get_failed", key=ck)
 
         labs = (
             Lab.objects
@@ -579,6 +595,6 @@ class LabComparisonView(APIView):
 
         try:
             cache.set(ck, result, timeout=600)
-        except Exception:
-            pass
+        except RedisError:
+            logger.warning("cache_set_failed", key=ck)
         return Response({'labs': result})

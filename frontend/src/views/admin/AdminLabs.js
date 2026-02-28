@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Edit2, Power, RefreshCw } from "lucide-react";
+import { Plus, Edit2, Power, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { AdminService } from "@/services/api";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -57,6 +57,8 @@ const AdminLabs = () => {
   const [formError, setFormError] = useState(null);
   const [formLoading, setFormLoading] = useState(false);
   const [confirmDeactivate, setConfirmDeactivate] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [actionError, setActionError] = useState(null);
 
   const emptyForm = { code: "", name: "", tier: "standard", contact_email: "" };
   const [form, setForm] = useState(emptyForm);
@@ -100,12 +102,36 @@ const AdminLabs = () => {
   };
 
   const handleDeactivate = async (lab) => {
+    setActionError(null);
     try {
       await AdminService.deactivateLab(lab.id);
       setConfirmDeactivate(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setConfirmDeactivate(null);
+      setActionError(err?.response?.data?.error || "Failed to deactivate lab.");
+    }
+  };
+
+  const handleReactivate = async (lab) => {
+    setActionError(null);
+    try {
+      await AdminService.reactivateLab(lab.id);
+      load();
+    } catch (err) {
+      setActionError(err?.response?.data?.error || "Failed to reactivate lab.");
+    }
+  };
+
+  const handlePermanentDelete = async (lab) => {
+    setActionError(null);
+    try {
+      await AdminService.permanentDeleteLab(lab.id);
+      setConfirmDelete(null);
+      load();
+    } catch (err) {
+      setConfirmDelete(null);
+      setActionError(err?.response?.data?.error || "Failed to permanently remove lab.");
     }
   };
 
@@ -122,6 +148,13 @@ const AdminLabs = () => {
           <Plus className="h-4 w-4" /> Add Lab
         </button>
       </div>
+
+      {actionError && (
+        <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 text-xs ml-4">Dismiss</button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
@@ -178,10 +211,19 @@ const AdminLabs = () => {
                       <button onClick={() => openEdit(lab)} aria-label={`Edit ${lab.name}`} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-teal-600">
                         <Edit2 className="h-4 w-4" />
                       </button>
-                      {lab.is_active && (
+                      {lab.is_active ? (
                         <button onClick={() => setConfirmDeactivate(lab)} aria-label={`Deactivate ${lab.name}`} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500">
                           <Power className="h-4 w-4" />
                         </button>
+                      ) : (
+                        <>
+                          <button onClick={() => handleReactivate(lab)} aria-label={`Reactivate ${lab.name}`} title="Reactivate" className="p-1.5 rounded hover:bg-green-50 dark:hover:bg-green-900/30 text-slate-400 dark:text-slate-500 hover:text-green-600 transition-colors">
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => setConfirmDelete(lab)} aria-label={`Delete ${lab.name}`} title="Permanently remove" className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -205,11 +247,21 @@ const AdminLabs = () => {
       {confirmDeactivate && (
         <ConfirmDialog
           title="Deactivate Lab"
-          message={`Are you sure you want to deactivate "${confirmDeactivate.name}"? This action cannot be undone.`}
+          message={`Are you sure you want to deactivate "${confirmDeactivate.name}"? It can be reactivated later.`}
           confirmText="Deactivate"
           destructive
           onConfirm={() => handleDeactivate(confirmDeactivate)}
           onCancel={() => setConfirmDeactivate(null)}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Permanently Remove Lab"
+          message={`Are you sure you want to permanently remove "${confirmDelete.name}" (${confirmDelete.code})? This action cannot be undone.`}
+          confirmText="Remove Permanently"
+          destructive
+          onConfirm={() => handlePermanentDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </div>

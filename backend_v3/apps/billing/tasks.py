@@ -206,7 +206,10 @@ def compute_monthly_rollups() -> int:
 @shared_task(
     name='billing.send_usage_alert',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_usage_alert(org_id: str, current_count: int, limit: int, threshold_pct: int) -> None:
@@ -313,7 +316,10 @@ def send_usage_alert(org_id: str, current_count: int, limit: int, threshold_pct:
 @shared_task(
     name='billing.send_welcome_email',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_iso: str) -> None:
@@ -380,21 +386,42 @@ def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_is
         raise
 
 
+def _make_password_setup_url(user) -> str:
+    """Generate a one-time password setup URL using Django's token generator.
+
+    The token is cryptographically signed and expires after PASSWORD_RESET_TIMEOUT
+    (default: 3 days). No plaintext password touches the task broker.
+    """
+    from django.conf import settings
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return f'{settings.FRONTEND_URL}/set-password/{uid}/{token}'
+
+
 @shared_task(
     name='billing.send_credentials_email',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
-def send_credentials_email(user_id: str, plain_password: str, org_name: str) -> None:
+def send_credentials_email(user_id: str, org_name: str) -> None:
     """
-    Send login credentials to a newly created user (admin-created or onboarding).
+    Send a password-setup link to a newly created user (admin-created or onboarding).
+
+    Security: No plaintext passwords are passed through the Celery broker.
+    Instead, a one-time Django password reset token is generated at send time.
 
     Parameters
     ----------
-    user_id        : str — UUID of the User record (public schema).
-    plain_password : str — The plain-text password assigned during creation.
-    org_name       : str — Human-readable organisation name.
+    user_id  : str — UUID of the User record (public schema).
+    org_name : str — Human-readable organisation name.
     """
     from django.conf import settings
     from django.core.mail import send_mail
@@ -410,17 +437,17 @@ def send_credentials_email(user_id: str, plain_password: str, org_name: str) -> 
         logger.warning('billing.credentials_email_no_email', user_id=user_id)
         return
 
-    login_url = f'{settings.FRONTEND_URL}/login'
+    setup_url = _make_password_setup_url(user)
     subject = f'Your Clinomic Account — {org_name}'
     message = (
         f'Hi {user.name or user.username},\n\n'
         f'An account has been created for you on the Clinomic platform '
         f'for organisation "{org_name}".\n\n'
-        f'Here are your login credentials:\n'
-        f'  Username : {user.username}\n'
-        f'  Password : {plain_password}\n\n'
-        f'Please sign in at: {login_url}\n\n'
-        f'For security, we recommend changing your password after your first login.\n\n'
+        f'Your username: {user.username}\n\n'
+        f'Please set your password by clicking the link below:\n'
+        f'{setup_url}\n\n'
+        f'This link expires in 3 days. If it has expired, contact your '
+        f'administrator to send a new one.\n\n'
         f'If you have any questions, contact your administrator or reach out to '
         f'support@clinomiclabs.com\n\n'
         f'— The Clinomic Team'
@@ -453,7 +480,10 @@ def send_credentials_email(user_id: str, plain_password: str, org_name: str) -> 
 @shared_task(
     name='billing.send_mfa_otp_email',
     max_retries=3,
-    default_retry_delay=10,
+    autoretry_for=(Exception,),
+    retry_backoff=10,
+    retry_backoff_max=120,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> None:
@@ -504,7 +534,10 @@ def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> Non
 @shared_task(
     name='billing.send_high_risk_alert',
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_high_risk_alert(
@@ -640,7 +673,11 @@ def deliver_webhook(
     event_name          : str   — e.g. "screening.completed"
     payload             : dict  — Arbitrary JSON-serialisable event data.
     """
+    import ipaddress
     import json
+    import socket
+    from urllib.parse import urlparse
+
     import requests
     from django.utils import timezone
     from apps.billing.models import WebhookEndpoint
@@ -652,6 +689,22 @@ def deliver_webhook(
             'billing.deliver_webhook_endpoint_not_found',
             endpoint_id=webhook_endpoint_id,
         )
+        return
+
+    # SSRF guard at delivery time (defence-in-depth — URL validated at registration too)
+    try:
+        parsed = urlparse(endpoint.url)
+        if parsed.scheme != 'https':
+            logger.error('billing.webhook_url_not_https', endpoint_id=webhook_endpoint_id)
+            return
+        resolved = socket.getaddrinfo(parsed.hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _fam, _type, _proto, _canon, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                logger.error('billing.webhook_ssrf_blocked', endpoint_id=webhook_endpoint_id, url=endpoint.url)
+                return
+    except (socket.gaierror, ValueError, OSError):
+        logger.error('billing.webhook_url_resolve_failed', endpoint_id=webhook_endpoint_id)
         return
 
     body = json.dumps({
@@ -687,7 +740,7 @@ def deliver_webhook(
             endpoint.url,
             data=body,
             headers=headers,
-            timeout=10,
+            timeout=(5, 10),
         )
         response.raise_for_status()
         logger.info(
@@ -755,19 +808,23 @@ def trigger_webhook(organization, event_name: str, payload: dict) -> None:
 
 @shared_task(
     name='billing.send_lab_created_email',
+    bind=True,
     max_retries=3,
-    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    retry_jitter=True,
     acks_late=True,
 )
 def send_lab_created_email(
+    self,
     user_id: str,
     org_name: str,
     plan_name: str,
-    temp_password: str,
 ) -> None:
     """
     Email the admin user when a super admin creates a new lab on their behalf.
-    Contains temporary credentials and login instructions.
+    Contains a password setup link (no plaintext password in the broker).
     """
     from django.conf import settings
     from django.core.mail import send_mail
@@ -783,20 +840,21 @@ def send_lab_created_email(
         logger.warning('billing.lab_created_email_no_email', user_id=user_id)
         return
 
+    setup_url = _make_password_setup_url(user)
     subject = f'Your Clinomic account is ready — {org_name}'
     message = (
         f'Hi {user.name or user.username},\n\n'
         f'Your organisation "{org_name}" has been set up on Clinomic.\n\n'
-        f'Plan        : {plan_name}\n'
-        f'Login URL   : {settings.FRONTEND_URL}/login\n'
-        f'Username    : {user.username}\n'
-        f'Password    : {temp_password}\n\n'
-        f'IMPORTANT: Please change your password immediately after logging in.\n'
-        f'You will also be required to set up two-factor authentication (MFA)\n'
-        f'before accessing sensitive features.\n\n'
+        f'Plan     : {plan_name}\n'
+        f'Username : {user.username}\n\n'
+        f'Please set your password by clicking the link below:\n'
+        f'{setup_url}\n\n'
+        f'This link expires in 3 days.\n\n'
+        f'After setting your password, you will also need to set up two-factor\n'
+        f'authentication (MFA) before accessing sensitive features.\n\n'
         f'Steps to get started:\n'
-        f'  1. Log in at {settings.FRONTEND_URL}/login\n'
-        f'  2. Change your password in Settings\n'
+        f'  1. Set your password using the link above\n'
+        f'  2. Log in at {settings.FRONTEND_URL}/login\n'
         f'  3. Set up MFA via the Security section\n'
         f'  4. Complete the onboarding wizard\n\n'
         f'If you have questions, contact support@clinomiclabs.com\n\n'

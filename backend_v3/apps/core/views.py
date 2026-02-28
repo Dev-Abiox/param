@@ -136,6 +136,13 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        # Switch to the user's tenant schema so tenant-specific queries
+        # (Lab, Doctor) resolve correctly. Login requests have no JWT yet,
+        # so JWTTenantMiddleware cannot do this automatically.
+        if user.organization and user.organization.schema_name != 'public':
+            from django.db import connection as db_connection
+            db_connection.set_tenant(user.organization)
+
         # Block LAB users when no active lab exists in their tenant
         if user.role == Role.LAB:
             from apps.screening.models import Lab
@@ -295,8 +302,8 @@ class TokenRefreshView(APIView):
 
         try:
             access_token, new_refresh_token = refresh_tokens(token)
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError) as e:
-            response = Response({'error': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError):
+            response = Response({'error': 'Invalid or expired refresh token'}, status=status.HTTP_401_UNAUTHORIZED)
             _delete_refresh_cookie(response)
             return response
 
@@ -550,7 +557,8 @@ class HealthReadyView(APIView):
             db_ok = True
         except Exception as e:
             db_ok = False
-            errors.append(f'database: {str(e)}')
+            logger.error("health_check_db_failed", error=str(e))
+            errors.append('database: unavailable')
 
         # Check ML engine
         from apps.screening.ml_engine import get_ml_engine
@@ -570,7 +578,8 @@ class HealthReadyView(APIView):
             redis_ok = True
         except Exception as e:
             redis_ok = False
-            errors.append(f'redis: {str(e)}')
+            logger.error("health_check_redis_failed", error=str(e))
+            errors.append('redis: unavailable')
 
         # Check Celery worker responsiveness (ping task)
         celery_ok = True
@@ -583,7 +592,8 @@ class HealthReadyView(APIView):
                 celery_error = 'no workers responded'
                 # Warn but don't fail readiness — workers may be starting up
         except Exception as e:
-            celery_error = str(e)
+            logger.error("health_check_celery_failed", error=str(e))
+            celery_error = 'unavailable'
             # Celery ping failure is non-fatal; don't block health check
 
         if errors:
@@ -900,9 +910,9 @@ class AdminUserListView(APIView):
             try:
                 from apps.billing.tasks import send_credentials_email
                 org_name = org.name if org else 'Clinomic'
-                send_credentials_email.delay(str(user.id), password, org_name)
-            except Exception:
-                pass  # Non-critical — don't block user creation
+                send_credentials_email.delay(str(user.id), org_name)
+            except Exception as exc:
+                logger.warning('send_credentials_email_failed user_id=%s error=%s', user.id, exc)
 
         return Response({
             'id': str(user.id),

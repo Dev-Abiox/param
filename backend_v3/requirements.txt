@@ -21,6 +21,8 @@ qrcode>=7.4,<8.0
 # Security
 bcrypt>=4.1,<5.0
 cryptography>=42.0,<43.0
+# python-magic-bin removed: not available for Python 3.12 on Linux CI
+# Magic-bytes validation is optional — code falls back to extension check
 
 # ML Engine
 catboost>=1.2,<2.0

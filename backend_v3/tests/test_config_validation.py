@@ -58,9 +58,11 @@ class TestProductionCoreSecrets:
             )
 
     def test_all_good_secrets_passes(self):
-        # Should not raise
+        # Should not raise — jwt_secret_key must differ from secret_key
+        jwt_secret = "b" * 32
         validate_required_secrets(
             "production", GOOD_SECRET, GOOD_SECRET, GOOD_SECRET,
+            jwt_secret_key=jwt_secret,
             razorpay_key_id="rzp_live_abc", razorpay_key_secret="secret123",
             razorpay_webhook_secret="whsec_123", email_host_user="user@smtp.com",
             email_host_password="smtp_pass",
@@ -72,6 +74,7 @@ class TestProductionBillingSecrets:
 
     def _call_with_billing(self, **overrides):
         defaults = dict(
+            jwt_secret_key="b" * 32,
             razorpay_key_id="rzp_live_abc",
             razorpay_key_secret="secret123",
             razorpay_webhook_secret="whsec_123",
@@ -119,6 +122,7 @@ class TestProductionBillingSecrets:
         """Staging should warn (same as production) but not raise."""
         validate_required_secrets(
             "staging", GOOD_SECRET, GOOD_SECRET, GOOD_SECRET,
+            jwt_secret_key="b" * 32,
             razorpay_key_id="",
             razorpay_key_secret="sec",
             razorpay_webhook_secret="wh",

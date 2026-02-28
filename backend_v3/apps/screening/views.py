@@ -8,7 +8,9 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Count, Case, When, IntegerField
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -268,7 +270,10 @@ class LabListView(APIView):
     required_roles = [Role.LAB, Role.SUPER_ADMIN]
 
     def get(self, request):
-        labs = Lab.objects.filter(is_active=True).prefetch_related('doctors', 'screenings')
+        labs = Lab.objects.filter(is_active=True).annotate(
+            doctors_count=Count('doctors', distinct=True),
+            cases_count=Count('screenings', distinct=True),
+        )
         serializer = LabSerializer(labs, many=True)
         return Response(serializer.data)
 
@@ -285,7 +290,9 @@ class DoctorListView(APIView):
     def get(self, request):
         lab_id = request.query_params.get('labId')
 
-        queryset = Doctor.objects.filter(is_active=True).select_related('lab')
+        queryset = Doctor.objects.filter(is_active=True).select_related('lab').annotate(
+            cases_count=Count('screenings'),
+        )
         if lab_id:
             queryset = queryset.filter(lab__code=lab_id)
 
@@ -409,10 +416,8 @@ class ConsentStatusView(APIView):
                 now_utc = datetime.now(timezone.utc)
                 is_expired = bool(consent.expires_at and consent.expires_at < now_utc)
 
-                # Keep DB status in sync
-                if is_expired:
-                    consent.status = 'expired'
-                    consent.save(update_fields=['status', 'updated_at'])
+                # Note: expired consents are transitioned by Celery beat
+                # (purge_expired_consents). GET must not mutate state.
 
                 log_phi_access(request, patient_id, 'PHI_CONSENT_READ', {
                     'has_consent': not is_expired,
@@ -498,11 +503,23 @@ class WorkQueueView(APIView):
             )
 
         base_qs = Screening.objects.all()
-        counts = {
-            'pending': base_qs.filter(status=ScreeningStatus.PENDING).count(),
-            'in_progress': base_qs.filter(status=ScreeningStatus.IN_PROGRESS).count(),
-            'completed': base_qs.filter(status=ScreeningStatus.COMPLETED).count(),
-        }
+
+        # Redis-cached aggregate counts (single query, 10s TTL)
+        tenant_schema = getattr(request, 'tenant', None)
+        cache_key = f'wq_counts:{tenant_schema.schema_name if tenant_schema else "default"}'
+        counts = cache.get(cache_key)
+        if counts is None:
+            counts_agg = base_qs.aggregate(
+                pending=Count(Case(When(status=ScreeningStatus.PENDING, then=1), output_field=IntegerField())),
+                in_progress=Count(Case(When(status=ScreeningStatus.IN_PROGRESS, then=1), output_field=IntegerField())),
+                completed=Count(Case(When(status=ScreeningStatus.COMPLETED, then=1), output_field=IntegerField())),
+            )
+            counts = {
+                'pending': counts_agg['pending'],
+                'in_progress': counts_agg['in_progress'],
+                'completed': counts_agg['completed'],
+            }
+            cache.set(cache_key, counts, timeout=10)
 
         # H7: honour client-supplied page_size (default 50, max 200)
         try:
@@ -522,7 +539,6 @@ class WorkQueueView(APIView):
             items.append({
                 'id': str(s.id),
                 'patientId': s.patient.patient_id if s.patient else None,
-                'patientInitials': (s.patient.name[0] + '.' if s.patient and s.patient.name else None),
                 'labId': s.lab.code if s.lab else None,
                 'doctorName': s.doctor.name if s.doctor else None,
                 'riskClass': s.risk_class,
@@ -722,6 +738,22 @@ class BulkImportView(APIView):
         MAX_BYTES = 10 * 1024 * 1024
         if uploaded.size > MAX_BYTES:
             return Response({'error': 'File too large (max 10 MB).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate file content type via magic bytes (not just extension)
+        try:
+            import magic
+            header = uploaded.read(2048)
+            uploaded.seek(0)
+            mime = magic.from_buffer(header, mime=True)
+            ALLOWED_MIMES = {'text/csv', 'text/plain', 'application/csv', 'application/octet-stream'}
+            if mime not in ALLOWED_MIMES:
+                return Response(
+                    {'error': f'Invalid file type detected. Only CSV files are accepted.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except ImportError:
+            # python-magic-bin not installed — fall through to extension check only
+            pass
 
         csv_text = uploaded.read().decode('utf-8-sig')  # handle BOM
 
@@ -1091,6 +1123,16 @@ class AdminLabDetailView(APIView):
         lab = self._get_lab(lab_id)
         if not lab:
             return Response({'error': 'Lab not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.query_params.get('permanent') == 'true':
+            if lab.is_active:
+                return Response(
+                    {'error': 'Deactivate the lab first before permanently removing'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            lab.delete()
+            return Response({'detail': 'Lab permanently removed'})
+
         lab.is_active = False
         lab.save(update_fields=['is_active', 'updated_at'])
         return Response({'detail': 'Lab deactivated'})

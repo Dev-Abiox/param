@@ -2,7 +2,7 @@
 Platform Super Admin API views.
 
 All endpoints require SUPER_ADMIN role or is_superuser=True.
-All billing/org models live in the public schema — no schema_context needed.
+All billing/org models live in the public schema — PublicSchemaMixin forces public schema.
 
 PlatformStatsView       GET  /api/v1/platform/stats/
 PlatformOrgListView     GET  /api/v1/platform/orgs/
@@ -23,9 +23,10 @@ import structlog
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
+from django_tenants.utils import schema_context
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -50,6 +51,20 @@ logger = structlog.get_logger(__name__)
 
 _PLATFORM_PERMS = [IsAuthenticated, IsMFAVerified, IsPlatformSuperAdmin]
 
+
+class PublicSchemaMixin:
+    """Force all platform views to execute in the public schema.
+
+    The JWT middleware may set the search_path to the superadmin's org schema
+    (e.g. demo_lab). Platform views must run in 'public' because Organization,
+    User, SubscriptionPlan, etc. are shared-schema models and django-tenants
+    raises an error if you create a tenant outside the public schema.
+    """
+
+    def initial(self, request, *args, **kwargs):
+        connection.set_schema_to_public()
+        super().initial(request, *args, **kwargs)
+
 RESERVED_SCHEMAS = frozenset({
     'public', 'pg_catalog', 'pg_toast', 'information_schema',
 })
@@ -71,7 +86,7 @@ def _first_of_month(dt=None):
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
-class PlatformStatsView(APIView):
+class PlatformStatsView(PublicSchemaMixin, APIView):
     """
     GET /api/v1/platform/stats/
     Platform-wide metrics for the super admin dashboard.
@@ -121,7 +136,7 @@ class PlatformStatsView(APIView):
 
 # ── Org List ──────────────────────────────────────────────────────────────────
 
-class PlatformOrgListView(APIView):
+class PlatformOrgListView(PublicSchemaMixin, APIView):
     """
     GET /api/v1/platform/orgs/
     Paginated list of all organisations with subscription + usage snapshot.
@@ -208,7 +223,7 @@ class PlatformOrgListView(APIView):
 
 # ── Create Org ────────────────────────────────────────────────────────────────
 
-class PlatformCreateOrgView(APIView):
+class PlatformCreateOrgView(PublicSchemaMixin, APIView):
     """
     POST /api/v1/platform/orgs/create/
     Body: { org_name, admin_email, admin_name, plan_name }
@@ -331,7 +346,6 @@ class PlatformCreateOrgView(APIView):
             user_id=str(user.id),
             org_name=org.name,
             plan_name=plan.display_name,
-            temp_password=temp_password,
         )
 
         return Response({
@@ -346,7 +360,7 @@ class PlatformCreateOrgView(APIView):
 
 # ── Org Detail ────────────────────────────────────────────────────────────────
 
-class PlatformOrgDetailView(APIView):
+class PlatformOrgDetailView(PublicSchemaMixin, APIView):
     """
     GET   /api/v1/platform/orgs/<schema_name>/   — Full org detail
     PATCH /api/v1/platform/orgs/<schema_name>/   — Suspend or reactivate
@@ -444,7 +458,7 @@ class PlatformOrgDetailView(APIView):
 
 # ── Org Plan Override ─────────────────────────────────────────────────────────
 
-class PlatformOrgPlanView(APIView):
+class PlatformOrgPlanView(PublicSchemaMixin, APIView):
     """
     POST /api/v1/platform/orgs/<schema_name>/plan/
     Body: { "plan": "professional" }
@@ -513,7 +527,7 @@ class PlatformOrgPlanView(APIView):
 
 # ── Org Usage ─────────────────────────────────────────────────────────────────
 
-class PlatformOrgUsageView(APIView):
+class PlatformOrgUsageView(PublicSchemaMixin, APIView):
     """
     GET /api/v1/platform/orgs/<schema_name>/usage/
     Last 12 months of usage history for one org.
@@ -553,7 +567,7 @@ class PlatformOrgUsageView(APIView):
 
 # ── Org Users ─────────────────────────────────────────────────────────────────
 
-class PlatformOrgUsersView(APIView):
+class PlatformOrgUsersView(PublicSchemaMixin, APIView):
     """
     GET  /api/v1/platform/orgs/<schema_name>/users/   — List org users
     POST /api/v1/platform/orgs/<schema_name>/users/   — Create user in org

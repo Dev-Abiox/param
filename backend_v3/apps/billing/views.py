@@ -16,10 +16,12 @@ WebhookDetailView       DELETE /api/billing/admin/webhooks/<uuid:pk>/
 """
 
 import hashlib
-import logging
+import ipaddress
 import re
 import secrets
+import socket
 from datetime import timedelta
+from urllib.parse import urlparse
 
 import structlog
 from django.conf import settings
@@ -54,6 +56,37 @@ logger = structlog.get_logger(__name__)
 RESERVED_SCHEMAS = frozenset({
     'public', 'pg_catalog', 'pg_toast', 'information_schema',
 })
+
+
+def _validate_webhook_url(url: str) -> str | None:
+    """Validate a webhook URL is HTTPS and not targeting private/internal networks.
+
+    Returns an error message string if invalid, or None if the URL is safe.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return 'Invalid URL.'
+
+    # Require HTTPS — webhook payloads contain sensitive event data
+    if parsed.scheme != 'https':
+        return 'Webhook URLs must use HTTPS.'
+
+    hostname = parsed.hostname
+    if not hostname:
+        return 'Invalid URL: missing hostname.'
+
+    # Resolve hostname to IP and block private/reserved ranges (SSRF protection)
+    try:
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _type, _proto, _canonname, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                return 'Webhook URLs must not target private or internal networks.'
+    except (socket.gaierror, ValueError):
+        return 'Could not resolve webhook URL hostname.'
+
+    return None
 
 
 def _slugify_org(name: str) -> str:
@@ -190,8 +223,8 @@ class SignupView(APIView):
                 plan_name=plan.display_name,
                 trial_end_iso=trial_end.isoformat(),
             )
-        except Exception:
-            logger.warning('signup.welcome_email_queue_failed', user=user.username)
+        except (OSError, ImportError) as exc:
+            logger.warning('signup.welcome_email_queue_failed', user=user.username, error=str(exc))
 
         response = Response({
             'access_token': access_token,
@@ -277,9 +310,9 @@ class WebhookView(APIView):
             client.utility.verify_webhook_signature(
                 request.body.decode('utf-8'), sig, webhook_secret
             )
-        except Exception:
-            logger.warning('billing.webhook_invalid_signature')
-            return Response({'error': 'invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.warning('billing.webhook_invalid_signature', error=type(exc).__name__)
+            return Response({'error': 'invalid signature'}, status=status.HTTP_401_UNAUTHORIZED)
 
         data = request.data
         event_type = data.get('event', '')
@@ -314,47 +347,59 @@ class WebhookView(APIView):
         if sub:
             now = timezone.now()
             try:
-                if event_type == 'subscription.activated':
-                    sub.transition_to(TenantSubscription.Status.ACTIVE)
-                    # If this activation is for a plan upgrade, update the plan FK.
-                    rz_plan_id = sub_entity.get('plan_id', '')
-                    if rz_plan_id:
-                        new_plan = SubscriptionPlan.objects.filter(
-                            razorpay_plan_id=rz_plan_id, is_active=True
-                        ).first()
-                        if new_plan and new_plan.pk != sub.plan_id:
-                            sub.plan = new_plan
-                    sub.save(update_fields=['status', 'plan', 'updated_at'])
+                with transaction.atomic():
+                    # Lock the subscription row to prevent concurrent webhook races
+                    sub = (
+                        TenantSubscription.objects
+                        .select_for_update()
+                        .select_related('organization')
+                        .get(pk=sub.pk)
+                    )
+
+                    if event_type == 'subscription.activated':
+                        sub.transition_to(TenantSubscription.Status.ACTIVE)
+                        rz_plan_id = sub_entity.get('plan_id', '')
+                        if rz_plan_id:
+                            new_plan = SubscriptionPlan.objects.filter(
+                                razorpay_plan_id=rz_plan_id, is_active=True
+                            ).first()
+                            if new_plan and new_plan.pk != sub.plan_id:
+                                sub.plan = new_plan
+                        sub.save(update_fields=['status', 'plan', 'updated_at'])
+
+                    elif event_type == 'subscription.charged':
+                        sub.current_period_count = 0
+                        sub.current_period_start = now
+                        sub.current_period_end = now + timedelta(days=30)
+                        sub.save(update_fields=[
+                            'current_period_count',
+                            'current_period_start',
+                            'current_period_end',
+                            'updated_at',
+                        ])
+
+                    elif event_type == 'subscription.cancelled':
+                        sub.transition_to(TenantSubscription.Status.CANCELLED)
+                        sub.cancelled_at = now
+                        sub.save(update_fields=['status', 'cancelled_at', 'updated_at'])
+
+                    elif event_type == 'payment.failed':
+                        sub.transition_to(TenantSubscription.Status.PAST_DUE)
+                        sub.save(update_fields=['status', 'updated_at'])
+
+                    pe.processed = True
+                    pe.save(update_fields=['processed'])
+
+                # Cache bust outside the transaction (after commit)
+                if event_type in ('subscription.activated', 'subscription.charged'):
                     from django.core.cache import cache
                     cache.delete(f'plan_limit_over:{sub.organization_id}')
 
-                elif event_type == 'subscription.charged':
-                    sub.current_period_count = 0
-                    sub.current_period_start = now
-                    sub.current_period_end = now + timedelta(days=30)
-                    sub.save(update_fields=[
-                        'current_period_count',
-                        'current_period_start',
-                        'current_period_end',
-                        'updated_at',
-                    ])
-                    from django.core.cache import cache
-                    cache.delete(f'plan_limit_over:{sub.organization_id}')
-
-                elif event_type == 'subscription.cancelled':
-                    sub.transition_to(TenantSubscription.Status.CANCELLED)
-                    sub.cancelled_at = now
-                    sub.save(update_fields=['status', 'cancelled_at', 'updated_at'])
-
-                elif event_type == 'payment.failed':
-                    sub.transition_to(TenantSubscription.Status.PAST_DUE)
-                    sub.save(update_fields=['status', 'updated_at'])
-
-                pe.processed = True
-                pe.save(update_fields=['processed'])
                 logger.info('billing.webhook_processed', event_type=event_type, sub_id=razorpay_sub_id)
             except Exception as exc:
-                pe.error = str(exc)
+                # Sanitize error — never store raw exception details (may contain DB paths, etc.)
+                safe_error = f'{type(exc).__name__}: {event_type}'
+                pe.error = safe_error
                 pe.save(update_fields=['error'])
                 logger.error('billing.webhook_error', event_type=event_type, error=str(exc))
 
@@ -382,19 +427,9 @@ class AdminUsageView(APIView):
             try:
                 sub = TenantSubscription.objects.select_related('plan').get(organization=org)
             except TenantSubscription.DoesNotExist:
-                # Auto-provision an enterprise trial for orgs that lack one
-                enterprise = SubscriptionPlan.objects.filter(name='enterprise').first()
-                if not enterprise:
-                    return Response({'error': 'No subscription or plan found'}, status=status.HTTP_404_NOT_FOUND)
-                now = timezone.now()
-                sub = TenantSubscription.objects.create(
-                    organization=org,
-                    plan=enterprise,
-                    status='trial',
-                    current_period_start=now,
-                    current_period_end=now + timedelta(days=30),
-                    current_period_count=0,
-                    trial_end=now + timedelta(days=14),
+                return Response(
+                    {'error': 'No active subscription found. Please contact support.'},
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
             lim = sub.plan.monthly_limit
@@ -437,19 +472,9 @@ class AdminBillingView(APIView):
             try:
                 sub = TenantSubscription.objects.select_related('plan').get(organization=org)
             except TenantSubscription.DoesNotExist:
-                # Auto-provision an enterprise trial for orgs that lack one
-                enterprise = SubscriptionPlan.objects.filter(name='enterprise').first()
-                if not enterprise:
-                    return Response({'error': 'No subscription or plan found'}, status=status.HTTP_404_NOT_FOUND)
-                now = timezone.now()
-                sub = TenantSubscription.objects.create(
-                    organization=org,
-                    plan=enterprise,
-                    status='trial',
-                    current_period_start=now,
-                    current_period_end=now + timedelta(days=30),
-                    current_period_count=0,
-                    trial_end=now + timedelta(days=14),
+                return Response(
+                    {'error': 'No active subscription found. Please contact support.'},
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
             all_plans = SubscriptionPlan.objects.filter(is_active=True).order_by('price_monthly')
@@ -773,6 +798,11 @@ class WebhookListView(APIView):
         url = (request.data.get('url') or '').strip()
         if not url:
             return Response({'error': '"url" is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # SSRF protection: require HTTPS and block private/internal IPs
+        url_error = _validate_webhook_url(url)
+        if url_error:
+            return Response({'error': url_error}, status=status.HTTP_400_BAD_REQUEST)
 
         events = request.data.get('events', [])
         if not isinstance(events, list) or not events:

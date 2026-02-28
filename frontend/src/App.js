@@ -1,33 +1,36 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import "@/App.css";
 
 import { useSessionTimeout } from "@/hooks/useSessionTimeout";
 
+// Eager: needed immediately for unauthenticated users and layout shell
 import Login from "@/views/Login";
-import Signup from "@/views/Signup";
-import Onboarding from "@/views/Onboarding";
 import Layout from "@/components/Layout";
-import UserWorkspace from "@/views/UserWorkspace";
-import AdminDashboard from "@/views/AdminDashboard";
-// DoctorDashboard removed — DOCTOR role now routes to /screening as technician
-import PatientRecords from "@/views/PatientRecords";
-import WorkQueue from "@/views/WorkQueue";
-import DoctorList from "@/views/DoctorList";
-import LabList from "@/views/LabList";
-import Settings from "@/views/Settings";
-import AdminUsers from "@/views/admin/AdminUsers";
-import AdminLabs from "@/views/admin/AdminLabs";
-import AdminDoctors from "@/views/admin/AdminDoctors";
-import AdminUsage from "@/views/admin/AdminUsage";
-import AdminBilling from "@/views/admin/AdminBilling";
-import PlatformDashboard from "@/views/platform/PlatformDashboard";
-import PlatformOrgList from "@/views/platform/PlatformOrgList";
-import PlatformCreateOrg from "@/views/platform/PlatformCreateOrg";
-import PlatformOrgDetail from "@/views/platform/PlatformOrgDetail";
+
+// Lazy-loaded route views — each becomes a separate chunk
+const Signup = lazy(() => import("@/views/Signup"));
+const Onboarding = lazy(() => import("@/views/Onboarding"));
+const UserWorkspace = lazy(() => import("@/views/UserWorkspace"));
+const AdminDashboard = lazy(() => import("@/views/AdminDashboard"));
+const PatientRecords = lazy(() => import("@/views/PatientRecords"));
+const WorkQueue = lazy(() => import("@/views/WorkQueue"));
+const DoctorList = lazy(() => import("@/views/DoctorList"));
+const LabList = lazy(() => import("@/views/LabList"));
+const Settings = lazy(() => import("@/views/Settings"));
+const AdminUsers = lazy(() => import("@/views/admin/AdminUsers"));
+const AdminLabs = lazy(() => import("@/views/admin/AdminLabs"));
+const AdminDoctors = lazy(() => import("@/views/admin/AdminDoctors"));
+const AdminUsage = lazy(() => import("@/views/admin/AdminUsage"));
+const AdminBilling = lazy(() => import("@/views/admin/AdminBilling"));
+const PlatformDashboard = lazy(() => import("@/views/platform/PlatformDashboard"));
+const PlatformOrgList = lazy(() => import("@/views/platform/PlatformOrgList"));
+const PlatformCreateOrg = lazy(() => import("@/views/platform/PlatformCreateOrg"));
+const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"));
 
 import { AuthService } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 // Route to view mapping for Layout activeView prop
 const routeToView = {
@@ -220,9 +223,17 @@ const App = () => {
     );
   }
 
+  const routeFallback = (
+    <div className="flex items-center justify-center p-8">
+      <div className="animate-spin h-6 w-6 border-2 border-teal-600 border-t-transparent rounded-full"></div>
+    </div>
+  );
+
   // Not logged in — allow /login and /signup; redirect everything else to /login
   if (!user) {
     return (
+      <ErrorBoundary>
+      <Suspense fallback={routeFallback}>
       <Routes>
         <Route
           path="/login"
@@ -247,11 +258,14 @@ const App = () => {
         />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+      </Suspense>
+      </ErrorBoundary>
     );
   }
 
   // Logged in - show app with Layout
   return (
+    <ErrorBoundary>
     <Layout
       user={user}
       onLogout={handleLogout}
@@ -269,6 +283,7 @@ const App = () => {
           </button>
         </div>
       )}
+      <Suspense fallback={routeFallback}>
       <Routes>
         {/* Admin Dashboard (SUPER_ADMIN) */}
         <Route
@@ -460,7 +475,9 @@ const App = () => {
           element={<Navigate to={getDefaultRoute(user.role)} replace />}
         />
       </Routes>
+      </Suspense>
     </Layout>
+    </ErrorBoundary>
   );
 };
 

@@ -35,8 +35,8 @@ class JWTAuthentication(authentication.BaseAuthentication):
             payload = decode_token(token, token_type='access')
         except jwt.ExpiredSignatureError:
             raise exceptions.AuthenticationFailed('Token has expired')
-        except jwt.InvalidTokenError as e:
-            raise exceptions.AuthenticationFailed(f'Invalid token: {str(e)}')
+        except jwt.InvalidTokenError:
+            raise exceptions.AuthenticationFailed('Invalid token')
 
         try:
             user = User.objects.get(id=payload['sub'])
@@ -168,8 +168,8 @@ def refresh_tokens(refresh_token_str: str) -> tuple[str, str]:
         payload = decode_token(refresh_token_str, token_type='refresh')
     except jwt.ExpiredSignatureError:
         raise exceptions.AuthenticationFailed('Refresh token has expired')
-    except jwt.InvalidTokenError as e:
-        raise exceptions.AuthenticationFailed(f'Invalid refresh token: {str(e)}')
+    except jwt.InvalidTokenError:
+        raise exceptions.AuthenticationFailed('Invalid refresh token')
 
     # Find stored token
     token_hash = hashlib.sha256(refresh_token_str.encode()).hexdigest()

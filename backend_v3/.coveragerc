@@ -5,12 +5,6 @@ omit =
     */migrations/*
     # Management commands (tested via integration/manual)
     */management/*
-    # Celery tasks (require Celery test infrastructure)
-    */tasks.py
-    # WebSocket consumers (require ASGI test infrastructure)
-    */consumers.py
-    # WebSocket broadcast helpers
-    */ws_broadcast.py
     # URL/routing config files (trivial wiring, not business logic)
     */routing.py
     */urls.py
