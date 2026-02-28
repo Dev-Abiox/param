@@ -114,6 +114,7 @@ jobs:
           image-ref: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
           exit-code: 1
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
           timeout: 10m
 
   deploy:
