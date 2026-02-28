@@ -197,7 +197,7 @@ class TestCredentialEmailSecurity:
         user.password = 'pbkdf2_sha256$hashed'
         user.last_login = None
 
-        with patch('apps.billing.tasks.default_token_generator') as mock_gen:
+        with patch('django.contrib.auth.tokens.default_token_generator') as mock_gen:
             mock_gen.make_token.return_value = 'test-token-abc123'
             url = _make_password_setup_url(user)
 
