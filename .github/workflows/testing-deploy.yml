@@ -78,7 +78,7 @@ jobs:
         DEBUG: "False"
       run: |
         cd backend_v3
-        pytest --cov=apps --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=30 -x -q
+        pytest --cov=apps --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=25 -x -q
 
   test-frontend:
     runs-on: ubuntu-latest

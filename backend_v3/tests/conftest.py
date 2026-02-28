@@ -119,6 +119,12 @@ def public_tenant(db):
         tenant=tenant,
         defaults={'is_primary': True},
     )
+    # Django's test client uses 'testserver' as the default Host header
+    Domain.objects.get_or_create(
+        domain='testserver',
+        tenant=tenant,
+        defaults={'is_primary': False},
+    )
     return tenant
 
 
