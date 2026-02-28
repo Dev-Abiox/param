@@ -19,12 +19,13 @@ class TestAdminUserListView:
         response = client.get('/api/admin/users')
         assert response.status_code == 200
 
-    def test_lab_user_cannot_access_admin_users(self, authenticated_lab_user):
+    def test_lab_user_can_access_admin_users(self, authenticated_lab_user):
+        """LAB users are org managers and can list users in their org."""
         user, token = authenticated_lab_user
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
         response = client.get('/api/admin/users')
-        assert response.status_code == 403
+        assert response.status_code == 200
 
     def test_unauthenticated_cannot_access_admin(self):
         client = APIClient()
