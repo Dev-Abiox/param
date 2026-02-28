@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom';
 
 // Mock the api module internals
-let interceptors = { request: [], response: [] };
+// Variables prefixed with `mock` are allowed inside jest.mock() factory
+let mockInterceptors = { request: [], response: [] };
 let mockAxiosInstance;
 
 jest.mock('axios', () => {
@@ -10,12 +11,12 @@ jest.mock('axios', () => {
       interceptors: {
         request: {
           use: jest.fn((fn) => {
-            interceptors.request.push(fn);
+            mockInterceptors.request.push(fn);
           }),
         },
         response: {
           use: jest.fn((onFulfilled, onRejected) => {
-            interceptors.response.push({ onFulfilled, onRejected });
+            mockInterceptors.response.push({ onFulfilled, onRejected });
           }),
         },
       },
@@ -30,7 +31,7 @@ jest.mock('axios', () => {
 
 describe('API Service', () => {
   beforeEach(() => {
-    interceptors = { request: [], response: [] };
+    mockInterceptors = { request: [], response: [] };
     jest.resetModules();
   });
 
