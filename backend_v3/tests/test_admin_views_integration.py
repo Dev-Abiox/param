@@ -67,12 +67,12 @@ class TestAdminOrgManagement:
         user, token = authenticated_superadmin
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/admin/organizations')
+        response = client.get('/api/v1/platform/orgs/')
         assert response.status_code == 200
 
     def test_doctor_cannot_list_orgs(self, authenticated_doctor_user):
         user, token = authenticated_doctor_user
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/admin/organizations')
+        response = client.get('/api/v1/platform/orgs/')
         assert response.status_code == 403
