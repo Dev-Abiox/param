@@ -6,20 +6,24 @@ user creation, and edge cases (duplicates, reserved names, passwords).
 """
 
 import pytest
+from unittest.mock import patch
 from rest_framework.test import APIClient
 
+from apps.billing.views import SignupView
 
+
+@patch.object(SignupView, 'throttle_classes', [])
 @pytest.mark.django_db(transaction=True)
 class TestSignupFlow:
     """Test the POST /api/signup/ endpoint."""
 
     def _signup_payload(self, **overrides):
         payload = {
-            'orgName': 'Test Hospital',
-            'adminName': 'Admin User',
-            'adminEmail': 'admin@testhospital.com',
-            'adminPassword': 'StrongTestPass123!@#',
-            'username': 'hospitaladmin',
+            'org_name': 'Test Hospital',
+            'admin_name': 'Admin User',
+            'admin_email': 'admin@testhospital.com',
+            'admin_password': 'StrongTestPass123!@#',
+            'tos_accepted': True,
         }
         payload.update(overrides)
         return payload
@@ -44,8 +48,7 @@ class TestSignupFlow:
         response = client.post(
             '/api/signup/',
             self._signup_payload(
-                adminEmail='admin2@testhospital.com',
-                username='hospitaladmin2',
+                admin_email='admin2@testhospital.com',
             ),
             format='json',
         )
@@ -57,8 +60,7 @@ class TestSignupFlow:
         response = client.post(
             '/api/signup/',
             self._signup_payload(
-                orgName='Different Hospital',
-                username='differentadmin',
+                org_name='Different Hospital',
             ),
             format='json',
         )
@@ -68,7 +70,7 @@ class TestSignupFlow:
         client = APIClient()
         response = client.post(
             '/api/signup/',
-            self._signup_payload(adminPassword='short'),
+            self._signup_payload(admin_password='short'),
             format='json',
         )
         assert response.status_code == 400
@@ -87,9 +89,8 @@ class TestSignupFlow:
         response = client.post(
             '/api/signup/',
             self._signup_payload(
-                orgName='MFA Test Org',
-                adminEmail='mfa@test.com',
-                username='mfatestuser',
+                org_name='MFA Test Org',
+                admin_email='mfa@test.com',
             ),
             format='json',
         )
