@@ -109,7 +109,10 @@ def sample_cbc_deficient():
 @pytest.mark.django_db
 def public_tenant(db):
     """Create or retrieve the public schema tenant."""
+    from django.db import connection
     from apps.core.models import Organization, Domain
+    # Ensure we're in the public schema (previous tests may leave a tenant schema active)
+    connection.set_schema_to_public()
     tenant, _ = Organization.objects.get_or_create(
         schema_name='public',
         defaults={'name': 'Public', 'is_active': True},
