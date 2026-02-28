@@ -80,7 +80,7 @@ class TestWebhookURLSSRF:
 class TestWebhookSignatureStatus:
     """Verify invalid Razorpay webhook signatures return 401 (not 400)."""
 
-    def test_invalid_signature_returns_401(self):
+    def test_invalid_signature_returns_401(self, public_tenant):
         """Invalid HMAC signature should be 401 Unauthorized, not 400 Bad Request."""
         import json
         from rest_framework.test import APIClient

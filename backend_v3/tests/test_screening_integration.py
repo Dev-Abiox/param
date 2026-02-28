@@ -78,7 +78,7 @@ class TestCaseListIntegration:
         response = client.get('/api/screening/cases')
         assert response.status_code == 200
 
-    def test_unauthenticated_cannot_list_cases(self):
+    def test_unauthenticated_cannot_list_cases(self, public_tenant):
         client = APIClient()
         response = client.get('/api/screening/cases')
         assert response.status_code in (401, 403)

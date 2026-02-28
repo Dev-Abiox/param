@@ -42,7 +42,7 @@ class TestLoginIntegration:
         assert response.status_code == 401
         assert 'Invalid credentials' in response.json().get('error', '')
 
-    def test_login_with_missing_credentials_returns_400(self):
+    def test_login_with_missing_credentials_returns_400(self, public_tenant):
         client = APIClient()
         response = client.post('/api/auth/login', {}, format='json')
         assert response.status_code == 400
@@ -99,12 +99,12 @@ class TestLoginIntegration:
 class TestTokenRefreshIntegration:
     """Test the POST /api/auth/refresh endpoint."""
 
-    def test_refresh_without_cookie_returns_401(self):
+    def test_refresh_without_cookie_returns_401(self, public_tenant):
         client = APIClient()
         response = client.post('/api/auth/refresh')
         assert response.status_code == 401
 
-    def test_refresh_with_invalid_cookie_returns_401(self):
+    def test_refresh_with_invalid_cookie_returns_401(self, public_tenant):
         client = APIClient()
         client.cookies['clinomic_refresh'] = 'invalid-token'
         response = client.post('/api/auth/refresh')
@@ -115,7 +115,7 @@ class TestTokenRefreshIntegration:
 class TestMeEndpoint:
     """Test the GET /api/auth/me endpoint."""
 
-    def test_me_unauthenticated_returns_401_or_403(self):
+    def test_me_unauthenticated_returns_401_or_403(self, public_tenant):
         client = APIClient()
         response = client.get('/api/auth/me')
         assert response.status_code in (401, 403)
