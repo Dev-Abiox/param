@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 @pytest.mark.django_db(transaction=True)
 class TestSignupFlow:
-    """Test the POST /api/billing/signup endpoint."""
+    """Test the POST /api/signup/ endpoint."""
 
     def _signup_payload(self, **overrides):
         payload = {
@@ -27,7 +27,7 @@ class TestSignupFlow:
     def test_signup_creates_org_and_user(self, public_tenant):
         client = APIClient()
         response = client.post(
-            '/api/billing/signup',
+            '/api/signup/',
             self._signup_payload(),
             format='json',
         )
@@ -39,10 +39,10 @@ class TestSignupFlow:
     def test_signup_duplicate_org_name_returns_error(self, public_tenant):
         client = APIClient()
         # First signup
-        client.post('/api/billing/signup', self._signup_payload(), format='json')
+        client.post('/api/signup/', self._signup_payload(), format='json')
         # Second signup with same org name
         response = client.post(
-            '/api/billing/signup',
+            '/api/signup/',
             self._signup_payload(
                 adminEmail='admin2@testhospital.com',
                 username='hospitaladmin2',
@@ -53,9 +53,9 @@ class TestSignupFlow:
 
     def test_signup_duplicate_email_returns_error(self, public_tenant):
         client = APIClient()
-        client.post('/api/billing/signup', self._signup_payload(), format='json')
+        client.post('/api/signup/', self._signup_payload(), format='json')
         response = client.post(
-            '/api/billing/signup',
+            '/api/signup/',
             self._signup_payload(
                 orgName='Different Hospital',
                 username='differentadmin',
@@ -67,7 +67,7 @@ class TestSignupFlow:
     def test_signup_weak_password_returns_400(self, public_tenant):
         client = APIClient()
         response = client.post(
-            '/api/billing/signup',
+            '/api/signup/',
             self._signup_payload(adminPassword='short'),
             format='json',
         )
@@ -75,7 +75,7 @@ class TestSignupFlow:
 
     def test_signup_missing_fields_returns_400(self, public_tenant):
         client = APIClient()
-        response = client.post('/api/billing/signup', {}, format='json')
+        response = client.post('/api/signup/', {}, format='json')
         assert response.status_code == 400
 
     def test_signup_returns_mfa_not_verified_token(self, public_tenant):
@@ -85,7 +85,7 @@ class TestSignupFlow:
 
         client = APIClient()
         response = client.post(
-            '/api/billing/signup',
+            '/api/signup/',
             self._signup_payload(
                 orgName='MFA Test Org',
                 adminEmail='mfa@test.com',
