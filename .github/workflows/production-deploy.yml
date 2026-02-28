@@ -171,6 +171,10 @@ jobs:
           echo "=== ENSURING SHARED DOCKER NETWORK ==="
           docker network create clinomic_network 2>/dev/null || true
 
+          echo "=== FIXING VOLUME PERMISSIONS ==="
+          docker volume create static_volume 2>/dev/null || true
+          docker run --rm -v static_volume:/data alpine chown -R 1000:1000 /data
+
           echo "=== SAVING CURRENT IMAGES FOR ROLLBACK ==="
           cd $BASE
           PREV_BACKEND=$(docker inspect --format='{{.Id}}' $BACKEND_IMAGE:latest 2>/dev/null || echo "")

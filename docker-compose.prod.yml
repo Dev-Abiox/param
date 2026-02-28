@@ -91,7 +91,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-      - /app/staticfiles
     deploy:                         # C3: resource limits
       resources:
         limits:
