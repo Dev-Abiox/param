@@ -47,7 +47,7 @@ class TestWebhookSignatureVerification:
 
         client = APIClient()
         response = client.post(
-            '/api/billing/webhook',
+            '/api/billing/webhook/',
             data=payload,
             content_type='application/json',
             HTTP_X_RAZORPAY_SIGNATURE=signature,
@@ -65,7 +65,7 @@ class TestWebhookSignatureVerification:
 
         client = APIClient()
         response = client.post(
-            '/api/billing/webhook',
+            '/api/billing/webhook/',
             data=payload,
             content_type='application/json',
             HTTP_X_RAZORPAY_SIGNATURE='invalid-signature',
@@ -79,7 +79,7 @@ class TestWebhookSignatureVerification:
 
         client = APIClient()
         response = client.post(
-            '/api/billing/webhook',
+            '/api/billing/webhook/',
             data=payload,
             content_type='application/json',
             HTTP_X_RAZORPAY_SIGNATURE='any',

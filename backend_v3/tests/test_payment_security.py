@@ -90,7 +90,7 @@ class TestWebhookSignatureStatus:
 
         with override_settings(RAZORPAY_WEBHOOK_SECRET='test-secret'):
             response = client.post(
-                '/api/billing/webhook',
+                '/api/billing/webhook/',
                 data=payload,
                 content_type='application/json',
                 HTTP_X_RAZORPAY_SIGNATURE='tampered-signature',
