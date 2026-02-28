@@ -141,6 +141,8 @@ class TestWebhookView:
         mock_sub.organization_id = str(uuid.uuid4())
         mock_sub.organization = MagicMock()
         MockSub.objects.filter.return_value.select_related.return_value.first.return_value = mock_sub
+        # Also mock the select_for_update chain used inside transaction.atomic()
+        MockSub.objects.select_for_update.return_value.select_related.return_value.get.return_value = mock_sub
         MockSub.Status.ACTIVE = 'ACTIVE'
 
         MockPlan.objects.filter.return_value.first.return_value = None  # no plan upgrade
