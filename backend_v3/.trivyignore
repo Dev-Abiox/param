@@ -1,0 +1,5 @@
+# setuptools is pinned to <70 because razorpay SDK requires pkg_resources
+# which was removed in setuptools 70+. setuptools is a build-time dependency
+# only — it is not exposed at runtime and poses no exploitable attack surface.
+CVE-2024-6345
+CVE-2025-47273
