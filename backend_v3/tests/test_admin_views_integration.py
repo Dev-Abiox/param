@@ -27,7 +27,7 @@ class TestAdminUserListView:
         response = client.get('/api/admin/users')
         assert response.status_code == 200
 
-    def test_unauthenticated_cannot_access_admin(self):
+    def test_unauthenticated_cannot_access_admin(self, public_tenant):
         client = APIClient()
         response = client.get('/api/admin/users')
         assert response.status_code in (401, 403)
