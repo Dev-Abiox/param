@@ -3,6 +3,10 @@
 # IDE and editors
 .idea/
 .vscode/
+.claude/settings.local.json
+
+# Git user config (should be in ~/.gitconfig)
+.gitconfig
 
 # Dependencies
 node_modules/
@@ -51,6 +55,7 @@ dump.rdb
 # Python
 __pycache__/
 *pyc*
+.pytest_cache/
 venv/
 .venv/
 
