@@ -147,7 +147,7 @@ jobs:
         run: |
           SERVER="deploy@${{ secrets.HOST_IP }}"
           ssh $SERVER "mkdir -p /opt/clinomic-b12-platform/ml/models"
-          ssh $SERVER 'docker run --rm -v /opt/clinomic-b12-platform:/host alpine sh -c "rm -rf /host/monitoring && mkdir -p /host/monitoring/grafana/provisioning/datasources /host/monitoring/grafana/provisioning/dashboards && chmod -R 777 /host/monitoring"'
+          ssh $SERVER 'docker run --rm -v /opt/clinomic-b12-platform:/host alpine sh -c "rm -rf /host/monitoring && mkdir -p /host/monitoring/grafana/provisioning/datasources /host/monitoring/grafana/provisioning/dashboards && chown -R 472:472 /host/monitoring/grafana && chmod -R 755 /host/monitoring"'
           scp docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
           scp nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
           scp -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/

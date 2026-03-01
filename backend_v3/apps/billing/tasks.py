@@ -333,6 +333,12 @@ def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_is
     plan_name     : str  — Display name of the chosen plan.
     trial_end_iso : str  — ISO-8601 datetime string for when the trial ends.
     """
+    # Idempotency — prevent duplicate emails on Celery retry
+    dedup_key = f'welcome_email:{user_id}'
+    if not cache.add(dedup_key, '1', timeout=3600):
+        logger.debug('billing.welcome_email_deduplicated', user_id=user_id)
+        return
+
     from django.conf import settings
     from django.core.mail import send_mail
     from apps.core.models import User
@@ -377,6 +383,7 @@ def send_welcome_email(user_id: str, org_name: str, plan_name: str, trial_end_is
             recipient=user.email,
         )
     except Exception as exc:
+        cache.delete(dedup_key)
         logger.error(
             'billing.welcome_email_send_failed',
             user_id=user_id,
@@ -423,6 +430,12 @@ def send_credentials_email(user_id: str, org_name: str) -> None:
     user_id  : str — UUID of the User record (public schema).
     org_name : str — Human-readable organisation name.
     """
+    # Idempotency — prevent duplicate emails on Celery retry
+    dedup_key = f'credentials_email:{user_id}'
+    if not cache.add(dedup_key, '1', timeout=3600):
+        logger.debug('billing.credentials_email_deduplicated', user_id=user_id)
+        return
+
     from django.conf import settings
     from django.core.mail import send_mail
     from apps.core.models import User
@@ -468,6 +481,7 @@ def send_credentials_email(user_id: str, org_name: str) -> None:
             recipient=user.email,
         )
     except Exception as exc:
+        cache.delete(dedup_key)
         logger.error(
             'billing.credentials_email_send_failed',
             user_id=user_id,
@@ -496,6 +510,12 @@ def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> Non
     otp_code        : str — The 6-digit OTP code.
     recipient_email : str — Email address to send the code to.
     """
+    # Idempotency — prevent duplicate OTP emails on Celery retry (keyed on code)
+    dedup_key = f'mfa_otp_email:{user_id}:{otp_code}'
+    if not cache.add(dedup_key, '1', timeout=300):
+        logger.debug('billing.mfa_otp_email_deduplicated', user_id=user_id)
+        return
+
     from django.conf import settings as django_settings
     from django.core.mail import send_mail
 
@@ -522,6 +542,7 @@ def send_mfa_otp_email(user_id: str, otp_code: str, recipient_email: str) -> Non
             recipient=recipient_email,
         )
     except Exception as exc:
+        cache.delete(dedup_key)
         logger.error(
             'billing.mfa_otp_email_send_failed',
             user_id=user_id,
@@ -826,6 +847,12 @@ def send_lab_created_email(
     Email the admin user when a super admin creates a new lab on their behalf.
     Contains a password setup link (no plaintext password in the broker).
     """
+    # Idempotency — prevent duplicate emails on Celery retry
+    dedup_key = f'lab_created_email:{user_id}'
+    if not cache.add(dedup_key, '1', timeout=3600):
+        logger.debug('billing.lab_created_email_deduplicated', user_id=user_id)
+        return
+
     from django.conf import settings
     from django.core.mail import send_mail
     from apps.core.models import User
@@ -876,6 +903,7 @@ def send_lab_created_email(
             recipient=user.email,
         )
     except Exception as exc:
+        cache.delete(dedup_key)
         logger.error(
             'billing.lab_created_email_failed',
             user_id=user_id,
