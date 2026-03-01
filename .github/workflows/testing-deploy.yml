@@ -223,7 +223,8 @@ jobs:
         sleep 30
 
         echo "=== HEALTH CHECK ==="
-        if curl -f -H "Host: testing.clinomiclabs.com" https://localhost/api/health/live -k; then
+        BACKEND_CONTAINER=$(docker-compose -f docker-compose.testing.yml ps -q backend_testing)
+        if [ -n "$BACKEND_CONTAINER" ] && docker exec "$BACKEND_CONTAINER" curl -f -H 'Host: testing.clinomiclabs.com' -H 'X-Forwarded-Proto: https' http://localhost:8000/api/health/live; then
           echo "✓ Testing health check passed"
         else
           echo "✗ Testing health check failed — showing logs"
