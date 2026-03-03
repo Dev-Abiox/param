@@ -500,6 +500,12 @@ class AdminBillingUpgradeView(APIView):
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def post(self, request):
+        if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+            return Response(
+                {'error': 'Payment gateway is not configured. Please contact support.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         plan_name = (request.data.get('plan') or '').strip().lower()
         if not plan_name:
             return Response({'error': 'plan is required'}, status=status.HTTP_400_BAD_REQUEST)

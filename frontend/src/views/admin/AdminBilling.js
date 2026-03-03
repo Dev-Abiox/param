@@ -64,6 +64,11 @@ const AdminBilling = () => {
     setUpgradeLoading(true);
     try {
       const result = await BillingService.initiateUpgrade(selectedPlan);
+      if (!result.razorpay_key_id) {
+        showToast("error", "Payment gateway is not configured. Please contact support.");
+        setUpgradeLoading(false);
+        return;
+      }
       const options = {
         key: result.razorpay_key_id,
         subscription_id: result.subscription_id,
