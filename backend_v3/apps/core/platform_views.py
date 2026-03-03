@@ -362,8 +362,9 @@ class PlatformCreateOrgView(PublicSchemaMixin, APIView):
 
 class PlatformOrgDetailView(PublicSchemaMixin, APIView):
     """
-    GET   /api/v1/platform/orgs/<schema_name>/   — Full org detail
-    PATCH /api/v1/platform/orgs/<schema_name>/   — Suspend or reactivate
+    GET    /api/v1/platform/orgs/<schema_name>/   — Full org detail
+    PATCH  /api/v1/platform/orgs/<schema_name>/   — Suspend or reactivate
+    DELETE /api/v1/platform/orgs/<schema_name>/   — Permanently delete
 
     PATCH body: { "action": "suspend" | "reactivate" }
     """
@@ -454,6 +455,64 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
             'status': sub.status,
             'is_active': org.is_active,
         })
+
+    def delete(self, request, schema_name):
+        """
+        DELETE /api/v1/platform/orgs/<schema_name>/
+
+        Permanently delete an organisation: drops the tenant schema,
+        removes the org, all associated users, subscriptions, and domains.
+        """
+        org = self._get_org(schema_name)
+        if not org:
+            return Response({'error': 'Organisation not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if org.schema_name == 'public':
+            return Response({'error': 'Cannot delete the public schema.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        org_name = org.name
+        org_schema = org.schema_name
+
+        try:
+            # Delete related records in correct order
+            TenantSubscription.objects.filter(organization=org).delete()
+            UsageRecord.objects.filter(organization=org).delete()
+            PaymentEvent.objects.filter(organization=org).delete()
+            User.objects.filter(organization=org).delete()
+            Domain.objects.filter(tenant=org).delete()
+
+            # Drop the tenant schema from the database
+            from psycopg2 import sql as psql
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    psql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(
+                        psql.Identifier(org_schema)
+                    )
+                )
+
+            # Delete the organization record itself
+            org.delete()
+
+        except Exception:
+            logger.exception(
+                'platform.org_delete_failed',
+                org=org_name,
+                schema=org_schema,
+                deleted_by=request.user.username,
+            )
+            return Response(
+                {'error': 'Failed to delete organisation. Check server logs.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        logger.info(
+            'platform.org_deleted',
+            org=org_name,
+            schema=org_schema,
+            deleted_by=request.user.username,
+        )
+
+        return Response({'detail': f'Organisation "{org_name}" has been permanently deleted.'})
 
 
 # ── Org Plan Override ─────────────────────────────────────────────────────────

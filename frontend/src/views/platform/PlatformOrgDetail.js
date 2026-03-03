@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RefreshCw, UserPlus } from "lucide-react";
+import { ArrowLeft, RefreshCw, UserPlus, Trash2 } from "lucide-react";
 import { PlatformService } from "@/services/PlatformService";
 
 const PLANS = ["starter", "professional", "enterprise"];
@@ -50,8 +50,10 @@ const PlatformOrgDetail = () => {
   const [planLoading, setPlanLoading] = useState(false);
   const [planMsg, setPlanMsg] = useState(null);
 
-  // Action state (suspend/reactivate)
+  // Action state (suspend/reactivate/delete)
   const [actionLoading, setActionLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Add user state
   const [showAddUser, setShowAddUser] = useState(false);
@@ -66,8 +68,8 @@ const PlatformOrgDetail = () => {
       const data = await PlatformService.getOrg(schema);
       setOrg(data);
       setSelectedPlan(data.subscription?.plan?.replace("_", "") || "");
-    } catch {
-      setError("Failed to load organisation.");
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load organisation.");
     } finally {
       setLoading(false);
     }
@@ -116,6 +118,19 @@ const PlatformOrgDetail = () => {
       setUserMsg({ type: "error", text: err?.response?.data?.error || "Failed to create user." });
     } finally {
       setUserLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleteLoading(true);
+    try {
+      await PlatformService.deleteOrg(schema);
+      navigate("/platform-admin/orgs");
+    } catch (err) {
+      alert(err?.response?.data?.error || "Failed to delete organisation.");
+    } finally {
+      setDeleteLoading(false);
+      setDeleteConfirm(false);
     }
   };
 
@@ -171,6 +186,11 @@ const PlatformOrgDetail = () => {
               Suspend
             </button>
           )}
+          <button onClick={() => setDeleteConfirm(true)}
+            className="p-2 text-red-500 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20"
+            title="Delete organisation">
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -285,6 +305,34 @@ const PlatformOrgDetail = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ────────────────────────────── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-bold text-red-600 dark:text-red-400 mb-2">Delete Organisation</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">
+              This will permanently delete <strong>{org.name}</strong> including:
+            </p>
+            <ul className="text-sm text-slate-500 dark:text-slate-400 list-disc list-inside mb-4 space-y-1">
+              <li>All users in this organisation</li>
+              <li>All screening data and patient records</li>
+              <li>The database schema and subscription</li>
+            </ul>
+            <p className="text-sm font-semibold text-red-600 dark:text-red-400 mb-4">This action cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setDeleteConfirm(false)}
+                className="px-4 py-2 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700">
+                Cancel
+              </button>
+              <button onClick={handleDelete} disabled={deleteLoading}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-60">
+                {deleteLoading ? "Deleting..." : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

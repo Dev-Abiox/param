@@ -3,7 +3,7 @@
  * All endpoints require SUPER_ADMIN role.
  */
 import axios from "axios";
-import { getAccessToken } from "@/services/api";
+import { getAccessToken, AuthService, clearAccessToken } from "@/services/api";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -20,6 +20,34 @@ platformAPI.interceptors.request.use((config) => {
   return config;
 });
 
+// On 401, refresh the access token then retry once (mirrors the main API interceptor).
+let _refreshPromise = null;
+
+platformAPI.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      try {
+        if (!_refreshPromise) {
+          _refreshPromise = AuthService.refresh().finally(() => {
+            _refreshPromise = null;
+          });
+        }
+        const newToken = await _refreshPromise;
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return platformAPI(originalRequest);
+      } catch {
+        clearAccessToken();
+        window.dispatchEvent(new Event("session-expired"));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const PlatformService = {
   /** Platform-wide stats */
   getStats: () => platformAPI.get("/stats/").then((r) => r.data),
@@ -35,6 +63,9 @@ export const PlatformService = {
 
   /** Suspend or reactivate an org */
   updateOrg: (schema, data) => platformAPI.patch(`/orgs/${schema}/`, data).then((r) => r.data),
+
+  /** Permanently delete an org */
+  deleteOrg: (schema) => platformAPI.delete(`/orgs/${schema}/`).then((r) => r.data),
 
   /** 12-month usage history for one org */
   getOrgUsage: (schema) => platformAPI.get(`/orgs/${schema}/usage/`).then((r) => r.data),
