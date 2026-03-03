@@ -25,6 +25,7 @@ from .views import (
     NotificationListView,
     NotificationMarkReadView,
     ResetPasswordView,
+    SetPasswordView,
     SessionListView,
     SessionRevokeView,
     TokenRefreshView,
@@ -42,6 +43,7 @@ urlpatterns = [
     # Password Reset
     path('auth/forgot-password', ForgotPasswordView.as_view(), name='auth-forgot-password'),
     path('auth/reset-password', ResetPasswordView.as_view(), name='auth-reset-password'),
+    path('auth/set-password', SetPasswordView.as_view(), name='auth-set-password'),
 
     # Session Management
     path('auth/sessions', SessionListView.as_view(), name='auth-sessions'),

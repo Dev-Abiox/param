@@ -759,6 +759,59 @@ class ResetPasswordView(APIView):
         return Response({'detail': 'Password has been reset successfully.'})
 
 
+class SetPasswordView(APIView):
+    """
+    Set password for a new account using the Django token from the credentials email.
+
+    POST /api/auth/set-password
+    Body: { "uid": "<base64-encoded user id>", "token": "<token>", "new_password": "<password>" }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.encoding import force_str
+        from django.utils.http import urlsafe_base64_decode
+
+        uid = (request.data.get('uid') or '').strip()
+        token = (request.data.get('token') or '').strip()
+        new_password = request.data.get('new_password', '')
+
+        if not uid or not token or not new_password:
+            return Response(
+                {'error': 'uid, token, and new_password are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response(
+                {'error': 'Invalid or expired link'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not default_token_generator.check_token(user, token):
+            return Response(
+                {'error': 'Invalid or expired link. Please ask your administrator to resend the invitation.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from django.contrib.auth.password_validation import validate_password
+            validate_password(new_password, user)
+        except ValidationError as e:
+            return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+
+        logger.info("Password set via credentials link for user: %s", user.username)
+
+        return Response({'detail': 'Password has been set successfully. You can now log in.'})
+
+
 # ── Active Session Management ──────────────────────────────────────────────────
 
 class SessionListView(APIView):

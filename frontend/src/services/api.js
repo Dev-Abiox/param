@@ -144,6 +144,11 @@ export const AuthService = {
     return res.data;
   },
 
+  setPassword: async (uid, token, newPassword) => {
+    const res = await API.post("/auth/set-password", { uid, token, new_password: newPassword });
+    return res.data;
+  },
+
   getSessions: async () => {
     const res = await API.get("/auth/sessions");
     return res.data;

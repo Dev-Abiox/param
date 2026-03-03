@@ -27,6 +27,8 @@ const PlatformDashboard = lazy(() => import("@/views/platform/PlatformDashboard"
 const PlatformOrgList = lazy(() => import("@/views/platform/PlatformOrgList"));
 const PlatformCreateOrg = lazy(() => import("@/views/platform/PlatformCreateOrg"));
 const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"));
+const SetPassword = lazy(() => import("@/views/SetPassword"));
+const ResetPassword = lazy(() => import("@/views/ResetPassword"));
 
 import { AuthService } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
@@ -258,6 +260,8 @@ const App = () => {
             />
           }
         />
+        <Route path="/set-password/:uid/:token" element={<SetPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
       </Suspense>
