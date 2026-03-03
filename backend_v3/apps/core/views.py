@@ -301,6 +301,7 @@ class TokenRefreshView(APIView):
     No body required — the refresh token is read from the cookie set at login.
     """
     permission_classes = [AllowAny]
+    throttle_classes = []  # exempt — protected by cookie validation + token rotation
 
     def post(self, request):
         token = request.COOKIES.get(_REFRESH_COOKIE)
@@ -532,6 +533,7 @@ class HealthLiveView(APIView):
     GET /api/health/live
     """
     permission_classes = [AllowAny]
+    throttle_classes = []  # Docker health checks hit this every 30s
 
     def get(self, request):
         return Response({'status': 'live'})
@@ -540,12 +542,13 @@ class HealthLiveView(APIView):
 class HealthView(APIView):
     """
     Simple health check endpoint.
-    
+
     GET /health/
     No auth required, lightweight, no DB queries
     """
     permission_classes = [AllowAny]
     authentication_classes = []  # Explicitly disable authentication
+    throttle_classes = []
 
     def get(self, request):
         # Lightweight health check - no database queries
@@ -566,6 +569,7 @@ class HealthReadyView(APIView):
     GET /api/health/ready
     """
     permission_classes = [AllowAny]
+    throttle_classes = []
 
     def get(self, request):
         errors = []

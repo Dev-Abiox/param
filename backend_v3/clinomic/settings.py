@@ -181,8 +181,8 @@ REST_FRAMEWORK = {
         'apps.core.throttling.ResilientUserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '20/minute',
-        'user': '100/minute',
+        'anon': '60/minute',
+        'user': '200/minute',
         'login': '5/minute',
         'screening': '50/minute',
         'mfa_verify': '5/5minute',  # 5 TOTP attempts per 5-minute window (0.3 / 0.4)
