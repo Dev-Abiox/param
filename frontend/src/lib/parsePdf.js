@@ -1,8 +1,10 @@
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
-import pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.entry";
+import * as pdfjsLib from "pdfjs-dist";
 import Tesseract from "tesseract.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url
+).toString();
 
 /**
  * Extract CBC values and patient info from a lab report PDF.
