@@ -648,12 +648,18 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
             created_by=request.user.username,
         )
 
+        # Send credentials email asynchronously
+        try:
+            from apps.billing.tasks import send_credentials_email
+            send_credentials_email.delay(str(user.id), org.name)
+        except Exception as exc:
+            logger.warning('send_credentials_email_failed user_id=%s error=%s', user.id, exc)
+
         return Response({
             'id': str(user.id),
             'username': user.username,
             'email': user.email,
             'name': user.name,
             'role': user.role,
-            'temp_password': password,
-            'message': f'User created. Share the temporary password securely.',
+            'message': f'User created. Login credentials sent to {email}.',
         }, status=status.HTTP_201_CREATED)
