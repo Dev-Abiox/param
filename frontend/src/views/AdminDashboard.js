@@ -6,11 +6,11 @@ import { LisService } from "../services/api";
 const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
   const [latencyMs, setLatencyMs] = useState(null);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
 
   const fetchStats = () => {
-    setLoadError(false);
+    setLoadError(null);
     setStats(null);
     const t0 = performance.now();
     LisService.getStats()
@@ -18,7 +18,7 @@ const AdminDashboard = () => {
         setLatencyMs(Math.round(performance.now() - t0));
         setStats(data);
       })
-      .catch(() => setLoadError(true));
+      .catch((err) => setLoadError(err?.response?.data?.error || "Failed to load analytics data."));
   };
 
   useEffect(() => { fetchStats(); }, []);
@@ -43,7 +43,7 @@ const AdminDashboard = () => {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-400 dark:text-slate-500" data-testid="admin-dashboard-error">
         <AlertTriangle className="w-8 h-8 mb-4 text-red-400" />
-        <p className="mb-4">Failed to load analytics data.</p>
+        <p className="mb-4">{loadError}</p>
         <button onClick={fetchStats} className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 text-sm">
           Retry
         </button>

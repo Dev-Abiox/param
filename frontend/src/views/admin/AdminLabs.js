@@ -69,8 +69,8 @@ const AdminLabs = () => {
     try {
       const data = await AdminService.getLabs();
       setLabs(data);
-    } catch {
-      setError("Failed to load labs.");
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load labs.");
     } finally {
       setLoading(false);
     }

@@ -65,6 +65,24 @@ class JWTTenantMiddleware:
     so that admin views can query tenant-specific tables.
     """
 
+    # URL prefixes that require a tenant schema (labs, doctors, patients,
+    # screenings tables).  Requests to these paths are rejected with 412
+    # when no tenant organisation exists yet.
+    _TENANT_SCOPED_PREFIXES = (
+        '/api/screening/',
+        '/api/v1/screening/',
+        '/api/analytics/',
+        '/api/v1/analytics/',
+        '/api/notifications/',
+        '/api/v1/notifications/',
+        '/api/v1/admin/labs',
+        '/api/v1/admin/doctors',
+        '/api/v1/admin/users',
+        '/api/admin/labs',
+        '/api/admin/doctors',
+        '/api/admin/users',
+    )
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -85,6 +103,15 @@ class JWTTenantMiddleware:
                     if target:
                         connection.set_tenant(target)
                         request.tenant = target
+                    elif self._is_tenant_scoped_path(request.path):
+                        return JsonResponse(
+                            {
+                                'error': 'No organization exists yet. '
+                                         'Create one in Platform Admin first.',
+                                'code': 'no_tenant',
+                            },
+                            status=412,
+                        )
 
             except Organization.DoesNotExist:
                 logger.warning("JWTTenantMiddleware: org_id %s not found", org_id)
@@ -96,6 +123,11 @@ class JWTTenantMiddleware:
                     status=503,
                 )
         return self.get_response(request)
+
+    @classmethod
+    def _is_tenant_scoped_path(cls, path):
+        """Return True if the request path requires a tenant schema."""
+        return any(path.startswith(p) for p in cls._TENANT_SCOPED_PREFIXES)
 
     @staticmethod
     def _resolve_target_tenant(request, Organization):

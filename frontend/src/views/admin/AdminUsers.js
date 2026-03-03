@@ -30,8 +30,8 @@ const AdminUsers = ({ user: currentUser }) => {
     try {
       const data = await AdminService.getUsers();
       setUsers(data);
-    } catch {
-      setError("Failed to load users.");
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load users.");
     } finally {
       setLoading(false);
     }

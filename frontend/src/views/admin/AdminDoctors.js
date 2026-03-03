@@ -76,8 +76,8 @@ const AdminDoctors = () => {
       ]);
       setDoctors(docData);
       setLabs(labData.filter((l) => l.is_active));
-    } catch {
-      setError("Failed to load doctors.");
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to load doctors.");
     } finally {
       setLoading(false);
     }
