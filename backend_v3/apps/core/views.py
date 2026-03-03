@@ -53,7 +53,7 @@ def _set_refresh_cookie(response, token: str) -> None:
         max_age=max_age,
         httponly=True,
         secure=not settings.DEBUG,   # False only in local dev
-        samesite='Strict',
+        samesite='Lax',
         path='/api/auth/',
     )
 
@@ -62,11 +62,21 @@ def _delete_refresh_cookie(response) -> None:
     response.delete_cookie(_REFRESH_COOKIE, path='/api/auth/')
 
 
-class LoginRateThrottle(AnonRateThrottle):
+class _ResilientThrottleMixin:
+    """Fail-open when Redis is unreachable — degrade rate-limiting, never crash."""
+    def allow_request(self, request, view):
+        try:
+            return super().allow_request(request, view)
+        except Exception:
+            logger.warning("throttle_cache_error: %s bypassed", self.__class__.__name__)
+            return True
+
+
+class LoginRateThrottle(_ResilientThrottleMixin, AnonRateThrottle):
     rate = '5/minute'
 
 
-class MFATOTPThrottle(SimpleRateThrottle):
+class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     """
     Strict rate limit for TOTP verification attempts.
 
@@ -87,7 +97,7 @@ class MFATOTPThrottle(SimpleRateThrottle):
         }
 
 
-class MFAResendThrottle(SimpleRateThrottle):
+class MFAResendThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     """Rate limit OTP resend to 3 per 5 minutes per IP."""
     scope = 'mfa_resend'
 
@@ -215,7 +225,7 @@ class LoginView(APIView):
         # verification above (MFA enabled) or MFA is not set up — both cases
         # mean the user is fully authenticated.
         access_token = create_access_token(user, mfa_verified=True)
-        refresh_token, _ = create_refresh_token(user)
+        refresh_token, _ = create_refresh_token(user, mfa_verified=True)
 
         response = Response({
             'access_token': access_token,
@@ -269,9 +279,9 @@ class MFAVerifyView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Create tokens
+        # Create tokens — MFA was just verified, so mfa_verified=True
         access_token = create_access_token(user, mfa_verified=True)
-        refresh_token, _ = create_refresh_token(user)
+        refresh_token, _ = create_refresh_token(user, mfa_verified=True)
 
         response = Response({
             'access_token': access_token,
@@ -336,12 +346,21 @@ class MeView(APIView):
     Get current user info.
 
     GET /api/auth/me
+
+    Only requires authentication (no MFA gate) so the frontend can always
+    fetch the user profile — including during the MFA-setup flow — and
+    decide what UI to render.
     """
-    permission_classes = [IsAuthenticated, IsMFAVerified]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         serializer = UserSerializer(request.user)
-        return Response(serializer.data)
+        data = serializer.data
+        # Expose the MFA verification state from the JWT so the frontend
+        # can redirect to MFA setup when needed without a separate call.
+        token_payload = getattr(request, 'token_payload', {})
+        data['mfa_verified'] = token_payload.get('mfa_verified', False)
+        return Response(data)
 
 
 class MFASetupView(APIView):
@@ -622,7 +641,7 @@ class HealthReadyView(APIView):
 
 # ── Password Reset ─────────────────────────────────────────────────────────────
 
-class PasswordResetRateThrottle(AnonRateThrottle):
+class PasswordResetRateThrottle(_ResilientThrottleMixin, AnonRateThrottle):
     rate = '3/hour'
 
 

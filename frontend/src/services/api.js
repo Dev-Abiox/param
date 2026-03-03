@@ -92,6 +92,7 @@ export const AuthService = {
     setAccessToken(res.data.access_token);
     return {
       mfaRequired: false,
+      mfaSetupRequired: res.data.mfaSetupRequired || false,
       id: res.data.id,
       name: res.data.name,
       role: res.data.role,

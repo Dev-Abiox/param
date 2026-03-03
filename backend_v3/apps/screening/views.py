@@ -43,6 +43,13 @@ logger = structlog.get_logger(__name__)
 class ScreeningRateThrottle(UserRateThrottle):
     rate = '50/minute'
 
+    def allow_request(self, request, view):
+        try:
+            return super().allow_request(request, view)
+        except Exception:
+            logger.warning("throttle_cache_error: ScreeningRateThrottle bypassed")
+            return True
+
 
 class PredictView(APIView):
     """
@@ -153,16 +160,23 @@ class PredictView(APIView):
             doctor = Doctor.objects.filter(code=data['doctorId']).first()
 
         # Get or create patient with encrypted PHI fields, scoped to lab
-        patient, _ = Patient.objects.update_or_create(
-            patient_id=patient_id,
-            lab=lab,
-            defaults={
-                'name_encrypted': encrypt_field((data.get('patientName') or '').strip()),
-                'age_encrypted': encrypt_field(str(int(cbc.get('Age', 0)))),
-                'sex_encrypted': encrypt_field(str(cbc.get('Sex', 'M'))),
-                'referring_doctor': doctor,
-            }
-        )
+        try:
+            patient, _ = Patient.objects.update_or_create(
+                patient_id=patient_id,
+                lab=lab,
+                defaults={
+                    'name_encrypted': encrypt_field((data.get('patientName') or '').strip()),
+                    'age_encrypted': encrypt_field(str(int(cbc.get('Age', 0)))),
+                    'sex_encrypted': encrypt_field(str(cbc.get('Sex', 'M'))),
+                    'referring_doctor': doctor,
+                }
+            )
+        except Exception as exc:
+            logger.exception("Patient create/update failed for %s", patient_id)
+            return Response(
+                {'error': 'Failed to save patient record. Please contact support.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         # Compute hashes for reproducibility (deterministic key order)
         request_hash = hashlib.sha256(
@@ -225,13 +239,16 @@ class PredictView(APIView):
             from apps.billing.tasks import increment_usage, trigger_webhook, send_high_risk_alert
             increment_usage.delay(org_id, str(screening.id))
             # C1: fire HTTP webhook for every completed screening
-            trigger_webhook(org, 'screening.completed', {
-                'screening_id': str(screening.id),
-                'patient_id': patient_id,
-                'risk_class': result['riskClass'],
-                'label': result['labelText'],
-                'model_version': result['modelVersion'],
-            })
+            try:
+                trigger_webhook(org, 'screening.completed', {
+                    'screening_id': str(screening.id),
+                    'patient_id': patient_id,
+                    'risk_class': result['riskClass'],
+                    'label': result['labelText'],
+                    'model_version': result['modelVersion'],
+                })
+            except Exception:
+                logger.exception("trigger_webhook failed for screening %s", screening.id)
             # C2: send email alert for high-risk (class 3) screenings
             if result['riskClass'] == 3:
                 send_high_risk_alert.delay(
@@ -344,6 +361,33 @@ class CaseListView(APIView):
         })
 
 
+def _validate_lab_association(user):
+    """
+    Ensure the requesting user has an active lab association in the current
+    tenant.  Returns ``(lab, None)`` on success or ``(None, Response)`` with
+    an HTTP 400 error when the association is missing — this is a data /
+    configuration issue, **not** a permissions issue, so we intentionally
+    avoid 403.
+    """
+    if user.role == Role.LAB:
+        lab = Lab.objects.filter(is_active=True).order_by('created_at').first()
+        if not lab:
+            return None, Response(
+                {'error': 'No active lab found for your account. Contact your administrator.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return lab, None
+    if user.role == Role.DOCTOR and user.email:
+        doctor = Doctor.objects.filter(email=user.email, is_active=True).select_related('lab').first()
+        if not doctor or not doctor.lab:
+            return None, Response(
+                {'error': 'No active lab assignment found for your account. Contact your administrator.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return doctor.lab, None
+    return None, None
+
+
 class ConsentRecordView(APIView):
     """
     Record patient consent.
@@ -354,6 +398,11 @@ class ConsentRecordView(APIView):
     required_roles = [Role.LAB, Role.DOCTOR]
 
     def post(self, request):
+        # Validate that the user is associated with a lab in this tenant
+        _, err_response = _validate_lab_association(request.user)
+        if err_response:
+            return err_response
+
         serializer = ConsentRecordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -405,6 +454,11 @@ class ConsentStatusView(APIView):
     required_roles = [Role.LAB, Role.DOCTOR]
 
     def get(self, request, patient_id):
+        # Validate that the user is associated with a lab in this tenant
+        _, err_response = _validate_lab_association(request.user)
+        if err_response:
+            return err_response
+
         try:
             patient = Patient.objects.get(patient_id=patient_id)
             consent = Consent.objects.filter(
@@ -830,18 +884,21 @@ class BulkImportStatusView(APIView):
 
 
 # ── FHIR R4 LOINC → CBC field mapping ─────────────────────────────────────────
+# Keys must match the ML engine's expected column names (Hb, RBC, etc.),
+# NOT the CBCSerializer field names (Hb_g_dL, RBC_million_uL, etc.)
+# since the FHIR flow bypasses the serializer.
 _LOINC_TO_CBC = {
-    '718-7':   'Hb_g_dL',           # Haemoglobin (g/dL)
-    '789-8':   'RBC_million_uL',     # Erythrocytes (10^6/μL)
-    '4544-3':  'HCT_percent',        # Haematocrit (%)
-    '787-2':   'MCV_fL',             # MCV (fL)
-    '785-6':   'MCH_pg',             # MCH (pg)
-    '786-4':   'MCHC_g_dL',          # MCHC (g/dL)
-    '788-0':   'RDW_percent',        # RDW (%)
-    '6690-2':  'WBC_10_3_uL',        # Leukocytes (10^3/μL)
-    '777-3':   'Platelets_10_3_uL',  # Platelets (10^3/μL)
-    '770-8':   'Neutrophils_percent',# Neutrophils (%)
-    '736-9':   'Lymphocytes_percent',# Lymphocytes (%)
+    '718-7':   'Hb',           # Haemoglobin (g/dL)
+    '789-8':   'RBC',          # Erythrocytes (10^6/μL)
+    '4544-3':  'HCT',          # Haematocrit (%)
+    '787-2':   'MCV',          # MCV (fL)
+    '785-6':   'MCH',          # MCH (pg)
+    '786-4':   'MCHC',         # MCHC (g/dL)
+    '788-0':   'RDW',          # RDW (%)
+    '6690-2':  'WBC',          # Leukocytes (10^3/μL)
+    '777-3':   'Platelets',    # Platelets (10^3/μL)
+    '770-8':   'Neutrophils',  # Neutrophils (%)
+    '736-9':   'Lymphocytes',  # Lymphocytes (%)
 }
 
 
@@ -1000,14 +1057,17 @@ class FHIRBundleView(APIView):
         fhir_org_id = str(org.id) if org else None
         if fhir_org_id:
             from apps.billing.tasks import trigger_webhook, send_high_risk_alert
-            trigger_webhook(org, 'screening.completed', {
-                'screening_id': str(screening.id),
-                'patient_id': patient_id,
-                'risk_class': result['riskClass'],
-                'label': result['labelText'],
-                'model_version': result['modelVersion'],
-                'source': 'fhir',
-            })
+            try:
+                trigger_webhook(org, 'screening.completed', {
+                    'screening_id': str(screening.id),
+                    'patient_id': patient_id,
+                    'risk_class': result['riskClass'],
+                    'label': result['labelText'],
+                    'model_version': result['modelVersion'],
+                    'source': 'fhir',
+                })
+            except Exception:
+                logger.exception("trigger_webhook failed for FHIR screening %s", screening.id)
             if result['riskClass'] == 3:
                 send_high_risk_alert.delay(str(screening.id), fhir_org_id, None)
 

@@ -72,9 +72,16 @@ def create_access_token(user: User, mfa_verified: bool = False) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(user: User) -> tuple[str, RefreshToken]:
+def create_refresh_token(user: User, mfa_verified: bool = False) -> tuple[str, RefreshToken]:
     """
     Create a JWT refresh token and store its hash.
+
+    Args:
+        user: The user to create the token for
+        mfa_verified: Whether the user completed MFA verification.  Stored in
+            the refresh-token payload so that ``refresh_tokens()`` can carry
+            the claim into the new access token without automatically
+            promoting un-verified sessions to verified.
 
     Returns:
         tuple: (token_string, RefreshToken model instance)
@@ -85,6 +92,7 @@ def create_refresh_token(user: User) -> tuple[str, RefreshToken]:
     payload = {
         'sub': str(user.id),
         'token_type': 'refresh',
+        'mfa_verified': mfa_verified,
         'jti': jti,
         'iat': int(now.timestamp()),
         'exp': int((now + settings.JWT_REFRESH_TOKEN_LIFETIME).timestamp()),
@@ -188,11 +196,14 @@ def refresh_tokens(refresh_token_str: str) -> tuple[str, str]:
     stored_token.is_revoked = True
     stored_token.save()
 
-    # Get user and create new tokens
+    # Get user and create new tokens — preserve the mfa_verified claim from
+    # the old refresh token so that a session that never completed MFA cannot
+    # be silently upgraded to mfa_verified=True by refreshing.
     user = stored_token.user
+    mfa_verified = payload.get('mfa_verified', False)
 
-    new_access_token = create_access_token(user, mfa_verified=True)
-    new_refresh_token, _ = create_refresh_token(user)
+    new_access_token = create_access_token(user, mfa_verified=mfa_verified)
+    new_refresh_token, _ = create_refresh_token(user, mfa_verified=mfa_verified)
 
     return new_access_token, new_refresh_token
 

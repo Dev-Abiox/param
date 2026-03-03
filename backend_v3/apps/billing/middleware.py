@@ -90,6 +90,11 @@ class JWTTenantMiddleware:
                 logger.warning("JWTTenantMiddleware: org_id %s not found", org_id)
             except Exception as exc:
                 logger.error("JWTTenantMiddleware: failed to set tenant: %s", exc)
+                # Fail fast — do not continue with potentially wrong schema
+                return JsonResponse(
+                    {'error': 'Tenant resolution failed. Please try again.'},
+                    status=503,
+                )
         return self.get_response(request)
 
     @staticmethod

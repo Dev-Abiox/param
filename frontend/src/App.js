@@ -83,6 +83,8 @@ const App = () => {
       try {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
+        // userData now includes mfa_verified from the backend — the
+        // frontend can use this to gate MFA-setup flows if needed.
         setUser(userData);
       } catch {
         // Cookie absent or expired — stay on the login screen

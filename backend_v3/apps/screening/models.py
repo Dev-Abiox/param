@@ -9,7 +9,7 @@ import uuid
 
 from django.db import models
 
-from apps.core.crypto import decrypt_field, encrypt_field
+from apps.core.crypto import CryptoError, decrypt_field, encrypt_field
 
 
 class Lab(models.Model):
@@ -111,7 +111,10 @@ class Patient(models.Model):
     @property
     def name(self) -> str:
         """Decrypt and return patient name."""
-        return decrypt_field(self.name_encrypted)
+        try:
+            return decrypt_field(self.name_encrypted)
+        except CryptoError:
+            return '[decryption error]'
 
     @name.setter
     def name(self, value: str):
@@ -121,7 +124,10 @@ class Patient(models.Model):
     @property
     def age(self) -> int:
         """Decrypt and return patient age as an integer."""
-        val = decrypt_field(self.age_encrypted)
+        try:
+            val = decrypt_field(self.age_encrypted)
+        except CryptoError:
+            return 0
         try:
             return int(val) if val else 0
         except (ValueError, TypeError):
@@ -134,7 +140,10 @@ class Patient(models.Model):
     @property
     def sex(self) -> str:
         """Decrypt and return patient sex."""
-        return decrypt_field(self.sex_encrypted) or ''
+        try:
+            return decrypt_field(self.sex_encrypted) or ''
+        except CryptoError:
+            return ''
 
     @sex.setter
     def sex(self, value: str) -> None:
