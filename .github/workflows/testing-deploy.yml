@@ -194,6 +194,16 @@ jobs:
 
         BASE=/opt/clinomic-b12-platform
 
+        # Load server-side env vars for docker-compose
+        if [ -f "$BASE/.env" ]; then
+          set -a
+          source "$BASE/.env"
+          set +a
+          echo "✓ Loaded .env"
+        else
+          echo "⚠ No .env file found at $BASE/.env"
+        fi
+
         echo "=== ENSURING SHARED DOCKER NETWORK ==="
         docker network create clinomic_network 2>/dev/null || true
 

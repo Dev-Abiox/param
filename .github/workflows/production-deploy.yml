@@ -169,6 +169,16 @@ jobs:
           BASE=/opt/clinomic-b12-platform
           COMPOSE="$BASE/docker-compose.prod.yml"
 
+          # Load server-side env vars (Razorpay keys, etc.) for docker-compose
+          if [ -f "$BASE/.env" ]; then
+            set -a
+            source "$BASE/.env"
+            set +a
+            echo "✓ Loaded .env"
+          else
+            echo "⚠ No .env file found at $BASE/.env"
+          fi
+
           echo "=== VALIDATING DEPLOYMENT ==="
           [ -f "$COMPOSE" ] || { echo "ERROR: $COMPOSE not found"; exit 1; }
           [ -f "$BASE/nginx.prod.conf" ] || { echo "ERROR: nginx.prod.conf not found"; exit 1; }
