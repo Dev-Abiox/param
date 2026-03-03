@@ -152,6 +152,7 @@ jobs:
           ssh $SERVER "mkdir -p /opt/clinomic-b12-platform/monitoring/grafana/provisioning/datasources /opt/clinomic-b12-platform/monitoring/grafana/provisioning/dashboards"
           scp docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
           scp nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
+          scp nginx.testing.conf $SERVER:/opt/clinomic-b12-platform/nginx.testing.conf
           scp -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/
           scp monitoring/prometheus.yml $SERVER:/opt/clinomic-b12-platform/monitoring/prometheus.yml
           scp -r monitoring/grafana/provisioning/ $SERVER:/opt/clinomic-b12-platform/monitoring/grafana/provisioning/
