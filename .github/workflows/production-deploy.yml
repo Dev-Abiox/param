@@ -183,6 +183,12 @@ jobs:
           [ -f "$COMPOSE" ] || { echo "ERROR: $COMPOSE not found"; exit 1; }
           [ -f "$BASE/nginx.prod.conf" ] || { echo "ERROR: nginx.prod.conf not found"; exit 1; }
 
+          echo "=== FREEING DISK SPACE ==="
+          docker image prune -af --filter "until=72h" || true
+          docker builder prune -af --filter "until=72h" || true
+          docker volume prune -f --filter "label!=keep" || true
+          echo "Disk usage after cleanup: $(df -h / | tail -1 | awk '{print $5}')"
+
           echo "=== ENSURING SHARED DOCKER NETWORK ==="
           docker network create clinomic_network 2>/dev/null || true
 
