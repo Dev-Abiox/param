@@ -23,16 +23,16 @@ ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 # Build application
 RUN CI='' npm run build
 
+# Copy PDF.js worker as .js to avoid .mjs MIME issues with nginx
+RUN cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs build/pdf.worker.min.js
+
 # Stage 2: Production with nginx
 FROM nginx:alpine AS production
 
 # Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Add .mjs to the existing application/javascript MIME type (for PDF.js worker)
-RUN sed -i 's|application/javascript\(.*\)js;|application/javascript\1js mjs;|' /etc/nginx/mime.types
-
-# Copy built application
+# Copy built application (includes pdf.worker.min.js at root)
 COPY --from=builder /app/build /usr/share/nginx/html
 
 # Add healthcheck
