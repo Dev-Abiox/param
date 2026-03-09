@@ -29,8 +29,8 @@ FROM nginx:alpine AS production
 # Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Ensure .mjs files are served as JavaScript (needed for PDF.js worker)
-RUN sed -i 's|}|    application/javascript                      mjs;\n}|' /etc/nginx/mime.types
+# Add .mjs to the existing application/javascript MIME type (for PDF.js worker)
+RUN sed -i 's|application/javascript\(.*\)js;|application/javascript\1js mjs;|' /etc/nginx/mime.types
 
 # Copy built application
 COPY --from=builder /app/build /usr/share/nginx/html
