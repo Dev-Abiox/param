@@ -70,7 +70,7 @@ const PlatformOrgDetail = () => {
     try {
       const data = await PlatformService.getOrg(schema);
       setOrg(data);
-      setSelectedPlan(data.subscription?.plan?.replace("_", "") || "");
+      setSelectedPlan(data.subscription?.plan?.name?.replace("_", "") || "");
     } catch (err) {
       console.error('[PlatformOrgDetail] load error:', err?.response?.status, err?.response?.data, err);
       setError(extractError(err, "Failed to load organisation."));
