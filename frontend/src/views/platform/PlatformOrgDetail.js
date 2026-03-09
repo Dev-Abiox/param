@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RefreshCw, UserPlus, Trash2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, UserPlus, Trash2, Mail } from "lucide-react";
 import { PlatformService } from "@/services/PlatformService";
 
 const PLANS = ["starter", "professional", "enterprise"];
@@ -63,6 +63,22 @@ const PlatformOrgDetail = () => {
   const [userForm, setUserForm] = useState({ email: "", name: "", role: "LAB" });
   const [userLoading, setUserLoading] = useState(false);
   const [userMsg, setUserMsg] = useState(null);
+
+  // Resend credentials state
+  const [resendingId, setResendingId] = useState(null);
+
+  const handleResendCredentials = async (userId, email) => {
+    setResendingId(userId);
+    setUserMsg(null);
+    try {
+      await PlatformService.resendCredentials(schema, userId);
+      setUserMsg({ type: "success", text: `Credentials email sent to ${email}.` });
+    } catch (err) {
+      setUserMsg({ type: "error", text: extractError(err, "Failed to send credentials email.") });
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -416,11 +432,12 @@ const PlatformOrgDetail = () => {
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Role</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Status</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Last Login</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-300">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                 {(org.users || []).length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">No users found.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">No users found.</td></tr>
                 ) : (
                   (org.users || []).map((u) => (
                     <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
@@ -438,6 +455,19 @@ const PlatformOrgDetail = () => {
                       </td>
                       <td className="px-4 py-3 text-slate-400 dark:text-slate-500 text-xs">
                         {u.last_login ? new Date(u.last_login).toLocaleDateString() : "Never"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {u.email && (
+                          <button
+                            onClick={() => handleResendCredentials(u.id, u.email)}
+                            disabled={resendingId === u.id}
+                            title="Send credentials email"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-800 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50"
+                          >
+                            <Mail className="h-3.5 w-3.5" />
+                            {resendingId === u.id ? "Sending..." : "Send Credentials"}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))

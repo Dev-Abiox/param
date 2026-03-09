@@ -745,3 +745,47 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
             'role': user.role,
             'message': f'User created. Login credentials sent to {email}.',
         }, status=status.HTTP_201_CREATED)
+
+
+# ── Resend Credentials ────────────────────────────────────────────────────────
+
+class PlatformResendCredentialsView(PublicSchemaMixin, APIView):
+    """
+    POST /api/v1/platform/orgs/<schema_name>/users/<user_id>/resend-credentials/
+
+    Resend the password-setup email to an existing user. Clears the
+    deduplication cache key so the email is sent even if one was recently sent.
+    """
+    permission_classes = _PLATFORM_PERMS
+
+    def post(self, request, schema_name, user_id):
+        try:
+            org = Organization.objects.get(schema_name=schema_name)
+        except Organization.DoesNotExist:
+            return Response({'error': 'Organisation not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            user = User.objects.get(id=user_id, organization=org)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found in this organisation.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user.email:
+            return Response({'error': 'User has no email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Clear the deduplication cache key so the task actually sends
+        from django.core.cache import cache
+        cache.delete(f'credentials_email:{user.id}')
+
+        from apps.billing.tasks import send_credentials_email
+        send_credentials_email.delay(str(user.id), org.name)
+
+        logger.info(
+            'platform.credentials_resent',
+            org=org.name,
+            user_email=user.email,
+            resent_by=request.user.username,
+        )
+
+        return Response({
+            'message': f'Credentials email sent to {user.email}.',
+        })

@@ -11,6 +11,7 @@ from .platform_views import (
     PlatformOrgPlanView,
     PlatformOrgUsageView,
     PlatformOrgUsersView,
+    PlatformResendCredentialsView,
     PlatformStatsView,
 )
 
@@ -22,4 +23,5 @@ urlpatterns = [
     path('orgs/<str:schema_name>/plan/',      PlatformOrgPlanView.as_view(),    name='platform-org-plan'),
     path('orgs/<str:schema_name>/usage/',     PlatformOrgUsageView.as_view(),   name='platform-org-usage'),
     path('orgs/<str:schema_name>/users/',     PlatformOrgUsersView.as_view(),   name='platform-org-users'),
+    path('orgs/<str:schema_name>/users/<uuid:user_id>/resend-credentials/', PlatformResendCredentialsView.as_view(), name='platform-resend-credentials'),
 ]
