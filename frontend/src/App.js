@@ -85,9 +85,11 @@ const App = () => {
       try {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
-        // userData now includes mfa_verified from the backend — the
-        // frontend can use this to gate MFA-setup flows if needed.
         setUser(userData);
+        // If token lacks mfa_verified, redirect to settings for MFA setup
+        if (userData.mfa_verified === false) {
+          navigate("/settings", { replace: true });
+        }
       } catch {
         // Cookie absent or expired — stay on the login screen
       } finally {
@@ -95,7 +97,7 @@ const App = () => {
       }
     };
     checkSession();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for the global session-expired event fired by the 401 interceptor
   useEffect(() => {
@@ -122,6 +124,13 @@ const App = () => {
 
       if (result.mfaRequired) {
         setIsLoading(false);
+        return result;
+      }
+
+      // MFA not set up yet — redirect to settings so user can configure it
+      if (result.mfaSetupRequired) {
+        setUser(result);
+        navigate("/settings", { replace: true });
         return result;
       }
 
