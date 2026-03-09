@@ -107,18 +107,18 @@ const UserWorkspace = ({ user }) => {
   };
 
   const checkExistingConsent = async () => {
-    if (!patient.id) return false;
+    if (!patient.id) return null;
     try {
       const status = await ConsentService.getStatus(patient.id);
       if (status.hasConsent) {
         setConsentId(status.consentId);
         setHasValidConsent(true);
-        return true;
+        return status.consentId;
       }
     } catch (err) {
       console.error("Failed to check consent:", err);
     }
-    return false;
+    return null;
   };
 
   const handleConsentCaptured = async (consentData) => {
@@ -127,7 +127,7 @@ const UserWorkspace = ({ user }) => {
     setHasValidConsent(true);
     setShowConsentCapture(false);
     // Automatically run screening after consent
-    runScreeningWithConsent(result.id);
+    await runScreeningWithConsent(result.id);
   };
 
   const runScreeningWithConsent = async (consentIdToUse) => {
@@ -159,12 +159,13 @@ const UserWorkspace = ({ user }) => {
       return;
     }
 
-    // Check for existing consent
-    const hasConsent = await checkExistingConsent();
+    // Check for existing consent — returns the consentId directly
+    // (cannot rely on React state which updates asynchronously)
+    const existingConsentId = await checkExistingConsent();
 
-    if (hasConsent) {
+    if (existingConsentId) {
       // Run with existing consent
-      runScreeningWithConsent(consentId);
+      runScreeningWithConsent(existingConsentId);
     } else {
       // Show consent capture
       setShowConsentCapture(true);

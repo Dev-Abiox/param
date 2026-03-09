@@ -80,9 +80,16 @@ class PredictView(APIView):
             now_utc = datetime.now(timezone.utc)
             try:
                 consent_obj = Consent.objects.get(id=consent_id)
-            except Consent.DoesNotExist:
+            except (Consent.DoesNotExist, ValueError):
                 return Response(
                     {'error': 'Consent record not found'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Verify consent belongs to this patient
+            if consent_obj.patient.patient_id != patient_id:
+                return Response(
+                    {'error': 'Consent does not match the specified patient'},
                     status=status.HTTP_403_FORBIDDEN
                 )
 
