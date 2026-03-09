@@ -123,8 +123,8 @@ class TestMFAGracePeriod:
         # Since user was just created, access should be granted
 
     @override_settings(MFA_REQUIRED_ROLES=['LAB', 'DOCTOR'])
-    def test_old_user_without_mfa_is_blocked(self):
-        """Users past the 24h grace period without MFA should be blocked."""
+    def test_old_user_without_mfa_is_allowed(self):
+        """Users without MFA enabled should always be allowed — frontend handles redirect."""
         from apps.core.models import MFASettings
         from apps.core.permissions import IsMFAVerified
 
@@ -143,7 +143,7 @@ class TestMFAGracePeriod:
         request.user = user
 
         result = perm.has_permission(request, None)
-        assert result is False, "User past grace period without MFA should be blocked"
+        assert result is True, "User without MFA enabled should be allowed (frontend redirects to setup)"
 
 
 class TestWorkQueuePHIRemoval:
