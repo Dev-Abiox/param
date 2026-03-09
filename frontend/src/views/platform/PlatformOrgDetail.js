@@ -37,6 +37,8 @@ const ROLE_COLORS = {
   DOCTOR: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
 };
 
+import { extractApiError as extractError } from "@/lib/utils";
+
 const PlatformOrgDetail = () => {
   const { schema } = useParams();
   const navigate = useNavigate();
@@ -70,7 +72,7 @@ const PlatformOrgDetail = () => {
       setOrg(data);
       setSelectedPlan(data.subscription?.plan?.replace("_", "") || "");
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to load organisation.");
+      setError(extractError(err, "Failed to load organisation."));
     } finally {
       setLoading(false);
     }
@@ -85,7 +87,7 @@ const PlatformOrgDetail = () => {
       const updated = await PlatformService.updateOrg(schema, { action });
       setOrg((o) => ({ ...o, is_active: updated.is_active, subscription: { ...o.subscription, status: updated.status } }));
     } catch (err) {
-      setActionError(err?.response?.data?.error || `Failed to ${action} organisation.`);
+      setActionError(extractError(err, `Failed to ${action} organisation.`));
     } finally {
       setActionLoading(false);
     }
@@ -100,7 +102,7 @@ const PlatformOrgDetail = () => {
       setPlanMsg({ type: "success", text: `Plan changed to ${res.plan}` });
       load();
     } catch (err) {
-      setPlanMsg({ type: "error", text: err?.response?.data?.error || "Failed to change plan." });
+      setPlanMsg({ type: "error", text: extractError(err, "Failed to change plan.") });
     } finally {
       setPlanLoading(false);
     }
@@ -117,7 +119,7 @@ const PlatformOrgDetail = () => {
       setShowAddUser(false);
       load();
     } catch (err) {
-      setUserMsg({ type: "error", text: err?.response?.data?.error || "Failed to create user." });
+      setUserMsg({ type: "error", text: extractError(err, "Failed to create user.") });
     } finally {
       setUserLoading(false);
     }
@@ -129,7 +131,7 @@ const PlatformOrgDetail = () => {
       await PlatformService.deleteOrg(schema);
       navigate("/platform-admin/orgs");
     } catch (err) {
-      setActionError(err?.response?.data?.error || "Failed to delete organisation.");
+      setActionError(extractError(err, "Failed to delete organisation."));
     } finally {
       setDeleteLoading(false);
       setDeleteConfirm(false);

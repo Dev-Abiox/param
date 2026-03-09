@@ -2,6 +2,7 @@ import React, { useReducer } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle, Building2, Stethoscope, UserPlus, PartyPopper, ArrowLeft, Mail } from "lucide-react";
 import { AdminService, BillingService } from "@/services/api";
+import { extractApiError } from "@/lib/utils";
 
 const STEPS = [
   { id: 1, title: "Add a Lab", icon: Building2, flag: "lab_added" },
@@ -90,7 +91,7 @@ const Onboarding = ({ user, onComplete }) => {
       await markFlag("lab_added");
       advanceStep();
     } catch (err) {
-      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create lab." });
+      dispatch({ type: "SET_ERROR", value: extractApiError(err, "Failed to create lab.") });
     } finally {
       dispatch({ type: "SET_LOADING", value: false });
     }
@@ -108,7 +109,7 @@ const Onboarding = ({ user, onComplete }) => {
       await markFlag("doctor_added");
       advanceStep();
     } catch (err) {
-      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create doctor." });
+      dispatch({ type: "SET_ERROR", value: extractApiError(err, "Failed to create doctor.") });
     } finally {
       dispatch({ type: "SET_LOADING", value: false });
     }
@@ -123,7 +124,7 @@ const Onboarding = ({ user, onComplete }) => {
       await markFlag("user_invited");
       advanceStep();
     } catch (err) {
-      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create user." });
+      dispatch({ type: "SET_ERROR", value: extractApiError(err, "Failed to create user.") });
     } finally {
       dispatch({ type: "SET_LOADING", value: false });
     }

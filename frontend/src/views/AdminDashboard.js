@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Cartes
 import { Users, AlertTriangle, TrendingUp, Search, Download, Brain, Activity, Database, Server, Rocket } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { LisService } from "../services/api";
+import { extractApiError } from "@/lib/utils";
 
 const AdminDashboard = ({ onboardingIncomplete }) => {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ const AdminDashboard = ({ onboardingIncomplete }) => {
         setLatencyMs(Math.round(performance.now() - t0));
         setStats(data);
       })
-      .catch((err) => setLoadError(err?.response?.data?.error || "Failed to load analytics data."));
+      .catch((err) => setLoadError(extractApiError(err, "Failed to load analytics data.")));
   };
 
   useEffect(() => { fetchStats(); }, []);

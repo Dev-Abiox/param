@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { UserPlus, UserX, UserCheck, Trash2, Check, RefreshCw, Mail } from "lucide-react";
 import { AdminService } from "@/services/api";
+import { extractApiError } from "@/lib/utils";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
@@ -32,7 +33,7 @@ const AdminUsers = ({ user: currentUser }) => {
       const data = await AdminService.getUsers();
       setUsers(data);
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to load users.");
+      setError(extractApiError(err, "Failed to load users."));
     } finally {
       setLoading(false);
     }
@@ -56,7 +57,7 @@ const AdminUsers = ({ user: currentUser }) => {
       );
       load();
     } catch (err) {
-      setCreateError(err?.response?.data?.error || "Failed to create user.");
+      setCreateError(extractApiError(err, "Failed to create user."));
     } finally {
       setCreateLoading(false);
     }
@@ -68,7 +69,7 @@ const AdminUsers = ({ user: currentUser }) => {
       setConfirmDeactivate(null);
       load();
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to deactivate user.");
+      setError(extractApiError(err, "Failed to deactivate user."));
       setConfirmDeactivate(null);
     }
   };
@@ -78,7 +79,7 @@ const AdminUsers = ({ user: currentUser }) => {
       await AdminService.reactivateUser(user.id);
       load();
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to reactivate user.");
+      setError(extractApiError(err, "Failed to reactivate user."));
     }
   };
 
@@ -88,7 +89,7 @@ const AdminUsers = ({ user: currentUser }) => {
       setConfirmDelete(null);
       load();
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to delete user.");
+      setError(extractApiError(err, "Failed to delete user."));
       setConfirmDelete(null);
     }
   };

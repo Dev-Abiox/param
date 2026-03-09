@@ -83,7 +83,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
       await MFAService.resendOTP(mfaPendingToken);
       setResendCooldown(60);
     } catch (err) {
-      setMfaError(err.response?.data?.error || "Failed to resend code. Please try again.");
+      setMfaError(err.response?.data?.error || err.response?.data?.detail || "Failed to resend code. Please try again.");
     }
   };
 

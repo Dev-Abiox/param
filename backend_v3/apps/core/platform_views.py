@@ -386,34 +386,56 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
         except TenantSubscription.DoesNotExist:
             sub = None
 
-        # Users in this org
-        users = User.objects.filter(organization=org).values(
-            'id', 'username', 'email', 'name', 'role', 'is_active', 'created_at', 'last_login'
-        )
+        try:
+            # Users in this org
+            users = list(User.objects.filter(organization=org).values(
+                'id', 'username', 'email', 'name', 'role', 'is_active', 'created_at', 'last_login'
+            ))
 
-        # Domain
-        domain = Domain.objects.filter(tenant=org, is_primary=True).first()
+            # Domain
+            domain = Domain.objects.filter(tenant=org, is_primary=True).first()
 
-        # 12-month usage history
-        history = UsageRecord.objects.filter(organization=org).order_by('-period_start')[:12]
+            # 12-month usage history
+            history = UsageRecord.objects.filter(organization=org).order_by('-period_start')[:12]
 
-        # Payment events
-        events = PaymentEvent.objects.filter(organization=org).order_by('-created_at')[:10].values(
-            'id', 'event_type', 'processed', 'created_at'
-        )
+            # Payment events
+            events = list(PaymentEvent.objects.filter(organization=org).order_by('-created_at')[:10].values(
+                'id', 'event_type', 'processed', 'created_at'
+            ))
 
-        return Response({
-            'id': str(org.id),
-            'name': org.name,
-            'schema_name': org.schema_name,
-            'is_active': org.is_active,
-            'created_at': org.created_at,
-            'domain': domain.domain if domain else None,
-            'subscription': TenantSubscriptionSerializer(sub).data if sub else None,
-            'usage_history': UsageRecordSerializer(history, many=True).data,
-            'payment_events': list(events),
-            'users': list(users),
-        })
+            # Build subscription summary for frontend convenience
+            sub_data = None
+            if sub:
+                sub_data = TenantSubscriptionSerializer(sub).data
+                lim = sub.plan.monthly_limit if sub.plan else 0
+                sub_data['plan_display'] = sub.plan.display_name if sub.plan else '—'
+                sub_data['monthly_limit'] = lim
+                sub_data['current_count'] = sub.current_period_count
+                sub_data['pct_used'] = (
+                    round(sub.current_period_count / lim * 100, 1) if lim > 0 else 0
+                )
+
+            return Response({
+                'id': str(org.id),
+                'name': org.name,
+                'schema_name': org.schema_name,
+                'is_active': org.is_active,
+                'created_at': org.created_at,
+                'domain': domain.domain if domain else None,
+                'subscription': sub_data,
+                'usage_history': UsageRecordSerializer(history, many=True).data,
+                'payment_events': events,
+                'users': users,
+            })
+        except Exception:
+            logger.exception(
+                'platform.org_detail_error',
+                schema=schema_name,
+            )
+            return Response(
+                {'error': 'Failed to load organisation details. Check server logs.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     def patch(self, request, schema_name):
         org = self._get_org(schema_name)
