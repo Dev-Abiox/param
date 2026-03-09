@@ -124,8 +124,8 @@ class IsMFAVerified(permissions.BasePermission):
     """
     Require MFA verification for sensitive operations.
 
-    If the user has not enabled MFA yet, access is granted so they can
-    complete onboarding (set up MFA, access billing, etc.).  Once MFA is
+    If the user has not enabled MFA yet, access is always granted — the
+    frontend is responsible for redirecting to MFA setup.  Once MFA is
     enabled, the JWT must contain ``mfa_verified=True``.
     """
     message = 'MFA verification required.'
@@ -134,21 +134,14 @@ class IsMFAVerified(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        # If user hasn't set up MFA yet, allow access during grace period
+        # If user hasn't set up MFA yet, allow access unconditionally.
+        # The frontend handles redirecting to /settings for MFA setup.
         try:
             mfa_settings = request.user.mfa_settings
         except MFASettings.DoesNotExist:
             mfa_settings = None
 
         if mfa_settings is None or not mfa_settings.is_enabled:
-            # Check if user's role requires MFA and grace period has expired
-            mfa_required_roles = getattr(django_settings, 'MFA_REQUIRED_ROLES', [])
-            if request.user.role in mfa_required_roles:
-                created_at = getattr(request.user, 'created_at', None)
-                if created_at is not None:
-                    hours_since_creation = (dj_tz.now() - created_at).total_seconds() / 3600
-                    if hours_since_creation > MFA_GRACE_PERIOD_HOURS:
-                        return False  # Grace period expired — force MFA setup
             return True
 
         # MFA is enabled — require mfa_verified claim in the token
