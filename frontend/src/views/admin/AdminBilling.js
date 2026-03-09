@@ -24,6 +24,16 @@ const STATUS_PILL = {
   PAST_DUE:  "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400",
 };
 
+const loadRazorpay = () => {
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 /* ─── component ───────────────────────────────────────── */
 const AdminBilling = () => {
   const [planData, setPlanData]       = useState(null);
@@ -62,7 +72,15 @@ const AdminBilling = () => {
   const handleUpgrade = async () => {
     if (!selectedPlan || selectedPlan === planData?.subscription?.plan?.name) return;
     setUpgradeLoading(true);
+    
     try {
+      const isLoaded = await loadRazorpay();
+      if (!isLoaded) {
+        showToast("error", "Failed to load payment gateway. Please check your connection.");
+        setUpgradeLoading(false);
+        return;
+      }
+      
       const result = await BillingService.initiateUpgrade(selectedPlan);
       if (!result.razorpay_key_id) {
         showToast("error", "Payment gateway is not configured. Please contact support.");
