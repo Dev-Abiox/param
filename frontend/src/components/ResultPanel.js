@@ -5,6 +5,14 @@ import { ScreeningLabel } from "../types";
 import { generateReport } from "@/lib/generateReport";
 import { LisService } from "../services/api";
 
+// Derive the display label from probabilities so it always matches the graph
+const getDisplayLabel = (probabilities) => {
+  const { normal = 0, borderline = 0, deficient = 0 } = probabilities;
+  if (deficient >= normal && deficient >= borderline) return ScreeningLabel.DEFICIENT;
+  if (borderline >= normal) return ScreeningLabel.BORDERLINE;
+  return ScreeningLabel.NORMAL;
+};
+
 const ResultPanel = ({ result, patient, cbcRows }) => {
   const [shapData, setShapData] = useState(null);
   const [shapLoading, setShapLoading] = useState(false);
@@ -132,7 +140,7 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-4">
-          {getBadge(result.label)}
+          {getBadge(getDisplayLabel(result.probabilities))}
 
           <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 border-b border-slate-200 dark:border-slate-700 pb-2">Clinical Narrative</h4>

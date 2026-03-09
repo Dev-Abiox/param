@@ -162,13 +162,15 @@ export async function generateReport(patient, result, cbcRows) {
   doc.line(14, 48, 196, 48);
 
   // ── Result ───────────────────────────────────────────────────────────────
-  // Use the authoritative risk_class (result.label) from the ML model
-  // instead of re-deriving from probabilities, which can disagree when
-  // clinical rules or thresholds are applied.
+  // Derive the display label from probabilities so the PDF matches the graph
+  const probs = result.probabilities || {};
+  const pNorm = probs.normal || 0;
+  const pBord = probs.borderline || 0;
+  const pDef  = probs.deficient || 0;
   let labelText = "Normal";
   let color = [34, 197, 94];
-  if (result.label === 3) { labelText = "Deficient"; color = [239, 68, 68]; }
-  else if (result.label === 2) { labelText = "Borderline"; color = [245, 158, 11]; }
+  if (pDef >= pNorm && pDef >= pBord) { labelText = "Deficient"; color = [239, 68, 68]; }
+  else if (pBord >= pNorm) { labelText = "Borderline"; color = [245, 158, 11]; }
 
   doc.setFontSize(14);
   doc.setFont("helvetica", "normal");
