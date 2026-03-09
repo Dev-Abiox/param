@@ -52,6 +52,7 @@ const PlatformOrgDetail = () => {
 
   // Action state (suspend/reactivate/delete)
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -79,11 +80,12 @@ const PlatformOrgDetail = () => {
 
   const handleAction = async (action) => {
     setActionLoading(true);
+    setActionError(null);
     try {
       const updated = await PlatformService.updateOrg(schema, { action });
       setOrg((o) => ({ ...o, is_active: updated.is_active, subscription: { ...o.subscription, status: updated.status } }));
-    } catch {
-      alert(`Failed to ${action} organisation.`);
+    } catch (err) {
+      setActionError(err?.response?.data?.error || `Failed to ${action} organisation.`);
     } finally {
       setActionLoading(false);
     }
@@ -127,7 +129,7 @@ const PlatformOrgDetail = () => {
       await PlatformService.deleteOrg(schema);
       navigate("/platform-admin/orgs");
     } catch (err) {
-      alert(err?.response?.data?.error || "Failed to delete organisation.");
+      setActionError(err?.response?.data?.error || "Failed to delete organisation.");
     } finally {
       setDeleteLoading(false);
       setDeleteConfirm(false);
@@ -207,6 +209,13 @@ const PlatformOrgDetail = () => {
           </button>
         ))}
       </div>
+
+      {actionError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg p-3 text-sm flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 text-xs font-medium ml-4">Dismiss</button>
+        </div>
+      )}
 
       {/* ── Overview Tab ─────────────────────────────────────────── */}
       {activeTab === "overview" && (

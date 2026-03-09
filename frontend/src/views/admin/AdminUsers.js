@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { UserPlus, Edit2, UserX, UserCheck, Trash2, Check, RefreshCw } from "lucide-react";
+import { UserPlus, UserX, UserCheck, Trash2, Check, RefreshCw } from "lucide-react";
 import { AdminService } from "@/services/api";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
@@ -46,7 +46,7 @@ const AdminUsers = ({ user: currentUser }) => {
     try {
       await AdminService.createUser(form);
       setShowCreate(false);
-      setForm({ username: "", email: "", name: "", password: "", role: isLabOwner ? "DOCTOR" : "LAB" });
+      setForm({ username: "", email: "", name: "", password: "", role: currentUser?.role === "LAB" ? "DOCTOR" : "LAB" });
       load();
     } catch (err) {
       setCreateError(err?.response?.data?.error || "Failed to create user.");
@@ -60,8 +60,9 @@ const AdminUsers = ({ user: currentUser }) => {
       await AdminService.deactivateUser(user.id);
       setConfirmDeactivate(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to deactivate user.");
+      setConfirmDeactivate(null);
     }
   };
 
@@ -69,8 +70,8 @@ const AdminUsers = ({ user: currentUser }) => {
     try {
       await AdminService.reactivateUser(user.id);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to reactivate user.");
     }
   };
 
@@ -79,8 +80,9 @@ const AdminUsers = ({ user: currentUser }) => {
       await AdminService.permanentDeleteUser(user.id);
       setConfirmDelete(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to delete user.");
+      setConfirmDelete(null);
     }
   };
 

@@ -27,7 +27,7 @@ from .authentication import (
 )
 from .crypto import get_crypto_status
 from .mfa import MFAManager
-from .models import MFAMethod, Role, User
+from .models import MFAMethod, RefreshToken, Role, User
 from .permissions import IsAdmin, IsMFAVerified, IsOrgManager
 from .serializers import (
     LoginSerializer,
@@ -967,6 +967,9 @@ class AdminUserListView(APIView):
         if User.objects.filter(username__iexact=username).exists():
             return Response({'error': 'Username already taken'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if email and User.objects.filter(email__iexact=email).exists():
+            return Response({'error': 'An account with that email already exists'}, status=status.HTTP_400_BAD_REQUEST)
+
         user = User(
             username=username,
             email=email,
@@ -1046,6 +1049,8 @@ class AdminUserDetailView(APIView):
             except ValidationError as e:
                 return Response({'error': e.messages}, status=status.HTTP_400_BAD_REQUEST)
             user.set_password(request.data['password'])
+            # Revoke all refresh tokens so old sessions can't persist
+            RefreshToken.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
 
         user.save()
         return Response({

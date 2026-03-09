@@ -474,24 +474,25 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
         org_schema = org.schema_name
 
         try:
-            # Delete related records in correct order
-            TenantSubscription.objects.filter(organization=org).delete()
-            UsageRecord.objects.filter(organization=org).delete()
-            PaymentEvent.objects.filter(organization=org).delete()
-            User.objects.filter(organization=org).delete()
-            Domain.objects.filter(tenant=org).delete()
+            with transaction.atomic():
+                # Delete related records in correct order
+                TenantSubscription.objects.filter(organization=org).delete()
+                UsageRecord.objects.filter(organization=org).delete()
+                PaymentEvent.objects.filter(organization=org).delete()
+                User.objects.filter(organization=org).delete()
+                Domain.objects.filter(tenant=org).delete()
 
-            # Drop the tenant schema from the database
-            from psycopg2 import sql as psql
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    psql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(
-                        psql.Identifier(org_schema)
+                # Drop the tenant schema from the database
+                from psycopg2 import sql as psql
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        psql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(
+                            psql.Identifier(org_schema)
+                        )
                     )
-                )
 
-            # Delete the organization record itself
-            org.delete()
+                # Delete the organization record itself
+                org.delete()
 
         except Exception:
             logger.exception(

@@ -119,8 +119,9 @@ const AdminDoctors = () => {
       await AdminService.deactivateDoctor(doc.id);
       setConfirmDeactivate(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to deactivate doctor.");
+      setConfirmDeactivate(null);
     }
   };
 
@@ -128,8 +129,8 @@ const AdminDoctors = () => {
     try {
       await AdminService.reactivateDoctor(doc.id);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to reactivate doctor.");
     }
   };
 
@@ -138,8 +139,9 @@ const AdminDoctors = () => {
       await AdminService.permanentDeleteDoctor(doc.id);
       setConfirmDelete(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to delete doctor.");
+      setConfirmDelete(null);
     }
   };
 
