@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from "recharts";
-import { Users, AlertTriangle, TrendingUp, Search, Download, Brain, Activity, Database, Server } from "lucide-react";
+import { Users, AlertTriangle, TrendingUp, Search, Download, Brain, Activity, Database, Server, Rocket } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { LisService } from "../services/api";
 
-const AdminDashboard = () => {
+const AdminDashboard = ({ onboardingIncomplete }) => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [latencyMs, setLatencyMs] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -66,6 +68,25 @@ const AdminDashboard = () => {
 
   return (
     <div className="space-y-6" data-testid="admin-dashboard">
+      {onboardingIncomplete && (
+        <div className="bg-gradient-to-r from-teal-600 to-teal-700 rounded-xl p-5 text-white shadow-lg flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Rocket className="h-6 w-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Complete Your Setup</h3>
+              <p className="text-teal-100 text-sm">Add your first lab, doctor, and invite users to get started with screenings.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate("/onboarding")}
+            className="px-5 py-2.5 bg-white text-teal-700 rounded-lg font-semibold text-sm hover:bg-teal-50 transition-colors shadow-sm whitespace-nowrap"
+          >
+            Continue Setup
+          </button>
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Administrator Dashboard</h2>

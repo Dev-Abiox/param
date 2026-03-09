@@ -30,7 +30,7 @@ const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"
 const SetPassword = lazy(() => import("@/views/SetPassword"));
 const ResetPassword = lazy(() => import("@/views/ResetPassword"));
 
-import { AuthService } from "@/services/api";
+import { AuthService, BillingService } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -77,6 +77,24 @@ const App = () => {
   const [selectedDoctorId, setSelectedDoctorId] = useState(undefined);
   const [selectedDoctorName, setSelectedDoctorName] = useState(undefined);
 
+  // Track whether onboarding is incomplete (for SUPER_ADMIN / LAB)
+  const [onboardingIncomplete, setOnboardingIncomplete] = useState(false);
+
+  // Check onboarding status for org-managing roles
+  const checkOnboarding = async (userData) => {
+    if (!canManageOrg(userData.role)) return;
+    try {
+      const status = await BillingService.getOnboardingStatus();
+      if (!status.completed) {
+        setOnboardingIncomplete(true);
+      } else {
+        setOnboardingIncomplete(false);
+      }
+    } catch {
+      // non-critical — don't block login
+    }
+  };
+
   // On app load: attempt a silent token refresh using the httpOnly cookie.
   // If the cookie is present and valid, we get a new access token and then
   // fetch the user profile — no localStorage involved.
@@ -88,6 +106,7 @@ const App = () => {
         // userData now includes mfa_verified from the backend — the
         // frontend can use this to gate MFA-setup flows if needed.
         setUser(userData);
+        await checkOnboarding(userData);
       } catch {
         // Cookie absent or expired — stay on the login screen
       } finally {
@@ -126,9 +145,18 @@ const App = () => {
       }
 
       setUser(result);
-      const from = location.state?.from?.pathname;
-      const defaultRoute = getDefaultRoute(result.role);
-      navigate(from || defaultRoute, { replace: true });
+      // Check onboarding — redirect to wizard if incomplete
+      let redirectTo = location.state?.from?.pathname || getDefaultRoute(result.role);
+      if (canManageOrg(result.role)) {
+        try {
+          const obStatus = await BillingService.getOnboardingStatus();
+          if (!obStatus.completed) {
+            setOnboardingIncomplete(true);
+            redirectTo = "/onboarding";
+          }
+        } catch { /* non-critical */ }
+      }
+      navigate(redirectTo, { replace: true });
       return result;
     } catch (err) {
       setError("Invalid username or password");
@@ -138,11 +166,19 @@ const App = () => {
     }
   };
 
-  const handleMFASuccess = (authenticatedUser) => {
+  const handleMFASuccess = async (authenticatedUser) => {
     setUser(authenticatedUser);
-    const from = location.state?.from?.pathname;
-    const defaultRoute = getDefaultRoute(authenticatedUser.role);
-    navigate(from || defaultRoute, { replace: true });
+    let redirectTo = location.state?.from?.pathname || getDefaultRoute(authenticatedUser.role);
+    if (canManageOrg(authenticatedUser.role)) {
+      try {
+        const obStatus = await BillingService.getOnboardingStatus();
+        if (!obStatus.completed) {
+          setOnboardingIncomplete(true);
+          redirectTo = "/onboarding";
+        }
+      } catch { /* non-critical */ }
+    }
+    navigate(redirectTo, { replace: true });
   };
 
   const handleLogout = async () => {
@@ -296,7 +332,7 @@ const App = () => {
           path="/dashboard"
           element={
             isSuperAdmin(user) ? (
-              <AdminDashboard />
+              <AdminDashboard onboardingIncomplete={onboardingIncomplete} />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
             )
@@ -341,15 +377,7 @@ const App = () => {
                     onBack={handleBackToLabs}
                   />
                 ) : (
-                  <div className="p-8 text-center">
-                    <p className="text-slate-600 mb-4">Please select a Lab first.</p>
-                    <button
-                      onClick={() => navigate("/labs")}
-                      className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
-                    >
-                      Go to Labs
-                    </button>
-                  </div>
+                  <Navigate to="/labs" replace />
                 )
               ) : (
                 <DoctorList onSelectDoctor={handleSelectDoctor} />
@@ -402,7 +430,7 @@ const App = () => {
         {/* Onboarding wizard (SUPER_ADMIN + LAB owners) */}
         <Route
           path="/onboarding"
-          element={canManageOrg(user.role) ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <Onboarding user={user} onComplete={() => setOnboardingIncomplete(false)} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
         {/* Management — Users/Doctors/Usage/Billing (SUPER_ADMIN + LAB) */}
