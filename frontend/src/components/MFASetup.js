@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Shield, Smartphone, Key, CheckCircle, Copy, AlertTriangle, RefreshCw, Mail } from "lucide-react";
-import { MFAService } from "@/services/api";
+import { MFAService, setAccessToken } from "@/services/api";
 
 const MFASetup = ({ userEmail, onComplete, onCancel }) => {
   const [step, setStep] = useState("loading"); // loading, status, choose_method, setup, email_verify, backup_codes, complete
@@ -66,6 +66,11 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
     setError(null);
     try {
       const result = await MFAService.verifySetup(verificationCode);
+      // Backend now returns a new access token with mfa_verified=True —
+      // save it so subsequent API calls pass IsMFAVerified.
+      if (result.access_token) {
+        setAccessToken(result.access_token);
+      }
       setSetupData((prev) => ({ ...prev, backup_codes: result.backup_codes }));
       setStep("backup_codes");
     } catch (err) {

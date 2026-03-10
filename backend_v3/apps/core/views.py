@@ -423,7 +423,15 @@ class MFAVerifySetupView(APIView):
         if not result['success']:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(result)
+        # MFA is now enabled — issue new tokens with mfa_verified=True so the
+        # user's restricted session is upgraded and IsMFAVerified passes.
+        access_token = create_access_token(request.user, mfa_verified=True)
+        refresh_token, _ = create_refresh_token(request.user, mfa_verified=True)
+
+        result['access_token'] = access_token
+        response = Response(result)
+        _set_refresh_cookie(response, refresh_token)
+        return response
 
 
 class MFAStatusView(APIView):

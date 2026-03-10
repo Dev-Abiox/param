@@ -31,6 +31,7 @@ const SetPassword = lazy(() => import("@/views/SetPassword"));
 const ResetPassword = lazy(() => import("@/views/ResetPassword"));
 
 import { AuthService, BillingService } from "@/services/api";
+import MFASetup from "@/components/MFASetup";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -80,6 +81,9 @@ const App = () => {
   // Track whether onboarding is incomplete (for SUPER_ADMIN / LAB)
   const [onboardingIncomplete, setOnboardingIncomplete] = useState(false);
 
+  // MFA setup required — shown when login returns mfaSetupRequired: true
+  const [mfaSetupRequired, setMfaSetupRequired] = useState(false);
+
   // Check onboarding status for org-managing roles
   const checkOnboarding = async (userData) => {
     if (!canManageOrg(userData.role)) return;
@@ -103,10 +107,14 @@ const App = () => {
       try {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
-        // userData now includes mfa_verified from the backend — the
-        // frontend can use this to gate MFA-setup flows if needed.
         setUser(userData);
-        await checkOnboarding(userData);
+        // If the user has a restricted token (MFA not yet set up), show
+        // the MFA setup flow instead of the main app.
+        if (userData.mfa_verified === false) {
+          setMfaSetupRequired(true);
+        } else {
+          await checkOnboarding(userData);
+        }
       } catch {
         // Cookie absent or expired — stay on the login screen
       } finally {
@@ -140,6 +148,14 @@ const App = () => {
       const result = await AuthService.login(u, p);
 
       if (result.mfaRequired) {
+        setIsLoading(false);
+        return result;
+      }
+
+      // MFA setup required — show MFA setup flow before accessing the app
+      if (result.mfaSetupRequired) {
+        setUser(result);
+        setMfaSetupRequired(true);
         setIsLoading(false);
         return result;
       }
@@ -302,6 +318,33 @@ const App = () => {
       </Routes>
       </Suspense>
       </ErrorBoundary>
+    );
+  }
+
+  // MFA setup required — block access to the app until MFA is configured
+  if (mfaSetupRequired) {
+    return (
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <MFASetup
+            userEmail={user?.email}
+            onComplete={async () => {
+              // After MFA setup, refresh user data with the new mfa_verified token
+              try {
+                const userData = await AuthService.getMe();
+                setUser(userData);
+              } catch { /* user already set */ }
+              setMfaSetupRequired(false);
+              navigate(getDefaultRoute(user?.role), { replace: true });
+            }}
+            onCancel={() => {
+              // Allow cancel only if MFA is not strictly required (grace period)
+              setMfaSetupRequired(false);
+              navigate(getDefaultRoute(user?.role), { replace: true });
+            }}
+          />
+        </div>
+      </div>
     );
   }
 
