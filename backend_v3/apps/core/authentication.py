@@ -200,6 +200,13 @@ def refresh_tokens(refresh_token_str: str) -> tuple[str, str]:
     # the old refresh token so that a session that never completed MFA cannot
     # be silently upgraded to mfa_verified=True by refreshing.
     user = stored_token.user
+
+    # Block refresh for deactivated users or suspended organisations.
+    if not user.is_active:
+        raise exceptions.AuthenticationFailed('Account is disabled')
+    if hasattr(user, 'organization') and user.organization and not user.organization.is_active:
+        raise exceptions.AuthenticationFailed('Organization account is disabled')
+
     mfa_verified = payload.get('mfa_verified', False)
 
     new_access_token = create_access_token(user, mfa_verified=mfa_verified)

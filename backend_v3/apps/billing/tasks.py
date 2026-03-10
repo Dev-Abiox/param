@@ -492,6 +492,39 @@ def send_credentials_email(user_id: str, org_name: str) -> None:
 
 
 @shared_task(
+    name='billing.send_password_reset_email',
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=10,
+    retry_backoff_max=120,
+    retry_jitter=True,
+    acks_late=True,
+)
+def send_password_reset_email(user_email: str, reset_url: str) -> None:
+    """Send password reset email asynchronously with retry."""
+    from django.conf import settings as django_settings
+    from django.core.mail import send_mail
+
+    try:
+        send_mail(
+            subject='Password Reset — Clinomic',
+            message=(
+                f'You requested a password reset for your Clinomic account.\n\n'
+                f'Click to reset your password:\n{reset_url}\n\n'
+                f'This link expires in 15 minutes.\n'
+                f'If you did not request this, ignore this email.'
+            ),
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user_email],
+            fail_silently=False,
+        )
+        logger.info('billing.password_reset_email_sent', recipient=user_email)
+    except Exception as exc:
+        logger.error('billing.password_reset_email_failed', recipient=user_email, error=str(exc))
+        raise
+
+
+@shared_task(
     name='billing.send_mfa_otp_email',
     max_retries=3,
     autoretry_for=(Exception,),

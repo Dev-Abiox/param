@@ -11,7 +11,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.http import JsonResponse
-from rest_framework import status
+from rest_framework import exceptions, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
@@ -80,16 +80,27 @@ class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     """
     Strict rate limit for TOTP verification attempts.
 
-    Allows 5 attempts per 5 minutes keyed on IP + user-id (from the pending
-    MFA token body).  After the 5th failure the endpoint returns 429 with a
-    Retry-After header, preventing brute-force within the 30-second TOTP window.
+    Allows 5 attempts per 5 minutes keyed on IP + user-id (extracted from
+    the MFA pending token).  After the 5th failure the endpoint returns 429
+    with a Retry-After header, preventing brute-force of the 6-digit code.
     """
     scope = 'mfa_verify'
 
     def get_cache_key(self, request, view):
-        # Key combines IP address and the user id embedded in the pending token
-        # so each user's counter is separate even behind a shared IP (e.g. NAT).
-        user_id = request.data.get('user_id', '') if hasattr(request, 'data') else ''
+        # Extract user_id from the MFA pending token for per-user throttling.
+        user_id = ''
+        pending_token = (request.data or {}).get('mfa_pending_token', '')
+        if pending_token:
+            try:
+                payload = jwt.decode(
+                    pending_token,
+                    settings.JWT_SECRET_KEY,
+                    algorithms=['HS256'],
+                    options={'verify_exp': False},
+                )
+                user_id = payload.get('sub', '')
+            except Exception:
+                pass
         ident = f"{self.get_ident(request)}-{user_id}"
         return self.cache_format % {
             'scope': self.scope,
@@ -313,8 +324,12 @@ class TokenRefreshView(APIView):
 
         try:
             access_token, new_refresh_token = refresh_tokens(token)
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError):
-            response = Response({'error': 'Invalid or expired refresh token'}, status=status.HTTP_401_UNAUTHORIZED)
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError,
+                exceptions.AuthenticationFailed) as exc:
+            response = Response(
+                {'error': str(exc) if isinstance(exc, exceptions.AuthenticationFailed) else 'Invalid or expired refresh token'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
             _delete_refresh_cookie(response)
             return response
 
@@ -676,27 +691,16 @@ class ForgotPasswordView(APIView):
             or User.objects.filter(email__iexact=identifier).first()
         )
 
-        if user and user.is_active:
+        if user and user.is_active and user.email:
             token = secrets.token_urlsafe(48)
             cache.set(f'pwd_reset_{token}', str(user.id), timeout=900)  # 15 min
 
             reset_url = f'{settings.FRONTEND_URL}/reset-password?token={token}'
             try:
-                from django.core.mail import send_mail
-                send_mail(
-                    subject='Password Reset — Clinomic',
-                    message=(
-                        f'You requested a password reset for your Clinomic account.\n\n'
-                        f'Click to reset your password:\n{reset_url}\n\n'
-                        f'This link expires in 15 minutes.\n'
-                        f'If you did not request this, ignore this email.'
-                    ),
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
-                )
-            except (OSError, Exception):
-                logger.exception('Failed to send password reset email for user: %s', user.username)
+                from apps.billing.tasks import send_password_reset_email
+                send_password_reset_email.delay(user.email, reset_url)
+            except Exception:
+                logger.exception('Failed to dispatch password reset email for user: %s', user.username)
 
             logger.info("Password reset requested for user: %s", user.username)
 

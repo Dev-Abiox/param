@@ -321,6 +321,7 @@ CELERY_TASK_ROUTES = {
     'billing.send_credentials_email': {'queue': 'email'},
     'billing.send_welcome_email':     {'queue': 'email'},
     'billing.send_mfa_otp_email':     {'queue': 'email'},
+    'billing.send_password_reset_email': {'queue': 'email'},
 }
 
 # Dead-letter: after max_retries are exhausted Celery marks the task FAILURE.

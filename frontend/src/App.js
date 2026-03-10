@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import "@/App.css";
 
@@ -159,7 +159,7 @@ const App = () => {
       navigate(redirectTo, { replace: true });
       return result;
     } catch (err) {
-      setError("Invalid username or password");
+      setError(err?.response?.data?.error || "Invalid username or password");
       throw err;
     } finally {
       setIsLoading(false);
@@ -181,7 +181,7 @@ const App = () => {
     navigate(redirectTo, { replace: true });
   };
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       await AuthService.logout();
     } finally {
@@ -189,7 +189,7 @@ const App = () => {
       resetSelection();
       navigate("/login", { replace: true });
     }
-  };
+  }, [navigate]);
 
   // 15-minute inactivity session timeout (only active when logged in)
   const { showWarning, resetTimer } = useSessionTimeout({
@@ -497,8 +497,9 @@ const App = () => {
           }
         />
 
-        {/* Password setup — accessible even when logged in (admin testing links) */}
+        {/* Password setup/reset — accessible even when logged in */}
         <Route path="/set-password/:uid/:token" element={<SetPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Default redirect based on role */}
         <Route

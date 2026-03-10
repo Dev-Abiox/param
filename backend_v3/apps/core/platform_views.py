@@ -84,6 +84,50 @@ def _first_of_month(dt=None):
     return d
 
 
+def _ensure_tenant_entity(org, user, role_str):
+    """Auto-provision the Lab or Doctor record that LoginView requires.
+
+    LoginView checks that an active Lab/Doctor entity exists in the tenant
+    schema before granting access. Without this, newly platform-created
+    users are locked out with "Lab/Doctor account is inactive".
+    """
+    from apps.screening.models import Doctor, Lab
+
+    with schema_context(org.schema_name):
+        if role_str == Role.LAB:
+            lab, _ = Lab.objects.get_or_create(
+                contact_email=user.email,
+                defaults={
+                    'code': f'LAB-{org.schema_name[:20].upper()}',
+                    'name': org.name,
+                    'is_active': True,
+                },
+            )
+            logger.info('platform.lab_auto_created', org=org.name, lab_code=lab.code)
+
+        elif role_str == Role.DOCTOR:
+            # Doctor requires a Lab FK — use the first active lab, or create one.
+            lab = Lab.objects.filter(is_active=True).first()
+            if not lab:
+                lab = Lab.objects.create(
+                    code=f'LAB-{org.schema_name[:20].upper()}',
+                    name=org.name,
+                    is_active=True,
+                )
+                logger.info('platform.lab_auto_created_for_doctor', org=org.name, lab_code=lab.code)
+
+            Doctor.objects.get_or_create(
+                email=user.email,
+                defaults={
+                    'code': f'D-{user.username[:20].upper()}',
+                    'name': user.name or user.username,
+                    'lab': lab,
+                    'is_active': True,
+                },
+            )
+            logger.info('platform.doctor_auto_created', org=org.name, email=user.email)
+
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 class PlatformStatsView(PublicSchemaMixin, APIView):
@@ -329,6 +373,15 @@ class PlatformCreateOrgView(PublicSchemaMixin, APIView):
             return Response(
                 {'error': 'An organisation or account with that name already exists.'},
                 status=status.HTTP_409_CONFLICT,
+            )
+
+        # 5b. Auto-provision Lab entity so the new admin can log in.
+        try:
+            _ensure_tenant_entity(org, user, Role.LAB)
+        except Exception as exc:
+            logger.warning(
+                'platform.org_lab_auto_create_failed',
+                org=org.name, error=str(exc),
             )
 
         logger.info(
@@ -721,6 +774,17 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
         )
         user.set_password(password)
         user.save()
+
+        # Auto-provision required tenant entity so login checks pass.
+        # LoginView verifies that a Lab/Doctor record exists before granting
+        # access; without this, newly created users are locked out.
+        try:
+            _ensure_tenant_entity(org, user, role_str)
+        except Exception as exc:
+            logger.warning(
+                'platform.tenant_entity_creation_failed',
+                org=org.name, user_email=email, role=role_str, error=str(exc),
+            )
 
         logger.info(
             'platform.user_created',
