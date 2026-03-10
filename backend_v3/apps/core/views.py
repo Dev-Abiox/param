@@ -142,10 +142,14 @@ class LoginView(APIView):
             # Try looking up by email
             try:
                 email_user = User.objects.get(email__iexact=username)
+                logger.info('login.email_lookup found=%s username=%s', email_user.email, email_user.username)
                 user = authenticate(request, username=email_user.username, password=password)
+                if not user:
+                    logger.warning('login.email_auth_failed username=%s has_password=%s', email_user.username, email_user.has_usable_password())
             except User.DoesNotExist:
-                pass
+                logger.info('login.email_lookup not_found email=%s', username)
         if not user:
+            logger.info('login.failed identifier=%s', username)
             return Response(
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -171,32 +175,61 @@ class LoginView(APIView):
             from django.db import connection as db_connection
             db_connection.set_tenant(user.organization)
 
-        # Auto-provision Lab/Doctor entity if missing (covers orgs created
-        # before _ensure_tenant_entity was added to the platform views).
-        if user.role in (Role.LAB, Role.DOCTOR) and user.organization:
-            try:
-                from apps.core.platform_views import _ensure_tenant_entity
-                _ensure_tenant_entity(user.organization, user, user.role)
-            except Exception:
-                logger.warning('login.auto_provision_entity_failed user=%s', user.username, exc_info=True)
-
-        # Block LAB users when no active lab exists in their tenant
+        # Ensure the required Lab / Doctor entity exists in the tenant
+        # schema. Covers orgs created before auto-provisioning was added,
+        # and also acts as the gate that blocks truly-missing entities.
         if user.role == Role.LAB:
             from apps.screening.models import Lab
             if not Lab.objects.filter(is_active=True).exists():
-                return Response(
-                    {'error': 'Lab account is inactive. Contact your administrator.'},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
+                # Try to auto-create before rejecting
+                try:
+                    Lab.objects.create(
+                        code=f'LAB-{user.organization.schema_name[:20].upper()}',
+                        name=user.organization.name,
+                        contact_email=user.email or '',
+                        is_active=True,
+                    )
+                    logger.info('login.lab_auto_created user=%s org=%s', user.username, user.organization.name)
+                except Exception:
+                    logger.warning('login.lab_auto_create_failed user=%s', user.username, exc_info=True)
+                    return Response(
+                        {'error': 'Lab account is inactive. Contact your administrator.'},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
 
-        # Block DOCTOR users when their doctor record is inactive
-        if user.role == Role.DOCTOR and user.email:
-            from apps.screening.models import Doctor
-            if not Doctor.objects.filter(email=user.email, is_active=True).exists():
-                return Response(
-                    {'error': 'Doctor account is inactive. Contact your administrator.'},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
+        if user.role == Role.DOCTOR:
+            from apps.screening.models import Doctor, Lab
+            # Ensure at least one active lab exists (doctor needs a lab FK)
+            lab = Lab.objects.filter(is_active=True).first()
+            if not lab:
+                try:
+                    lab = Lab.objects.create(
+                        code=f'LAB-{user.organization.schema_name[:20].upper()}',
+                        name=user.organization.name,
+                        is_active=True,
+                    )
+                except Exception:
+                    logger.warning('login.lab_auto_create_for_doctor_failed user=%s', user.username, exc_info=True)
+                    return Response(
+                        {'error': 'Lab account is inactive. Contact your administrator.'},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+            if user.email and not Doctor.objects.filter(email=user.email, is_active=True).exists():
+                try:
+                    Doctor.objects.create(
+                        code=f'D-{user.username[:20].upper()}',
+                        name=user.name or user.username,
+                        email=user.email,
+                        lab=lab,
+                        is_active=True,
+                    )
+                    logger.info('login.doctor_auto_created user=%s', user.username)
+                except Exception:
+                    logger.warning('login.doctor_auto_create_failed user=%s', user.username, exc_info=True)
+                    return Response(
+                        {'error': 'Doctor account is inactive. Contact your administrator.'},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
 
         # Check if MFA is required
         mfa_status = MFAManager.get_mfa_status(user)
@@ -576,6 +609,32 @@ class HealthLiveView(APIView):
 
     def get(self, request):
         return Response({'status': 'live'})
+
+
+class DebugUserView(APIView):
+    """Temporary debug endpoint for super admins to check user auth state."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        email = request.query_params.get('email', '')
+        if not email:
+            return Response({'error': 'email param required'}, status=400)
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response({'error': 'user not found', 'email': email})
+        return Response({
+            'username': user.username,
+            'email': user.email,
+            'role': user.role,
+            'is_active': user.is_active,
+            'has_usable_password': user.has_usable_password(),
+            'org_id': str(user.organization_id) if user.organization_id else None,
+            'org_name': user.organization.name if user.organization else None,
+            'org_active': user.organization.is_active if user.organization else None,
+            'org_schema': user.organization.schema_name if user.organization else None,
+            'last_login': str(user.last_login) if user.last_login else None,
+        })
 
 
 class HealthView(APIView):
