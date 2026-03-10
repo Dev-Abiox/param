@@ -136,8 +136,15 @@ class LoginView(APIView):
         password = serializer.validated_data['password']
         mfa_code = serializer.validated_data.get('mfa_code')
 
-        # Authenticate user
+        # Authenticate user — accept username or email
         user = authenticate(request, username=username, password=password)
+        if not user and '@' in username:
+            # Try looking up by email
+            try:
+                email_user = User.objects.get(email__iexact=username)
+                user = authenticate(request, username=email_user.username, password=password)
+            except User.DoesNotExist:
+                pass
         if not user:
             return Response(
                 {'error': 'Invalid credentials'},

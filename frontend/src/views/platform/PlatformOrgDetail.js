@@ -428,6 +428,7 @@ const PlatformOrgDetail = () => {
               <thead className="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Name</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Username</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Email</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Role</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Status</th>
@@ -437,11 +438,12 @@ const PlatformOrgDetail = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                 {(org.users || []).length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">No users found.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">No users found.</td></tr>
                 ) : (
                   (org.users || []).map((u) => (
                     <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
                       <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{u.name || u.username}</td>
+                      <td className="px-4 py-3 text-slate-500 dark:text-slate-400 font-mono text-sm">{u.username || "—"}</td>
                       <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{u.email || "—"}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[u.role] || ""}`}>

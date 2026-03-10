@@ -260,7 +260,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
             <form className="space-y-6" onSubmit={handleSubmit}>
               <div>
                 <label htmlFor="username" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Username
+                  Username or Email
                 </label>
                 <div className="mt-1 relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -275,7 +275,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="focus:ring-teal-500 focus:border-teal-500 block w-full pl-10 sm:text-sm border-slate-300 dark:border-slate-600 rounded-md py-2.5 border bg-white dark:bg-slate-800 text-black dark:text-white"
-                    placeholder="Enter username"
+                    placeholder="Enter username or email"
                   />
                 </div>
               </div>
