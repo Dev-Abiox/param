@@ -145,7 +145,9 @@ export const AuthService = {
   },
 
   setPassword: async (uid, token, newPassword) => {
-    const res = await API.post("/auth/set-password", { uid, token, new_password: newPassword });
+    // Use _refreshAPI (no auth header / no 401 interceptor) so a logged-in
+    // user's expired token doesn't cause DRF to reject the AllowAny endpoint.
+    const res = await _refreshAPI.post("/auth/set-password", { uid, token, new_password: newPassword });
     return res.data;
   },
 
