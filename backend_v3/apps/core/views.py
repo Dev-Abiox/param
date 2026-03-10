@@ -171,6 +171,15 @@ class LoginView(APIView):
             from django.db import connection as db_connection
             db_connection.set_tenant(user.organization)
 
+        # Auto-provision Lab/Doctor entity if missing (covers orgs created
+        # before _ensure_tenant_entity was added to the platform views).
+        if user.role in (Role.LAB, Role.DOCTOR) and user.organization:
+            try:
+                from apps.core.platform_views import _ensure_tenant_entity
+                _ensure_tenant_entity(user.organization, user, user.role)
+            except Exception:
+                logger.warning('login.auto_provision_entity_failed user=%s', user.username, exc_info=True)
+
         # Block LAB users when no active lab exists in their tenant
         if user.role == Role.LAB:
             from apps.screening.models import Lab
