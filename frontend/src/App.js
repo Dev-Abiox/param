@@ -86,10 +86,6 @@ const App = () => {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
         setUser(userData);
-        // If token lacks mfa_verified, redirect to settings for MFA setup
-        if (userData.mfa_verified === false) {
-          navigate("/settings", { replace: true });
-        }
       } catch {
         // Cookie absent or expired — stay on the login screen
       } finally {
@@ -124,13 +120,6 @@ const App = () => {
 
       if (result.mfaRequired) {
         setIsLoading(false);
-        return result;
-      }
-
-      // MFA not set up yet — redirect to settings so user can configure it
-      if (result.mfaSetupRequired) {
-        setUser(result);
-        navigate("/settings", { replace: true });
         return result;
       }
 
