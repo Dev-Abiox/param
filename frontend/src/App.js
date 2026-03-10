@@ -107,14 +107,15 @@ const App = () => {
       try {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
-        setUser(userData);
-        // If the user has a restricted token (MFA not yet set up), show
-        // the MFA setup flow instead of the main app.
+        // If the session token has mfa_verified=false (restricted token),
+        // don't restore the session — force a fresh login which will
+        // trigger the proper MFA challenge or setup flow.
         if (userData.mfa_verified === false) {
-          setMfaSetupRequired(true);
-        } else {
-          await checkOnboarding(userData);
+          await AuthService.logout();
+          return;
         }
+        setUser(userData);
+        await checkOnboarding(userData);
       } catch {
         // Cookie absent or expired — stay on the login screen
       } finally {
