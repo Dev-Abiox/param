@@ -497,6 +497,9 @@ const App = () => {
           }
         />
 
+        {/* Password setup — accessible even when logged in (admin testing links) */}
+        <Route path="/set-password/:uid/:token" element={<SetPassword />} />
+
         {/* Default redirect based on role */}
         <Route
           path="/"
