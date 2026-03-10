@@ -836,6 +836,12 @@ class PlatformResendCredentialsView(PublicSchemaMixin, APIView):
         if not user.email:
             return Response({'error': 'User has no email address.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Ensure tenant entity exists (backfill for users created before auto-provisioning)
+        try:
+            _ensure_tenant_entity(org, user, user.role)
+        except Exception as exc:
+            logger.warning('platform.resend_tenant_entity_failed', org=org.name, error=str(exc))
+
         # Clear the deduplication cache key so the task actually sends
         from django.core.cache import cache
         cache.delete(f'credentials_email:{user.id}')
