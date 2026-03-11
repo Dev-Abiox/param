@@ -340,7 +340,15 @@ class MFAVerifyView(APIView):
             )
 
         # Verify MFA code
-        if not MFAManager.verify_code(user, mfa_code):
+        try:
+            mfa_valid = MFAManager.verify_code(user, mfa_code)
+        except Exception:
+            logger.exception('mfa_verify.crypto_error user=%s', user.username)
+            return Response(
+                {'error': 'MFA verification failed due to a server error. Please contact support.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        if not mfa_valid:
             return Response(
                 {'error': 'Invalid MFA code'},
                 status=status.HTTP_401_UNAUTHORIZED
