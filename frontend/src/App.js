@@ -142,14 +142,19 @@ const App = () => {
     setSelectedDoctorName(undefined);
   };
 
+  // loginInProgress tracks the button spinner inside <Login> without
+  // toggling the top-level isLoading (which unmounts <Login> and loses
+  // MFA challenge state).
+  const [loginInProgress, setLoginInProgress] = useState(false);
+
   const handleLogin = async (u, p) => {
-    setIsLoading(true);
+    setLoginInProgress(true);
     setError(null);
     try {
       const result = await AuthService.login(u, p);
 
       if (result.mfaRequired) {
-        setIsLoading(false);
+        setLoginInProgress(false);
         return result;
       }
 
@@ -157,7 +162,7 @@ const App = () => {
       if (result.mfaSetupRequired) {
         setUser(result);
         setMfaSetupRequired(true);
-        setIsLoading(false);
+        setLoginInProgress(false);
         return result;
       }
 
@@ -179,7 +184,7 @@ const App = () => {
       setError(err?.response?.data?.error || "Invalid username or password");
       throw err;
     } finally {
-      setIsLoading(false);
+      setLoginInProgress(false);
     }
   };
 
@@ -298,7 +303,7 @@ const App = () => {
             <Login
               onLogin={handleLogin}
               onMFARequired={handleMFASuccess}
-              isLoading={isLoading}
+              isLoading={loginInProgress}
               error={error}
             />
           }
