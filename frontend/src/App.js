@@ -189,8 +189,14 @@ const App = () => {
   };
 
   const handleMFASuccess = async (authenticatedUser) => {
-    setUser(authenticatedUser);
-    let redirectTo = location.state?.from?.pathname || getDefaultRoute(authenticatedUser.role);
+    // Fetch full user profile (includes lab_code, doctor_code, etc.)
+    // MFA verify only returns {id, name, role}.
+    let fullUser = authenticatedUser;
+    try {
+      fullUser = await AuthService.getMe();
+    } catch { /* fall back to partial user data */ }
+    setUser(fullUser);
+    let redirectTo = location.state?.from?.pathname || getDefaultRoute(fullUser.role);
     if (canManageOrg(authenticatedUser.role)) {
       try {
         const obStatus = await BillingService.getOnboardingStatus();
