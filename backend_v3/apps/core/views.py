@@ -145,11 +145,18 @@ class LoginView(APIView):
                 logger.info('login.email_lookup found=%s username=%s', email_user.email, email_user.username)
                 user = authenticate(request, username=email_user.username, password=password)
                 if not user:
-                    logger.warning('login.email_auth_failed username=%s has_password=%s', email_user.username, email_user.has_usable_password())
+                    logger.warning(
+                        'login.email_auth_failed username=%s has_password=%s '
+                        'is_active=%s hash_prefix=%s',
+                        email_user.username,
+                        email_user.has_usable_password(),
+                        email_user.is_active,
+                        (email_user.password or '')[:20],
+                    )
             except User.DoesNotExist:
                 logger.info('login.email_lookup not_found email=%s', username)
         if not user:
-            logger.info('login.failed identifier=%s', username)
+            logger.warning('login.failed identifier=%s', username)
             return Response(
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -623,12 +630,15 @@ class DebugUserView(APIView):
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
             return Response({'error': 'user not found', 'email': email})
+        password_hash = user.password or ''
         return Response({
             'username': user.username,
             'email': user.email,
             'role': user.role,
             'is_active': user.is_active,
             'has_usable_password': user.has_usable_password(),
+            'password_hash_algorithm': password_hash.split('$')[0] if '$' in password_hash else 'INVALID_FORMAT',
+            'password_hash_length': len(password_hash),
             'org_id': str(user.organization_id) if user.organization_id else None,
             'org_name': user.organization.name if user.organization else None,
             'org_active': user.organization.is_active if user.organization else None,
@@ -839,10 +849,24 @@ class ResetPasswordView(APIView):
         user.set_password(new_password)
         user.save(update_fields=['password'])
 
+        # Verify the password was persisted correctly (defensive check for
+        # silent save failures, e.g. django-tenants schema routing edge cases).
+        user.refresh_from_db(fields=['password'])
+        if not user.check_password(new_password):
+            logger.critical(
+                'reset_password.post_save_verification_failed user=%s hash_prefix=%s',
+                user.username, (user.password or '')[:20],
+            )
+            return Response(
+                {'error': 'Password update failed. Please try again or contact support.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         # Revoke all existing refresh tokens on password change
         from .models import RefreshToken as RT
         RT.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
 
+        logger.info('reset_password.success user=%s', user.username)
         return Response({'detail': 'Password has been reset successfully.'})
 
 
@@ -894,7 +918,24 @@ class SetPasswordView(APIView):
         user.set_password(new_password)
         user.save(update_fields=['password'])
 
-        logger.info("Password set via credentials link for user: %s", user.username)
+        # Verify the password was persisted correctly (defensive check for
+        # silent save failures, e.g. django-tenants schema routing edge cases).
+        user.refresh_from_db(fields=['password'])
+        if not user.check_password(new_password):
+            logger.critical(
+                'set_password.post_save_verification_failed user=%s hash_prefix=%s',
+                user.username, (user.password or '')[:20],
+            )
+            return Response(
+                {'error': 'Password update failed. Please try again or contact support.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Revoke all existing refresh tokens so old sessions cannot persist
+        from .models import RefreshToken as RT
+        RT.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
+
+        logger.info("set_password.success user=%s", user.username)
 
         return Response({'detail': 'Password has been set successfully. You can now log in.'})
 
@@ -1130,16 +1171,31 @@ class AdminUserDetailView(APIView):
                         )
                 setattr(user, field, value)
 
+        password_changed = False
+        new_password = None
         if 'password' in request.data and request.data['password']:
+            new_password = request.data['password']
             try:
-                validate_password(request.data['password'], user=user)
+                validate_password(new_password, user=user)
             except ValidationError as e:
                 return Response({'error': e.messages}, status=status.HTTP_400_BAD_REQUEST)
-            user.set_password(request.data['password'])
+            user.set_password(new_password)
+            password_changed = True
             # Revoke all refresh tokens so old sessions can't persist
             RefreshToken.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
 
         user.save()
+
+        if password_changed:
+            # Verify the password was persisted correctly
+            user.refresh_from_db(fields=['password'])
+            if not user.check_password(new_password):
+                logger.critical(
+                    'admin_user_detail.password_save_verification_failed user=%s hash_prefix=%s',
+                    user.username, (user.password or '')[:20],
+                )
+            else:
+                logger.info('admin_user_detail.password_changed user=%s', user.username)
         return Response({
             'id': str(user.id),
             'username': user.username,
