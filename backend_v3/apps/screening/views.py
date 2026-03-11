@@ -121,7 +121,7 @@ class PredictView(APIView):
         # Run ML prediction (synchronous)
         try:
             engine = get_ml_engine()
-            result = engine.predict(cbc)
+            result = engine.predict(cbc, include_shap=True)
         except MLModelNotReadyError as e:
             logger.error(f"ML model not ready for prediction: {e}")
             return Response(
