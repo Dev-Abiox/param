@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { CreditCard, CheckCircle, ArrowUpCircle, TrendingUp, AlertTriangle, Zap } from "lucide-react";
 import { BillingService } from "@/services/api";
-import { extractApiError } from "@/lib/utils";
 
 /* ─── helpers ─────────────────────────────────────────── */
 const pct = (used, limit) => {
@@ -108,7 +107,7 @@ const AdminBilling = () => {
       const rzp = new window.Razorpay(options);
       rzp.open();
     } catch (err) {
-      showToast("error", extractApiError(err, "Failed to initiate upgrade."));
+      showToast("error", err?.response?.data?.error || "Failed to initiate upgrade.");
       setUpgradeLoading(false);
     }
   };

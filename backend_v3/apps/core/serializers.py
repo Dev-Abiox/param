@@ -37,11 +37,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_doctor_code(self, obj):
         """Return doctor code for DOCTOR role users matched by email."""
-        if obj.role == 'DOCTOR' and obj.email and obj.organization:
+        if obj.role == 'DOCTOR' and obj.email:
             from apps.screening.models import Doctor
-            from django_tenants.utils import schema_context
-            with schema_context(obj.organization.schema_name):
-                doctor = Doctor.objects.filter(email=obj.email, is_active=True).first()
+            doctor = Doctor.objects.filter(email=obj.email, is_active=True).first()
             return doctor.code if doctor else None
         return None
 
@@ -49,19 +47,14 @@ class UserSerializer(serializers.ModelSerializer):
         """Return the primary lab code for the user."""
         if obj.role == 'LAB' and obj.organization:
             from apps.screening.models import Lab
-            from django_tenants.utils import schema_context
-            with schema_context(obj.organization.schema_name):
-                lab = Lab.objects.filter(is_active=True).order_by('created_at').first()
+            # Use tenant-scoped query: get the oldest active lab (first created)
+            lab = Lab.objects.filter(is_active=True).order_by('created_at').first()
             return lab.code if lab else None
         if obj.role == 'DOCTOR' and obj.email:
             from apps.screening.models import Doctor
-            from django_tenants.utils import schema_context
-            if not obj.organization:
-                return None
-            with schema_context(obj.organization.schema_name):
-                doctor = Doctor.objects.filter(
-                    email=obj.email, is_active=True
-                ).select_related('lab').first()
+            doctor = Doctor.objects.filter(
+                email=obj.email, is_active=True
+            ).select_related('lab').first()
             return doctor.lab.code if doctor and doctor.lab else None
         return None
 

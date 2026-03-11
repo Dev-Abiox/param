@@ -84,50 +84,6 @@ def _first_of_month(dt=None):
     return d
 
 
-def _ensure_tenant_entity(org, user, role_str):
-    """Auto-provision the Lab or Doctor record that LoginView requires.
-
-    LoginView checks that an active Lab/Doctor entity exists in the tenant
-    schema before granting access. Without this, newly platform-created
-    users are locked out with "Lab/Doctor account is inactive".
-    """
-    from apps.screening.models import Doctor, Lab
-
-    with schema_context(org.schema_name):
-        if role_str == Role.LAB:
-            lab, _ = Lab.objects.get_or_create(
-                contact_email=user.email,
-                defaults={
-                    'code': f'LAB-{org.schema_name[:20].upper()}',
-                    'name': org.name,
-                    'is_active': True,
-                },
-            )
-            logger.info('platform.lab_auto_created', org=org.name, lab_code=lab.code)
-
-        elif role_str == Role.DOCTOR:
-            # Doctor requires a Lab FK — use the first active lab, or create one.
-            lab = Lab.objects.filter(is_active=True).first()
-            if not lab:
-                lab = Lab.objects.create(
-                    code=f'LAB-{org.schema_name[:20].upper()}',
-                    name=org.name,
-                    is_active=True,
-                )
-                logger.info('platform.lab_auto_created_for_doctor', org=org.name, lab_code=lab.code)
-
-            Doctor.objects.get_or_create(
-                email=user.email,
-                defaults={
-                    'code': f'D-{user.username[:20].upper()}',
-                    'name': user.name or user.username,
-                    'lab': lab,
-                    'is_active': True,
-                },
-            )
-            logger.info('platform.doctor_auto_created', org=org.name, email=user.email)
-
-
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 class PlatformStatsView(PublicSchemaMixin, APIView):
@@ -375,15 +331,6 @@ class PlatformCreateOrgView(PublicSchemaMixin, APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        # 5b. Auto-provision Lab entity so the new admin can log in.
-        try:
-            _ensure_tenant_entity(org, user, Role.LAB)
-        except Exception as exc:
-            logger.warning(
-                'platform.org_lab_auto_create_failed',
-                org=org.name, error=str(exc),
-            )
-
         logger.info(
             'platform.org_created',
             org=org.name,
@@ -439,56 +386,34 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
         except TenantSubscription.DoesNotExist:
             sub = None
 
-        try:
-            # Users in this org
-            users = list(User.objects.filter(organization=org).values(
-                'id', 'username', 'email', 'name', 'role', 'is_active', 'created_at', 'last_login'
-            ))
+        # Users in this org
+        users = User.objects.filter(organization=org).values(
+            'id', 'username', 'email', 'name', 'role', 'is_active', 'created_at', 'last_login'
+        )
 
-            # Domain
-            domain = Domain.objects.filter(tenant=org, is_primary=True).first()
+        # Domain
+        domain = Domain.objects.filter(tenant=org, is_primary=True).first()
 
-            # 12-month usage history
-            history = UsageRecord.objects.filter(organization=org).order_by('-period_start')[:12]
+        # 12-month usage history
+        history = UsageRecord.objects.filter(organization=org).order_by('-period_start')[:12]
 
-            # Payment events
-            events = list(PaymentEvent.objects.filter(organization=org).order_by('-created_at')[:10].values(
-                'id', 'event_type', 'processed', 'created_at'
-            ))
+        # Payment events
+        events = PaymentEvent.objects.filter(organization=org).order_by('-created_at')[:10].values(
+            'id', 'event_type', 'processed', 'created_at'
+        )
 
-            # Build subscription summary for frontend convenience
-            sub_data = None
-            if sub:
-                sub_data = TenantSubscriptionSerializer(sub).data
-                lim = sub.plan.monthly_limit if sub.plan else 0
-                sub_data['plan_display'] = sub.plan.display_name if sub.plan else '—'
-                sub_data['monthly_limit'] = lim
-                sub_data['current_count'] = sub.current_period_count
-                sub_data['pct_used'] = (
-                    round(sub.current_period_count / lim * 100, 1) if lim > 0 else 0
-                )
-
-            return Response({
-                'id': str(org.id),
-                'name': org.name,
-                'schema_name': org.schema_name,
-                'is_active': org.is_active,
-                'created_at': org.created_at,
-                'domain': domain.domain if domain else None,
-                'subscription': sub_data,
-                'usage_history': UsageRecordSerializer(history, many=True).data,
-                'payment_events': events,
-                'users': users,
-            })
-        except Exception:
-            logger.exception(
-                'platform.org_detail_error',
-                schema=schema_name,
-            )
-            return Response(
-                {'error': 'Failed to load organisation details. Check server logs.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        return Response({
+            'id': str(org.id),
+            'name': org.name,
+            'schema_name': org.schema_name,
+            'is_active': org.is_active,
+            'created_at': org.created_at,
+            'domain': domain.domain if domain else None,
+            'subscription': TenantSubscriptionSerializer(sub).data if sub else None,
+            'usage_history': UsageRecordSerializer(history, many=True).data,
+            'payment_events': list(events),
+            'users': list(users),
+        })
 
     def patch(self, request, schema_name):
         org = self._get_org(schema_name)
@@ -549,25 +474,24 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
         org_schema = org.schema_name
 
         try:
-            with transaction.atomic():
-                # Delete related records in correct order
-                TenantSubscription.objects.filter(organization=org).delete()
-                UsageRecord.objects.filter(organization=org).delete()
-                PaymentEvent.objects.filter(organization=org).delete()
-                User.objects.filter(organization=org).delete()
-                Domain.objects.filter(tenant=org).delete()
+            # Delete related records in correct order
+            TenantSubscription.objects.filter(organization=org).delete()
+            UsageRecord.objects.filter(organization=org).delete()
+            PaymentEvent.objects.filter(organization=org).delete()
+            User.objects.filter(organization=org).delete()
+            Domain.objects.filter(tenant=org).delete()
 
-                # Drop the tenant schema from the database
-                from psycopg2 import sql as psql
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        psql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(
-                            psql.Identifier(org_schema)
-                        )
+            # Drop the tenant schema from the database
+            from psycopg2 import sql as psql
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    psql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(
+                        psql.Identifier(org_schema)
                     )
+                )
 
-                # Delete the organization record itself
-                org.delete()
+            # Delete the organization record itself
+            org.delete()
 
         except Exception:
             logger.exception(
@@ -775,17 +699,6 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
         user.set_password(password)
         user.save()
 
-        # Auto-provision required tenant entity so login checks pass.
-        # LoginView verifies that a Lab/Doctor record exists before granting
-        # access; without this, newly created users are locked out.
-        try:
-            _ensure_tenant_entity(org, user, role_str)
-        except Exception as exc:
-            logger.warning(
-                'platform.tenant_entity_creation_failed',
-                org=org.name, user_email=email, role=role_str, error=str(exc),
-            )
-
         logger.info(
             'platform.user_created',
             org=org.name,
@@ -809,53 +722,3 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
             'role': user.role,
             'message': f'User created. Login credentials sent to {email}.',
         }, status=status.HTTP_201_CREATED)
-
-
-# ── Resend Credentials ────────────────────────────────────────────────────────
-
-class PlatformResendCredentialsView(PublicSchemaMixin, APIView):
-    """
-    POST /api/v1/platform/orgs/<schema_name>/users/<user_id>/resend-credentials/
-
-    Resend the password-setup email to an existing user. Clears the
-    deduplication cache key so the email is sent even if one was recently sent.
-    """
-    permission_classes = _PLATFORM_PERMS
-
-    def post(self, request, schema_name, user_id):
-        try:
-            org = Organization.objects.get(schema_name=schema_name)
-        except Organization.DoesNotExist:
-            return Response({'error': 'Organisation not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            user = User.objects.get(id=user_id, organization=org)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found in this organisation.'}, status=status.HTTP_404_NOT_FOUND)
-
-        if not user.email:
-            return Response({'error': 'User has no email address.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Ensure tenant entity exists (backfill for users created before auto-provisioning)
-        try:
-            _ensure_tenant_entity(org, user, user.role)
-        except Exception as exc:
-            logger.warning('platform.resend_tenant_entity_failed', org=org.name, error=str(exc))
-
-        # Clear the deduplication cache key so the task actually sends
-        from django.core.cache import cache
-        cache.delete(f'credentials_email:{user.id}')
-
-        from apps.billing.tasks import send_credentials_email
-        send_credentials_email.delay(str(user.id), org.name)
-
-        logger.info(
-            'platform.credentials_resent',
-            org=org.name,
-            user_email=user.email,
-            resent_by=request.user.username,
-        )
-
-        return Response({
-            'message': f'Credentials email sent to {user.email}.',
-        })

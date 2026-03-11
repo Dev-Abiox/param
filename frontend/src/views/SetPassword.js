@@ -32,7 +32,7 @@ const SetPassword = () => {
       await AuthService.setPassword(uid, token, password);
       setSuccess(true);
     } catch (err) {
-      const msg = err?.response?.data?.error || err?.response?.data?.detail;
+      const msg = err?.response?.data?.error;
       setError(Array.isArray(msg) ? msg.join(" ") : msg || "Failed to set password. The link may have expired.");
     } finally {
       setLoading(false);

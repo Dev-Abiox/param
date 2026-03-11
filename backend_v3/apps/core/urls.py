@@ -8,7 +8,6 @@ from django.http import JsonResponse
 from .views import (
     AdminUserDetailView,
     AdminUserListView,
-    DebugUserView,
     ForgotPasswordView,
     HealthLiveView,
     HealthReadyView,
@@ -71,7 +70,4 @@ urlpatterns = [
     path('health/ready', HealthReadyView.as_view(), name='health-ready'),
     path('health/', HealthView.as_view(), name='health'),
     path('api/health/', health, name='api-health'),
-
-    # Debug (temporary)
-    path('debug/user', DebugUserView.as_view(), name='debug-user'),
 ]

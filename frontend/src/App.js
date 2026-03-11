@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import "@/App.css";
 
@@ -30,8 +30,7 @@ const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"
 const SetPassword = lazy(() => import("@/views/SetPassword"));
 const ResetPassword = lazy(() => import("@/views/ResetPassword"));
 
-import { AuthService, BillingService } from "@/services/api";
-import MFASetup from "@/components/MFASetup";
+import { AuthService } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -78,27 +77,6 @@ const App = () => {
   const [selectedDoctorId, setSelectedDoctorId] = useState(undefined);
   const [selectedDoctorName, setSelectedDoctorName] = useState(undefined);
 
-  // Track whether onboarding is incomplete (for SUPER_ADMIN / LAB)
-  const [onboardingIncomplete, setOnboardingIncomplete] = useState(false);
-
-  // MFA setup required — shown when login returns mfaSetupRequired: true
-  const [mfaSetupRequired, setMfaSetupRequired] = useState(false);
-
-  // Check onboarding status for org-managing roles
-  const checkOnboarding = async (userData) => {
-    if (!canManageOrg(userData.role)) return;
-    try {
-      const status = await BillingService.getOnboardingStatus();
-      if (!status.completed) {
-        setOnboardingIncomplete(true);
-      } else {
-        setOnboardingIncomplete(false);
-      }
-    } catch {
-      // non-critical — don't block login
-    }
-  };
-
   // On app load: attempt a silent token refresh using the httpOnly cookie.
   // If the cookie is present and valid, we get a new access token and then
   // fetch the user profile — no localStorage involved.
@@ -107,15 +85,7 @@ const App = () => {
       try {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
-        // If the session token has mfa_verified=false (restricted token),
-        // don't restore the session — force a fresh login which will
-        // trigger the proper MFA challenge or setup flow.
-        if (userData.mfa_verified === false) {
-          await AuthService.logout();
-          return;
-        }
         setUser(userData);
-        await checkOnboarding(userData);
       } catch {
         // Cookie absent or expired — stay on the login screen
       } finally {
@@ -142,74 +112,38 @@ const App = () => {
     setSelectedDoctorName(undefined);
   };
 
-  // loginInProgress tracks the button spinner inside <Login> without
-  // toggling the top-level isLoading (which unmounts <Login> and loses
-  // MFA challenge state).
-  const [loginInProgress, setLoginInProgress] = useState(false);
-
   const handleLogin = async (u, p) => {
-    setLoginInProgress(true);
+    setIsLoading(true);
     setError(null);
     try {
       const result = await AuthService.login(u, p);
 
       if (result.mfaRequired) {
-        setLoginInProgress(false);
-        return result;
-      }
-
-      // MFA setup required — show MFA setup flow before accessing the app
-      if (result.mfaSetupRequired) {
-        setUser(result);
-        setMfaSetupRequired(true);
-        setLoginInProgress(false);
+        setIsLoading(false);
         return result;
       }
 
       setUser(result);
-      // Check onboarding — redirect to wizard if incomplete
-      let redirectTo = location.state?.from?.pathname || getDefaultRoute(result.role);
-      if (canManageOrg(result.role)) {
-        try {
-          const obStatus = await BillingService.getOnboardingStatus();
-          if (!obStatus.completed) {
-            setOnboardingIncomplete(true);
-            redirectTo = "/onboarding";
-          }
-        } catch { /* non-critical */ }
-      }
-      navigate(redirectTo, { replace: true });
+      const from = location.state?.from?.pathname;
+      const defaultRoute = getDefaultRoute(result.role);
+      navigate(from || defaultRoute, { replace: true });
       return result;
     } catch (err) {
-      setError(err?.response?.data?.error || "Invalid username or password");
+      setError("Invalid username or password");
       throw err;
     } finally {
-      setLoginInProgress(false);
+      setIsLoading(false);
     }
   };
 
-  const handleMFASuccess = async (authenticatedUser) => {
-    // Fetch full user profile (includes lab_code, doctor_code, etc.)
-    // MFA verify only returns {id, name, role}.
-    let fullUser = authenticatedUser;
-    try {
-      fullUser = await AuthService.getMe();
-    } catch { /* fall back to partial user data */ }
-    setUser(fullUser);
-    let redirectTo = location.state?.from?.pathname || getDefaultRoute(fullUser.role);
-    if (canManageOrg(authenticatedUser.role)) {
-      try {
-        const obStatus = await BillingService.getOnboardingStatus();
-        if (!obStatus.completed) {
-          setOnboardingIncomplete(true);
-          redirectTo = "/onboarding";
-        }
-      } catch { /* non-critical */ }
-    }
-    navigate(redirectTo, { replace: true });
+  const handleMFASuccess = (authenticatedUser) => {
+    setUser(authenticatedUser);
+    const from = location.state?.from?.pathname;
+    const defaultRoute = getDefaultRoute(authenticatedUser.role);
+    navigate(from || defaultRoute, { replace: true });
   };
 
-  const handleLogout = useCallback(async () => {
+  const handleLogout = async () => {
     try {
       await AuthService.logout();
     } finally {
@@ -217,7 +151,7 @@ const App = () => {
       resetSelection();
       navigate("/login", { replace: true });
     }
-  }, [navigate]);
+  };
 
   // 15-minute inactivity session timeout (only active when logged in)
   const { showWarning, resetTimer } = useSessionTimeout({
@@ -309,7 +243,7 @@ const App = () => {
             <Login
               onLogin={handleLogin}
               onMFARequired={handleMFASuccess}
-              isLoading={loginInProgress}
+              isLoading={isLoading}
               error={error}
             />
           }
@@ -330,33 +264,6 @@ const App = () => {
       </Routes>
       </Suspense>
       </ErrorBoundary>
-    );
-  }
-
-  // MFA setup required — block access to the app until MFA is configured
-  if (mfaSetupRequired) {
-    return (
-      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <MFASetup
-            userEmail={user?.email}
-            onComplete={async () => {
-              // After MFA setup, refresh user data with the new mfa_verified token
-              try {
-                const userData = await AuthService.getMe();
-                setUser(userData);
-              } catch { /* user already set */ }
-              setMfaSetupRequired(false);
-              navigate(getDefaultRoute(user?.role), { replace: true });
-            }}
-            onCancel={() => {
-              // Allow cancel only if MFA is not strictly required (grace period)
-              setMfaSetupRequired(false);
-              navigate(getDefaultRoute(user?.role), { replace: true });
-            }}
-          />
-        </div>
-      </div>
     );
   }
 
@@ -387,7 +294,7 @@ const App = () => {
           path="/dashboard"
           element={
             isSuperAdmin(user) ? (
-              <AdminDashboard onboardingIncomplete={onboardingIncomplete} />
+              <AdminDashboard />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />
             )
@@ -432,7 +339,15 @@ const App = () => {
                     onBack={handleBackToLabs}
                   />
                 ) : (
-                  <Navigate to="/labs" replace />
+                  <div className="p-8 text-center">
+                    <p className="text-slate-600 mb-4">Please select a Lab first.</p>
+                    <button
+                      onClick={() => navigate("/labs")}
+                      className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
+                    >
+                      Go to Labs
+                    </button>
+                  </div>
                 )
               ) : (
                 <DoctorList onSelectDoctor={handleSelectDoctor} />
@@ -485,7 +400,7 @@ const App = () => {
         {/* Onboarding wizard (SUPER_ADMIN + LAB owners) */}
         <Route
           path="/onboarding"
-          element={canManageOrg(user.role) ? <Onboarding user={user} onComplete={() => setOnboardingIncomplete(false)} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={canManageOrg(user.role) ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
         {/* Management — Users/Doctors/Usage/Billing (SUPER_ADMIN + LAB) */}
@@ -551,10 +466,6 @@ const App = () => {
             )
           }
         />
-
-        {/* Password setup/reset — accessible even when logged in */}
-        <Route path="/set-password/:uid/:token" element={<SetPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Default redirect based on role */}
         <Route

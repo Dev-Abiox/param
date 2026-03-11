@@ -251,12 +251,11 @@ class B12ClinicalEngine:
         # Classification
         deficient_threshold = float(self.thresholds.get("deficient_threshold", 0.7))
         borderline_threshold = float(self.thresholds.get("borderline_threshold", 0.4))
-        abnormal_threshold = float(self.thresholds.get("abnormal_threshold", 0.5))
 
         if p_def_final >= deficient_threshold:
             cls = 3
             label_text = "DEFICIENT"
-        elif p_def_final >= borderline_threshold or p_abnormal >= abnormal_threshold:
+        elif p_def_final >= borderline_threshold:
             cls = 2
             label_text = "BORDERLINE"
         else:

@@ -34,7 +34,6 @@ const PlatformCreateOrg = () => {
     } catch (err) {
       const msg =
         err?.response?.data?.error ||
-        err?.response?.data?.detail ||
         Object.values(err?.response?.data?.errors || {}).flat().join(" ") ||
         "Failed to create organisation.";
       setError(msg);

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Edit2, Power, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { AdminService } from "@/services/api";
-import { extractApiError } from "@/lib/utils";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
@@ -71,7 +70,7 @@ const AdminLabs = () => {
       const data = await AdminService.getLabs();
       setLabs(data);
     } catch (err) {
-      setError(extractApiError(err, "Failed to load labs."));
+      setError(err?.response?.data?.error || "Failed to load labs.");
     } finally {
       setLoading(false);
     }
@@ -96,7 +95,7 @@ const AdminLabs = () => {
       }
       load();
     } catch (err) {
-      setFormError(extractApiError(err, "Operation failed."));
+      setFormError(err?.response?.data?.error || "Operation failed.");
     } finally {
       setFormLoading(false);
     }
@@ -110,7 +109,7 @@ const AdminLabs = () => {
       load();
     } catch (err) {
       setConfirmDeactivate(null);
-      setActionError(extractApiError(err, "Failed to deactivate lab."));
+      setActionError(err?.response?.data?.error || "Failed to deactivate lab.");
     }
   };
 
@@ -120,7 +119,7 @@ const AdminLabs = () => {
       await AdminService.reactivateLab(lab.id);
       load();
     } catch (err) {
-      setActionError(extractApiError(err, "Failed to reactivate lab."));
+      setActionError(err?.response?.data?.error || "Failed to reactivate lab.");
     }
   };
 
@@ -132,7 +131,7 @@ const AdminLabs = () => {
       load();
     } catch (err) {
       setConfirmDelete(null);
-      setActionError(extractApiError(err, "Failed to permanently remove lab."));
+      setActionError(err?.response?.data?.error || "Failed to permanently remove lab.");
     }
   };
 

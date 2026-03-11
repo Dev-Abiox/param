@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Edit2, Power, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { AdminService } from "@/services/api";
-import { extractApiError } from "@/lib/utils";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
@@ -78,7 +77,7 @@ const AdminDoctors = () => {
       setDoctors(docData);
       setLabs(labData.filter((l) => l.is_active));
     } catch (err) {
-      setError(extractApiError(err, "Failed to load doctors."));
+      setError(err?.response?.data?.error || "Failed to load doctors.");
     } finally {
       setLoading(false);
     }
@@ -109,7 +108,7 @@ const AdminDoctors = () => {
       }
       load();
     } catch (err) {
-      setFormError(extractApiError(err, "Operation failed."));
+      setFormError(err?.response?.data?.error || "Operation failed.");
     } finally {
       setFormLoading(false);
     }
@@ -120,9 +119,8 @@ const AdminDoctors = () => {
       await AdminService.deactivateDoctor(doc.id);
       setConfirmDeactivate(null);
       load();
-    } catch (err) {
-      setError(extractApiError(err, "Failed to deactivate doctor."));
-      setConfirmDeactivate(null);
+    } catch {
+      // silent
     }
   };
 
@@ -130,8 +128,8 @@ const AdminDoctors = () => {
     try {
       await AdminService.reactivateDoctor(doc.id);
       load();
-    } catch (err) {
-      setError(extractApiError(err, "Failed to reactivate doctor."));
+    } catch {
+      // silent
     }
   };
 
@@ -140,9 +138,8 @@ const AdminDoctors = () => {
       await AdminService.permanentDeleteDoctor(doc.id);
       setConfirmDelete(null);
       load();
-    } catch (err) {
-      setError(extractApiError(err, "Failed to delete doctor."));
-      setConfirmDelete(null);
+    } catch {
+      // silent
     }
   };
 

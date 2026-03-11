@@ -203,7 +203,7 @@ class PlanLimitMiddleware:
         from apps.billing.models import TenantSubscription
         try:
             sub = TenantSubscription.objects.select_related('plan').get(organization=org)
-            lim = sub.plan.monthly_limit if sub.plan else -1
+            lim = sub.plan.monthly_limit
             over = lim != -1 and sub.current_period_count >= lim
         except TenantSubscription.DoesNotExist:
             over = False

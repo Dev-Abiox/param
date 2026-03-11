@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RefreshCw, UserPlus, Trash2, Mail } from "lucide-react";
+import { ArrowLeft, RefreshCw, UserPlus, Trash2 } from "lucide-react";
 import { PlatformService } from "@/services/PlatformService";
 
 const PLANS = ["starter", "professional", "enterprise"];
@@ -37,8 +37,6 @@ const ROLE_COLORS = {
   DOCTOR: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
 };
 
-import { extractApiError as extractError } from "@/lib/utils";
-
 const PlatformOrgDetail = () => {
   const { schema } = useParams();
   const navigate = useNavigate();
@@ -54,7 +52,6 @@ const PlatformOrgDetail = () => {
 
   // Action state (suspend/reactivate/delete)
   const [actionLoading, setActionLoading] = useState(false);
-  const [actionError, setActionError] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -64,32 +61,15 @@ const PlatformOrgDetail = () => {
   const [userLoading, setUserLoading] = useState(false);
   const [userMsg, setUserMsg] = useState(null);
 
-  // Resend credentials state
-  const [resendingId, setResendingId] = useState(null);
-
-  const handleResendCredentials = async (userId, email) => {
-    setResendingId(userId);
-    setUserMsg(null);
-    try {
-      await PlatformService.resendCredentials(schema, userId);
-      setUserMsg({ type: "success", text: `Credentials email sent to ${email}.` });
-    } catch (err) {
-      setUserMsg({ type: "error", text: extractError(err, "Failed to send credentials email.") });
-    } finally {
-      setResendingId(null);
-    }
-  };
-
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await PlatformService.getOrg(schema);
       setOrg(data);
-      setSelectedPlan(data.subscription?.plan?.name?.replace("_", "") || "");
+      setSelectedPlan(data.subscription?.plan?.replace("_", "") || "");
     } catch (err) {
-      console.error('[PlatformOrgDetail] load error:', err?.response?.status, err?.response?.data, err);
-      setError(extractError(err, "Failed to load organisation."));
+      setError(err?.response?.data?.error || "Failed to load organisation.");
     } finally {
       setLoading(false);
     }
@@ -99,12 +79,11 @@ const PlatformOrgDetail = () => {
 
   const handleAction = async (action) => {
     setActionLoading(true);
-    setActionError(null);
     try {
       const updated = await PlatformService.updateOrg(schema, { action });
       setOrg((o) => ({ ...o, is_active: updated.is_active, subscription: { ...o.subscription, status: updated.status } }));
-    } catch (err) {
-      setActionError(extractError(err, `Failed to ${action} organisation.`));
+    } catch {
+      alert(`Failed to ${action} organisation.`);
     } finally {
       setActionLoading(false);
     }
@@ -119,7 +98,7 @@ const PlatformOrgDetail = () => {
       setPlanMsg({ type: "success", text: `Plan changed to ${res.plan}` });
       load();
     } catch (err) {
-      setPlanMsg({ type: "error", text: extractError(err, "Failed to change plan.") });
+      setPlanMsg({ type: "error", text: err?.response?.data?.error || "Failed to change plan." });
     } finally {
       setPlanLoading(false);
     }
@@ -136,7 +115,7 @@ const PlatformOrgDetail = () => {
       setShowAddUser(false);
       load();
     } catch (err) {
-      setUserMsg({ type: "error", text: extractError(err, "Failed to create user.") });
+      setUserMsg({ type: "error", text: err?.response?.data?.error || "Failed to create user." });
     } finally {
       setUserLoading(false);
     }
@@ -148,7 +127,7 @@ const PlatformOrgDetail = () => {
       await PlatformService.deleteOrg(schema);
       navigate("/platform-admin/orgs");
     } catch (err) {
-      setActionError(extractError(err, "Failed to delete organisation."));
+      alert(err?.response?.data?.error || "Failed to delete organisation.");
     } finally {
       setDeleteLoading(false);
       setDeleteConfirm(false);
@@ -228,13 +207,6 @@ const PlatformOrgDetail = () => {
           </button>
         ))}
       </div>
-
-      {actionError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg p-3 text-sm flex items-center justify-between">
-          <span>{actionError}</span>
-          <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-600 text-xs font-medium ml-4">Dismiss</button>
-        </div>
-      )}
 
       {/* ── Overview Tab ─────────────────────────────────────────── */}
       {activeTab === "overview" && (
@@ -428,22 +400,19 @@ const PlatformOrgDetail = () => {
               <thead className="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Name</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Username</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Email</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Role</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Status</th>
                   <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Last Login</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-300">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                 {(org.users || []).length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">No users found.</td></tr>
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500">No users found.</td></tr>
                 ) : (
                   (org.users || []).map((u) => (
                     <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
                       <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{u.name || u.username}</td>
-                      <td className="px-4 py-3 text-slate-500 dark:text-slate-400 font-mono text-sm">{u.username || "—"}</td>
                       <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{u.email || "—"}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLORS[u.role] || ""}`}>
@@ -457,19 +426,6 @@ const PlatformOrgDetail = () => {
                       </td>
                       <td className="px-4 py-3 text-slate-400 dark:text-slate-500 text-xs">
                         {u.last_login ? new Date(u.last_login).toLocaleDateString() : "Never"}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {u.email && (
-                          <button
-                            onClick={() => handleResendCredentials(u.id, u.email)}
-                            disabled={resendingId === u.id}
-                            title="Send credentials email"
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-800 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50"
-                          >
-                            <Mail className="h-3.5 w-3.5" />
-                            {resendingId === u.id ? "Sending..." : "Send Credentials"}
-                          </button>
-                        )}
                       </td>
                     </tr>
                   ))

@@ -1,8 +1,7 @@
 import React, { useReducer } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle, Building2, Stethoscope, UserPlus, PartyPopper, ArrowLeft, Mail } from "lucide-react";
+import { CheckCircle, Building2, Stethoscope, UserPlus, PartyPopper, ArrowLeft } from "lucide-react";
 import { AdminService, BillingService } from "@/services/api";
-import { extractApiError } from "@/lib/utils";
 
 const STEPS = [
   { id: 1, title: "Add a Lab", icon: Building2, flag: "lab_added" },
@@ -59,7 +58,7 @@ function reducer(state, action) {
   }
 }
 
-const Onboarding = ({ user, onComplete }) => {
+const Onboarding = ({ user }) => {
   const navigate = useNavigate();
   const [state, dispatch] = useReducer(reducer, initialState);
   const { step, loading, error, createdLabId, lab, doctor, user: userForm } = state;
@@ -91,7 +90,7 @@ const Onboarding = ({ user, onComplete }) => {
       await markFlag("lab_added");
       advanceStep();
     } catch (err) {
-      dispatch({ type: "SET_ERROR", value: extractApiError(err, "Failed to create lab.") });
+      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create lab." });
     } finally {
       dispatch({ type: "SET_LOADING", value: false });
     }
@@ -109,7 +108,7 @@ const Onboarding = ({ user, onComplete }) => {
       await markFlag("doctor_added");
       advanceStep();
     } catch (err) {
-      dispatch({ type: "SET_ERROR", value: extractApiError(err, "Failed to create doctor.") });
+      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create doctor." });
     } finally {
       dispatch({ type: "SET_LOADING", value: false });
     }
@@ -124,7 +123,7 @@ const Onboarding = ({ user, onComplete }) => {
       await markFlag("user_invited");
       advanceStep();
     } catch (err) {
-      dispatch({ type: "SET_ERROR", value: extractApiError(err, "Failed to create user.") });
+      dispatch({ type: "SET_ERROR", value: err?.response?.data?.error || "Failed to create user." });
     } finally {
       dispatch({ type: "SET_LOADING", value: false });
     }
@@ -132,7 +131,6 @@ const Onboarding = ({ user, onComplete }) => {
 
   const handleFinish = async () => {
     await markFlag("completed");
-    onComplete?.();
     navigate("/dashboard");
   };
 
@@ -144,8 +142,11 @@ const Onboarding = ({ user, onComplete }) => {
   const StepIcon = currentStep.icon;
 
   return (
-    <div className="flex flex-col items-center py-8 px-4">
-      <div className="w-full max-w-lg">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center py-12 px-4">
+      <div className="sm:mx-auto sm:w-full sm:max-w-lg">
+        <div className="flex justify-center mb-2">
+          <img src="/logo.png?v=17" alt="Clinomic" className="h-12 w-auto" />
+        </div>
         <h2 className="text-center text-2xl font-bold text-slate-900 dark:text-slate-100 mb-1">Welcome to Clinomic</h2>
         <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-6">Let's set up your organisation in a few steps.</p>
 
@@ -252,10 +253,6 @@ const Onboarding = ({ user, onComplete }) => {
                   <option value="DOCTOR">Doctor</option>
                 </select>
               </div>
-              <div className="flex items-start gap-2 text-xs text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
-                <Mail className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>If an email is provided, the user will receive a password-setup link automatically.</span>
-              </div>
               <button type="submit" disabled={loading} className={btnCls}>
                 {loading ? "Creating..." : "Invite User & Continue"}
               </button>
@@ -307,4 +304,3 @@ const Onboarding = ({ user, onComplete }) => {
 };
 
 export default Onboarding;
-
