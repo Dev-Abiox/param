@@ -3,7 +3,7 @@
  * All endpoints require SUPER_ADMIN role.
  */
 import axios from "axios";
-import { getAccessToken, AuthService, clearAccessToken } from "@/services/api";
+import { getAccessToken, performTokenRefresh, clearAccessToken } from "@/services/api";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -20,9 +20,7 @@ platformAPI.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, refresh the access token then retry once (mirrors the main API interceptor).
-let _refreshPromise = null;
-
+// On 401, refresh via shared promise (prevents dual-refresh race with main API).
 platformAPI.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -30,12 +28,7 @@ platformAPI.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        if (!_refreshPromise) {
-          _refreshPromise = AuthService.refresh().finally(() => {
-            _refreshPromise = null;
-          });
-        }
-        const newToken = await _refreshPromise;
+        const newToken = await performTokenRefresh();
         originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return platformAPI(originalRequest);
@@ -80,4 +73,8 @@ export const PlatformService = {
   /** Override an org's plan directly (no Razorpay) */
   changeOrgPlan: (schema, planName) =>
     platformAPI.post(`/orgs/${schema}/plan/`, { plan: planName }).then((r) => r.data),
+
+  /** Resend credentials email to a user */
+  resendCredentials: (schema, userId) =>
+    platformAPI.post(`/orgs/${schema}/users/${userId}/resend-credentials/`).then((r) => r.data),
 };

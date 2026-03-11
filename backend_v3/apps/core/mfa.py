@@ -181,6 +181,9 @@ class MFAManager:
         Verify an MFA code for login (TOTP or email OTP depending on method).
         Backup codes are always accepted regardless of method.
         """
+        import structlog
+        _logger = structlog.get_logger(__name__)
+
         try:
             mfa_settings = user.mfa_settings
         except MFASettings.DoesNotExist:
@@ -194,10 +197,19 @@ class MFAManager:
             if MFAManager.verify_email_otp(user, code):
                 return True
         else:
-            secret = decrypt_field(mfa_settings.secret_key)
-            totp = pyotp.TOTP(secret)
-            if totp.verify(code, valid_window=1):
-                return True
+            try:
+                secret = decrypt_field(mfa_settings.secret_key)
+                totp = pyotp.TOTP(secret)
+                if totp.verify(code, valid_window=1):
+                    return True
+            except Exception as exc:
+                _logger.error(
+                    'mfa.totp_verify_failed',
+                    user=user.username,
+                    error=str(exc),
+                    has_secret=bool(mfa_settings.secret_key),
+                )
+                raise
 
         # Try backup codes (works for both methods)
         code_hash = hashlib.sha256(code.encode()).hexdigest()

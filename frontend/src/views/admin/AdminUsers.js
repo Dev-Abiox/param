@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { UserPlus, Edit2, UserX, UserCheck, Trash2, Check, RefreshCw } from "lucide-react";
+import { UserPlus, UserX, UserCheck, Trash2, Check, RefreshCw, Mail } from "lucide-react";
 import { AdminService } from "@/services/api";
+import { extractApiError } from "@/lib/utils";
 import Modal from "@/components/common/Modal";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
@@ -21,6 +22,7 @@ const AdminUsers = ({ user: currentUser }) => {
 
   const [confirmDeactivate, setConfirmDeactivate] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
 
   const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: "DOCTOR" });
 
@@ -31,7 +33,7 @@ const AdminUsers = ({ user: currentUser }) => {
       const data = await AdminService.getUsers();
       setUsers(data);
     } catch (err) {
-      setError(err?.response?.data?.error || "Failed to load users.");
+      setError(extractApiError(err, "Failed to load users."));
     } finally {
       setLoading(false);
     }
@@ -45,11 +47,17 @@ const AdminUsers = ({ user: currentUser }) => {
     setCreateLoading(true);
     try {
       await AdminService.createUser(form);
+      const hadEmail = !!form.email;
       setShowCreate(false);
-      setForm({ username: "", email: "", name: "", password: "", role: isLabOwner ? "DOCTOR" : "LAB" });
+      setForm({ username: "", email: "", name: "", password: "", role: currentUser?.role === "LAB" ? "DOCTOR" : "LAB" });
+      setSuccessMsg(
+        hadEmail
+          ? "User created. A password-setup email has been sent to their inbox."
+          : "User created. Share their username and password manually — no email was provided."
+      );
       load();
     } catch (err) {
-      setCreateError(err?.response?.data?.error || "Failed to create user.");
+      setCreateError(extractApiError(err, "Failed to create user."));
     } finally {
       setCreateLoading(false);
     }
@@ -60,8 +68,9 @@ const AdminUsers = ({ user: currentUser }) => {
       await AdminService.deactivateUser(user.id);
       setConfirmDeactivate(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(extractApiError(err, "Failed to deactivate user."));
+      setConfirmDeactivate(null);
     }
   };
 
@@ -69,8 +78,8 @@ const AdminUsers = ({ user: currentUser }) => {
     try {
       await AdminService.reactivateUser(user.id);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(extractApiError(err, "Failed to reactivate user."));
     }
   };
 
@@ -79,8 +88,9 @@ const AdminUsers = ({ user: currentUser }) => {
       await AdminService.permanentDeleteUser(user.id);
       setConfirmDelete(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setError(extractApiError(err, "Failed to delete user."));
+      setConfirmDelete(null);
     }
   };
 
@@ -100,6 +110,14 @@ const AdminUsers = ({ user: currentUser }) => {
           <UserPlus className="h-4 w-4" /> Add User
         </button>
       </div>
+
+      {successMsg && (
+        <div className="flex items-center gap-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 rounded-lg px-4 py-3 text-sm">
+          <Mail className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{successMsg}</span>
+          <button onClick={() => setSuccessMsg(null)} className="text-green-500 hover:text-green-700 text-xs font-medium ml-2">Dismiss</button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (

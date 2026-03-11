@@ -38,23 +38,29 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, silently refresh the access token (using the cookie) then retry once.
-// Deduplicates concurrent refresh requests so only one fires at a time.
+// Shared, deduplicated token refresh — used by both API and PlatformService
+// interceptors so only one refresh call fires at a time across all instances.
 let _refreshPromise = null;
+
+export const performTokenRefresh = () => {
+  if (!_refreshPromise) {
+    _refreshPromise = AuthService.refresh().finally(() => {
+      _refreshPromise = null;
+    });
+  }
+  return _refreshPromise;
+};
 
 API.interceptors.response.use(
   (res) => res,
   async (error) => {
     const originalRequest = error.config;
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Skip refresh for auth endpoints that expect 401 as a normal response
+    const isAuthEndpoint = originalRequest.url?.match(/\/auth\/(login|set-password)/);
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
       try {
-        if (!_refreshPromise) {
-          _refreshPromise = AuthService.refresh().finally(() => {
-            _refreshPromise = null;
-          });
-        }
-        const newToken = await _refreshPromise;
+        const newToken = await performTokenRefresh();
         originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return API(originalRequest);
@@ -145,7 +151,9 @@ export const AuthService = {
   },
 
   setPassword: async (uid, token, newPassword) => {
-    const res = await API.post("/auth/set-password", { uid, token, new_password: newPassword });
+    // Use _refreshAPI (no auth header / no 401 interceptor) so a logged-in
+    // user's expired token doesn't cause DRF to reject the AllowAny endpoint.
+    const res = await _refreshAPI.post("/auth/set-password", { uid, token, new_password: newPassword });
     return res.data;
   },
 

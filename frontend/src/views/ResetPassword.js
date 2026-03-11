@@ -54,7 +54,7 @@ const ResetPassword = () => {
       await AuthService.resetPassword(token, password);
       setSuccess(true);
     } catch (err) {
-      const msg = err?.response?.data?.error;
+      const msg = err?.response?.data?.error || err?.response?.data?.detail;
       setError(Array.isArray(msg) ? msg.join(" ") : msg || "Failed to reset password. The link may have expired.");
     } finally {
       setLoading(false);

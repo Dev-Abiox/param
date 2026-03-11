@@ -185,8 +185,8 @@ REST_FRAMEWORK = {
         'user': '200/minute',
         'login': '5/minute',
         'screening': '50/minute',
-        'mfa_verify': '5/5minute',  # 5 TOTP attempts per 5-minute window (0.3 / 0.4)
-        'mfa_resend': '3/5minute',  # 3 OTP resends per 5-minute window
+        # mfa_verify and mfa_resend rates are defined directly on their throttle classes
+        # (MFATOTPThrottle, MFAResendThrottle) with custom 5-minute windows.
     },
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
@@ -314,12 +314,14 @@ CELERY_TASK_REJECT_ON_WORKER_LOST = True
 # Route tasks into purpose-specific queues so a slow webhook doesn't starve
 # the alert queue. Workers consume all queues: -Q default,webhooks,alerts,email
 CELERY_TASK_ROUTES = {
-    'billing.deliver_webhook':       {'queue': 'webhooks'},
-    'billing.send_high_risk_alert':  {'queue': 'alerts'},
-    'billing.send_usage_alert':      {'queue': 'email'},
+    'billing.deliver_webhook':        {'queue': 'webhooks'},
+    'billing.send_high_risk_alert':   {'queue': 'alerts'},
+    'billing.send_usage_alert':       {'queue': 'email'},
     'billing.send_lab_created_email': {'queue': 'email'},
-    'billing.send_welcome_email':    {'queue': 'email'},
-    'billing.send_mfa_otp_email':    {'queue': 'email'},
+    'billing.send_credentials_email': {'queue': 'email'},
+    'billing.send_welcome_email':     {'queue': 'email'},
+    'billing.send_mfa_otp_email':     {'queue': 'email'},
+    'billing.send_password_reset_email': {'queue': 'email'},
 }
 
 # Dead-letter: after max_retries are exhausted Celery marks the task FAILURE.
