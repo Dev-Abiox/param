@@ -85,6 +85,12 @@ class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     with a Retry-After header, preventing brute-force of the 6-digit code.
     """
     scope = 'mfa_verify'
+    rate = '5/min'
+    TIMER_SECONDS = 300  # 5-minute window
+
+    def parse_rate(self, rate):
+        num, period = super().parse_rate(rate)
+        return (num, self.TIMER_SECONDS)
 
     def get_cache_key(self, request, view):
         # Extract user_id from the MFA pending token for per-user throttling.
@@ -111,6 +117,12 @@ class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
 class MFAResendThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     """Rate limit OTP resend to 3 per 5 minutes per IP."""
     scope = 'mfa_resend'
+    rate = '3/min'
+    TIMER_SECONDS = 300  # 5-minute window
+
+    def parse_rate(self, rate):
+        num, period = super().parse_rate(rate)
+        return (num, self.TIMER_SECONDS)
 
     def get_cache_key(self, request, view):
         return self.cache_format % {
