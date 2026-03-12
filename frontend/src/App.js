@@ -117,9 +117,10 @@ const App = () => {
   // MFA challenge state).
   const [loginInProgress, setLoginInProgress] = useState(false);
 
-  // Check if a LAB/SUPER_ADMIN user still has incomplete onboarding
+  // Check if a LAB user still has incomplete onboarding.
+  // SUPER_ADMIN is the platform owner — they don't set up labs/doctors.
   const checkOnboardingRedirect = async (userObj) => {
-    if (!canManageOrg(userObj.role)) return false;
+    if (userObj.role !== Role.LAB) return false;
     try {
       const status = await BillingService.getOnboardingStatus();
       if (!status.completed) {
@@ -429,10 +430,10 @@ const App = () => {
         {/* Settings */}
         <Route path="/settings" element={<Settings user={user} />} />
 
-        {/* Onboarding wizard (SUPER_ADMIN + LAB owners) */}
+        {/* Onboarding wizard (LAB owners — SUPER_ADMIN is the platform owner) */}
         <Route
           path="/onboarding"
-          element={canManageOrg(user.role) ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
+          element={user.role === Role.LAB ? <Onboarding user={user} /> : <Navigate to={getDefaultRoute(user.role)} replace />}
         />
 
         {/* Management — Users/Doctors/Usage/Billing (SUPER_ADMIN + LAB) */}
