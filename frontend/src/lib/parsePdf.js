@@ -1,8 +1,7 @@
 import * as pdfjsLib from "pdfjs-dist";
 import Tesseract from "tesseract.js";
 
-// Worker is copied as .js during Docker build to avoid .mjs MIME issues
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 /**
  * Extract CBC values and patient info from a lab report PDF.

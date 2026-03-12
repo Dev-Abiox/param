@@ -85,11 +85,29 @@ class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     Retry-After header, preventing brute-force within the 30-second TOTP window.
     """
     scope = 'mfa_verify'
+    rate = '5/min'
+    TIMER_SECONDS = 300  # 5-minute window
+
+    def parse_rate(self, rate):
+        num, period = super().parse_rate(rate)
+        return (num, self.TIMER_SECONDS)
 
     def get_cache_key(self, request, view):
         # Key combines IP address and the user id embedded in the pending token
         # so each user's counter is separate even behind a shared IP (e.g. NAT).
-        user_id = request.data.get('user_id', '') if hasattr(request, 'data') else ''
+        user_id = ''
+        pending_token = (request.data or {}).get('mfa_pending_token', '')
+        if pending_token:
+            try:
+                payload = jwt.decode(
+                    pending_token,
+                    settings.JWT_SECRET_KEY,
+                    algorithms=['HS256'],
+                    options={'verify_exp': False},
+                )
+                user_id = payload.get('sub', '')
+            except Exception:
+                pass
         ident = f"{self.get_ident(request)}-{user_id}"
         return self.cache_format % {
             'scope': self.scope,
@@ -100,6 +118,12 @@ class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
 class MFAResendThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
     """Rate limit OTP resend to 3 per 5 minutes per IP."""
     scope = 'mfa_resend'
+    rate = '3/min'
+    TIMER_SECONDS = 300  # 5-minute window
+
+    def parse_rate(self, rate):
+        num, period = super().parse_rate(rate)
+        return (num, self.TIMER_SECONDS)
 
     def get_cache_key(self, request, view):
         return self.cache_format % {

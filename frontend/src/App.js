@@ -112,14 +112,19 @@ const App = () => {
     setSelectedDoctorName(undefined);
   };
 
+  // loginInProgress tracks the button spinner inside <Login> without
+  // toggling the top-level isLoading (which unmounts <Login> and loses
+  // MFA challenge state).
+  const [loginInProgress, setLoginInProgress] = useState(false);
+
   const handleLogin = async (u, p) => {
-    setIsLoading(true);
+    setLoginInProgress(true);
     setError(null);
     try {
       const result = await AuthService.login(u, p);
 
       if (result.mfaRequired) {
-        setIsLoading(false);
+        setLoginInProgress(false);
         return result;
       }
 
@@ -132,14 +137,20 @@ const App = () => {
       setError("Invalid username or password");
       throw err;
     } finally {
-      setIsLoading(false);
+      setLoginInProgress(false);
     }
   };
 
-  const handleMFASuccess = (authenticatedUser) => {
-    setUser(authenticatedUser);
+  const handleMFASuccess = async (authenticatedUser) => {
+    // Fetch full user profile (includes lab_code, doctor_code, etc.)
+    // MFA verify only returns {id, name, role}.
+    let fullUser = authenticatedUser;
+    try {
+      fullUser = await AuthService.getMe();
+    } catch { /* fall back to partial user data */ }
+    setUser(fullUser);
     const from = location.state?.from?.pathname;
-    const defaultRoute = getDefaultRoute(authenticatedUser.role);
+    const defaultRoute = getDefaultRoute(fullUser.role);
     navigate(from || defaultRoute, { replace: true });
   };
 
@@ -243,7 +254,7 @@ const App = () => {
             <Login
               onLogin={handleLogin}
               onMFARequired={handleMFASuccess}
-              isLoading={isLoading}
+              isLoading={loginInProgress}
               error={error}
             />
           }

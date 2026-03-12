@@ -185,8 +185,8 @@ REST_FRAMEWORK = {
         'user': '200/minute',
         'login': '5/minute',
         'screening': '50/minute',
-        'mfa_verify': '5/5minute',  # 5 TOTP attempts per 5-minute window (0.3 / 0.4)
-        'mfa_resend': '3/5minute',  # 3 OTP resends per 5-minute window
+        # mfa_verify and mfa_resend rates are defined directly on their throttle classes
+        # (MFATOTPThrottle, MFAResendThrottle) with custom 5-minute windows.
     },
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
