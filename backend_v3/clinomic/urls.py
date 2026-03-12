@@ -18,8 +18,6 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from apps.billing.urls import signup_urlpatterns
-
 urlpatterns = [
     path('admin/', admin.site.urls),
 
@@ -31,7 +29,6 @@ urlpatterns = [
     path('api/v1/screening/', include('apps.screening.urls')),
     path('api/v1/analytics/', include('apps.analytics.urls')),
     path('api/v1/billing/', include('apps.billing.urls')),
-    path('api/v1/', include(signup_urlpatterns)),
     path('api/v1/admin/', include('apps.core.admin_urls')),
     path('api/v1/platform/', include('apps.core.platform_urls')),
 
@@ -40,7 +37,6 @@ urlpatterns = [
     path('api/screening/', include('apps.screening.urls')),
     path('api/analytics/', include('apps.analytics.urls')),
     path('api/billing/', include('apps.billing.urls')),
-    path('api/', include(signup_urlpatterns)),
     path('api/admin/', include('apps.core.admin_urls')),
     path('api/platform/', include('apps.core.platform_urls')),
 

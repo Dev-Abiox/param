@@ -160,20 +160,6 @@ export const AuthService = {
     return res.data;
   },
 
-  signup: async ({ orgName, adminEmail, adminPassword, plan, adminName, tosAccepted }) => {
-    const res = await API.post("/v1/signup/", {
-      org_name: orgName,
-      admin_email: adminEmail,
-      admin_password: adminPassword,
-      plan,
-      admin_name: adminName,
-      tos_accepted: tosAccepted,
-    });
-    if (res.data.access_token) {
-      setAccessToken(res.data.access_token);
-    }
-    return res.data;
-  },
 };
 
 export const MFAService = {

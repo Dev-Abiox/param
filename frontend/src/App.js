@@ -9,7 +9,6 @@ import Login from "@/views/Login";
 import Layout from "@/components/Layout";
 
 // Lazy-loaded route views — each becomes a separate chunk
-const Signup = lazy(() => import("@/views/Signup"));
 const Onboarding = lazy(() => import("@/views/Onboarding"));
 const UserWorkspace = lazy(() => import("@/views/UserWorkspace"));
 const AdminDashboard = lazy(() => import("@/views/AdminDashboard"));
@@ -265,7 +264,7 @@ const App = () => {
     </div>
   );
 
-  // Not logged in — allow /login and /signup; redirect everything else to /login
+  // Not logged in — allow /login; redirect everything else to /login
   if (!user) {
     return (
       <ErrorBoundary>
@@ -279,16 +278,6 @@ const App = () => {
               onMFARequired={handleMFASuccess}
               isLoading={loginInProgress}
               error={error}
-            />
-          }
-        />
-        <Route
-          path="/signup"
-          element={
-            <Signup
-              onSignup={(data) => {
-                setUser({ id: data.user?.id, name: data.user?.name, role: data.user?.role });
-              }}
             />
           }
         />

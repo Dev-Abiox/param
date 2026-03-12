@@ -1,7 +1,6 @@
 """
 Billing API views.
 
-SignupView              POST /api/signup/
 WebhookView             POST /api/billing/webhook/
 OnboardingStatusView    PATCH /api/billing/onboarding/
 AdminUsageView          GET  /api/billing/admin/usage
@@ -17,7 +16,6 @@ WebhookDetailView       DELETE /api/billing/admin/webhooks/<uuid:pk>/
 
 import hashlib
 import ipaddress
-import re
 import secrets
 import socket
 from datetime import timedelta
@@ -25,9 +23,7 @@ from urllib.parse import urlparse
 
 import structlog
 from django.conf import settings
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.utils import timezone
 from django_tenants.utils import schema_context
 from rest_framework import status
@@ -42,7 +38,6 @@ from apps.core.permissions import HasRole, IsMFAVerified
 from .models import APIKey, PaymentEvent, SubscriptionPlan, TenantSubscription, UsageRecord, WebhookEndpoint, VALID_SCOPES
 from .serializers import (
     OnboardingStatusSerializer,
-    SignupSerializer,
     SubscriptionPlanSerializer,
     TenantSubscriptionSerializer,
     UsageRecordSerializer,
@@ -52,11 +47,6 @@ logger = structlog.get_logger(__name__)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
-
-RESERVED_SCHEMAS = frozenset({
-    'public', 'pg_catalog', 'pg_toast', 'information_schema',
-})
-
 
 def _validate_webhook_url(url: str) -> str | None:
     """Validate a webhook URL is HTTPS and not targeting private/internal networks.
@@ -89,160 +79,6 @@ def _validate_webhook_url(url: str) -> str | None:
     return None
 
 
-def _slugify_org(name: str) -> str:
-    """Convert an org name to a safe PostgreSQL schema name."""
-    slug = re.sub(r'[^a-z0-9]', '_', name.strip().lower())
-    slug = re.sub(r'_+', '_', slug).strip('_')
-    slug = slug[:40] or 'org'
-    if slug in RESERVED_SCHEMAS:
-        slug = f'tenant_{slug}'
-    return slug
-
-
-# ── Signup ─────────────────────────────────────────────────────────────────────
-
-class SignupView(APIView):
-    """
-    Self-service tenant signup.
-
-    POST /api/signup/
-    Creates a new Organisation, provisions its PostgreSQL schema,
-    creates a LAB owner user, and issues a JWT so the owner is immediately
-    logged in.
-    """
-    permission_classes = [AllowAny]
-    throttle_classes = [AnonRateThrottle]
-
-    def post(self, request):
-        serializer = SignupSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        org_name = data['org_name'].strip()
-        admin_name = (data.get('admin_name') or '').strip() or org_name
-        admin_email = data['admin_email'].lower().strip()
-        admin_password = data['admin_password']
-        plan_name = data['plan']
-
-        # Validate password strength (matches ResetPasswordView rules)
-        try:
-            validate_password(admin_password)
-        except ValidationError as e:
-            return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Derive a unique schema name
-        schema_name = _slugify_org(org_name)
-
-        from apps.core.models import Organization, Domain, User
-        from apps.core.authentication import create_access_token, create_refresh_token
-        from apps.core.views import _set_refresh_cookie
-
-        # Validate plan (read-only, safe outside transaction)
-        try:
-            plan = SubscriptionPlan.objects.get(name=plan_name, is_active=True)
-        except SubscriptionPlan.DoesNotExist:
-            return Response({'error': 'Invalid plan.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            with transaction.atomic():
-                # Uniqueness checks inside transaction to prevent TOCTOU race
-                if Organization.objects.filter(schema_name=schema_name).exists():
-                    return Response(
-                        {'error': 'An organisation with that name already exists.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                if User.objects.filter(email__iexact=admin_email).exists():
-                    return Response(
-                        {'error': 'An account with that email already exists.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                # 1. Create Organization — triggers auto_create_schema
-                org = Organization.objects.create(
-                    name=org_name,
-                    schema_name=schema_name,
-                    is_active=True,
-                )
-
-                # 2. Create a Domain for housekeeping
-                Domain.objects.create(
-                    tenant=org,
-                    domain=f'{schema_name}.internal',
-                    is_primary=True,
-                )
-
-                # 3. Create the admin User in the public schema
-                username = admin_email.split('@')[0][:40]
-                base_username = username
-                counter = 1
-                while User.objects.filter(username=username).exists():
-                    username = f'{base_username}{counter}'
-                    counter += 1
-
-                user = User(
-                    username=username,
-                    email=admin_email,
-                    name=admin_name,
-                    role=Role.LAB,
-                    organization=org,
-                    is_active=True,
-                )
-                user.set_password(admin_password)
-                user.save()
-
-                # 4. Create TenantSubscription (14-day trial)
-                now = timezone.now()
-                trial_end = now + timedelta(days=14)
-                period_end = now + timedelta(days=30)
-                TenantSubscription.objects.create(
-                    organization=org,
-                    plan=plan,
-                    status=TenantSubscription.Status.TRIAL,
-                    current_period_start=now,
-                    current_period_end=period_end,
-                    trial_end=trial_end,
-                )
-        except IntegrityError:
-            return Response(
-                {'error': 'An organisation or account with that name already exists.'},
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        # 5. Issue JWT tokens (mfa_verified=False — user must set up MFA separately)
-        access_token = create_access_token(user, mfa_verified=False)
-        refresh_token, _ = create_refresh_token(user)
-
-        logger.info('signup.success', org=org.name, schema=org.schema_name, user=user.username)
-
-        # 6. Fire welcome email asynchronously (non-blocking, best-effort)
-        try:
-            from apps.billing.tasks import send_welcome_email
-            send_welcome_email.delay(
-                user_id=str(user.id),
-                org_name=org.name,
-                plan_name=plan.display_name,
-                trial_end_iso=trial_end.isoformat(),
-            )
-        except (OSError, ImportError) as exc:
-            logger.warning('signup.welcome_email_queue_failed', user=user.username, error=str(exc))
-
-        response = Response({
-            'access_token': access_token,
-            'user': {
-                'id': str(user.id),
-                'name': user.name or user.username,
-                'role': user.role,
-            },
-            'org': {
-                'id': str(org.id),
-                'name': org.name,
-            },
-            'plan': plan_name,
-            'trial_end': trial_end.isoformat(),
-        }, status=status.HTTP_201_CREATED)
-
-        _set_refresh_cookie(response, refresh_token)
-        return response
 
 
 # ── Onboarding Status ──────────────────────────────────────────────────────────
