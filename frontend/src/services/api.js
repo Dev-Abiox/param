@@ -99,10 +99,11 @@ export const AuthService = {
     };
   },
 
-  verifyMFA: async (mfaPendingToken, mfaCode) => {
+  verifyMFA: async (mfaPendingToken, mfaCode, rememberDevice = false) => {
     const res = await API.post("/auth/mfa/verify", {
       mfa_pending_token: mfaPendingToken,
       mfa_code: mfaCode,
+      remember_device: rememberDevice,
     });
 
     setAccessToken(res.data.access_token);

@@ -18,6 +18,7 @@ class MFAVerifySerializer(serializers.Serializer):
     """MFA verification request serializer."""
     mfa_pending_token = serializers.CharField()
     mfa_code = serializers.CharField(max_length=10)
+    remember_device = serializers.BooleanField(default=False, required=False)
 
 
 

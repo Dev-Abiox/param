@@ -19,6 +19,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
   const [mfaMethod, setMfaMethod] = useState("TOTP");
   const [maskedEmail, setMaskedEmail] = useState(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [rememberDevice, setRememberDevice] = useState(false);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -54,7 +55,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     setMfaError(null);
 
     try {
-      const user = await AuthService.verifyMFA(mfaPendingToken, mfaCode);
+      const user = await AuthService.verifyMFA(mfaPendingToken, mfaCode, rememberDevice);
       // Call parent's success handler
       if (onMFARequired) {
         onMFARequired(user);
@@ -75,6 +76,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     setMfaMethod("TOTP");
     setMaskedEmail(null);
     setResendCooldown(0);
+    setRememberDevice(false);
   };
 
   const handleResendOTP = async () => {
@@ -167,6 +169,19 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
                   {mfaError}
                 </div>
               )}
+
+              <div className="flex items-center">
+                <input
+                  id="remember-device"
+                  type="checkbox"
+                  checked={rememberDevice}
+                  onChange={(e) => setRememberDevice(e.target.checked)}
+                  className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 dark:border-slate-600 rounded"
+                />
+                <label htmlFor="remember-device" className="ml-2 block text-sm text-slate-700 dark:text-slate-300">
+                  Remember this device for 30 days
+                </label>
+              </div>
 
               <div>
                 <button

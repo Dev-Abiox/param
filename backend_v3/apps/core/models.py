@@ -203,6 +203,29 @@ class RefreshToken(models.Model):
         return f"RefreshToken for {self.user.username}"
 
 
+class TrustedDevice(models.Model):
+    """
+    Stores trusted device tokens so users can skip MFA for 30 days.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trusted_devices')
+    token_hash = models.CharField(max_length=64, unique=True)
+    user_agent = models.TextField(blank=True, default='')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'trusted_devices'
+        indexes = [
+            models.Index(fields=['user', 'token_hash']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return f"TrustedDevice for {self.user.username}"
+
+
 class AuditLogEntry(models.Model):
     """
     Immutable audit log with hash chain for compliance.

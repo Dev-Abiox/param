@@ -2,7 +2,10 @@
 Core API views for authentication, MFA, and health checks.
 """
 
+import hashlib
 import logging
+import secrets
+from datetime import timedelta
 
 import jwt
 from django.conf import settings
@@ -60,6 +63,53 @@ def _set_refresh_cookie(response, token: str) -> None:
 
 def _delete_refresh_cookie(response) -> None:
     response.delete_cookie(_REFRESH_COOKIE, path='/api/auth/')
+
+
+_DEVICE_COOKIE = 'trusted_device'
+_DEVICE_MAX_AGE = 30 * 24 * 3600  # 30 days
+
+
+def _create_trusted_device(user, request):
+    """Create a trusted device token and return it."""
+    from .models import TrustedDevice
+    from django.utils import timezone
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    TrustedDevice.objects.create(
+        user=user,
+        token_hash=token_hash,
+        user_agent=(request.META.get('HTTP_USER_AGENT', '') or '')[:500],
+        ip_address=request.META.get('REMOTE_ADDR'),
+        expires_at=timezone.now() + timedelta(days=30),
+    )
+    return raw_token
+
+
+def _set_device_cookie(response, token: str) -> None:
+    response.set_cookie(
+        _DEVICE_COOKIE,
+        token,
+        max_age=_DEVICE_MAX_AGE,
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite='Lax',
+        path='/api/auth/',
+    )
+
+
+def _check_trusted_device(user, request) -> bool:
+    """Return True if the request carries a valid trusted-device cookie."""
+    from .models import TrustedDevice
+    from django.utils import timezone
+    raw_token = request.COOKIES.get(_DEVICE_COOKIE)
+    if not raw_token:
+        return False
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    return TrustedDevice.objects.filter(
+        user=user,
+        token_hash=token_hash,
+        expires_at__gt=timezone.now(),
+    ).exists()
 
 
 class _ResilientThrottleMixin:
@@ -216,6 +266,19 @@ class LoginView(APIView):
             return resp
 
         if mfa_status['enabled']:
+            # Skip MFA if this device is trusted (remember-me cookie)
+            if not mfa_code and _check_trusted_device(user, request):
+                access_token = create_access_token(user, mfa_verified=True)
+                refresh_token, _ = create_refresh_token(user, mfa_verified=True)
+                response = Response({
+                    'access_token': access_token,
+                    'id': str(user.id),
+                    'name': user.name or user.username,
+                    'role': user.role,
+                })
+                _set_refresh_cookie(response, refresh_token)
+                return response
+
             if not mfa_code:
                 pending_token = create_mfa_pending_token(user)
                 resp_data = {
@@ -314,6 +377,13 @@ class MFAVerifyView(APIView):
             'role': user.role,
         })
         _set_refresh_cookie(response, refresh_token)
+
+        # Set trusted-device cookie if requested
+        remember_device = serializer.validated_data.get('remember_device', False)
+        if remember_device:
+            device_token = _create_trusted_device(user, request)
+            _set_device_cookie(response, device_token)
+
         return response
 
 
