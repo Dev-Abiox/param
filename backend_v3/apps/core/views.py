@@ -233,19 +233,23 @@ class LoginView(APIView):
             from django.db import connection as db_connection
             db_connection.set_tenant(user.organization)
 
-        # Block LAB users when no active lab exists in their tenant
+        # Block LAB users only when labs exist but all are deactivated.
+        # If no labs exist yet (pre-onboarding), allow login so they can set up.
         if user.role == Role.LAB:
             from apps.screening.models import Lab
-            if not Lab.objects.filter(is_active=True).exists():
+            lab_qs = Lab.objects.all()
+            if lab_qs.exists() and not lab_qs.filter(is_active=True).exists():
                 return Response(
                     {'error': 'Lab account is inactive. Contact your administrator.'},
                     status=status.HTTP_401_UNAUTHORIZED
                 )
 
-        # Block DOCTOR users when their doctor record is inactive
+        # Block DOCTOR users only when a doctor record exists but is deactivated.
+        # If no record exists yet the user was just created and should be allowed in.
         if user.role == Role.DOCTOR and user.email:
             from apps.screening.models import Doctor
-            if not Doctor.objects.filter(email=user.email, is_active=True).exists():
+            doctor_qs = Doctor.objects.filter(email=user.email)
+            if doctor_qs.exists() and not doctor_qs.filter(is_active=True).exists():
                 return Response(
                     {'error': 'Doctor account is inactive. Contact your administrator.'},
                     status=status.HTTP_401_UNAUTHORIZED

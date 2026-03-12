@@ -153,7 +153,8 @@ const App = () => {
       }
       return result;
     } catch (err) {
-      setError("Invalid credentials. Please check your username/email and password.");
+      const msg = err?.response?.data?.error;
+      setError(msg || "Invalid credentials. Please check your username/email and password.");
       throw err;
     } finally {
       setLoginInProgress(false);
