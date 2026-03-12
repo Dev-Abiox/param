@@ -33,23 +33,6 @@ class UsageRecordSerializer(serializers.ModelSerializer):
         fields = ['period_start', 'period_end', 'screening_count']
 
 
-class SignupSerializer(serializers.Serializer):
-    org_name = serializers.CharField(min_length=2, max_length=100)
-    admin_name = serializers.CharField(min_length=1, max_length=255, required=False, default='')
-    admin_email = serializers.EmailField()
-    admin_password = serializers.CharField(min_length=8, write_only=True)
-    plan = serializers.ChoiceField(
-        choices=['starter', 'professional', 'enterprise'],
-        default='starter',
-    )
-    tos_accepted = serializers.BooleanField()
-
-    def validate_tos_accepted(self, value):
-        if not value:
-            raise serializers.ValidationError('You must accept the Terms of Service and Privacy Policy.')
-        return value
-
-
 class OnboardingStatusSerializer(serializers.Serializer):
     lab_added = serializers.BooleanField(required=False)
     doctor_added = serializers.BooleanField(required=False)

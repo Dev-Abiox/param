@@ -325,6 +325,7 @@ CELERY_TASK_ROUTES = {
     'billing.send_welcome_email':     {'queue': 'email'},
     'billing.send_credentials_email': {'queue': 'email'},
     'billing.send_mfa_otp_email':     {'queue': 'email'},
+    'billing.expire_trials':          {'queue': 'default'},
 }
 
 # Dead-letter: after max_retries are exhausted Celery marks the task FAILURE.
@@ -363,6 +364,11 @@ CELERY_BEAT_SCHEDULE = {
     'compute-monthly-usage-rollups': {
         'task': 'billing.compute_monthly_rollups',
         'schedule': crontab(hour=0, minute=5, day_of_month=1),
+    },
+    # Hourly: expire trial subscriptions past their trial_end date
+    'expire-trial-subscriptions': {
+        'task': 'billing.expire_trials',
+        'schedule': 3600,   # seconds
     },
 }
 

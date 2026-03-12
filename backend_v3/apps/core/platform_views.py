@@ -315,14 +315,15 @@ class PlatformCreateOrgView(PublicSchemaMixin, APIView):
                 user.set_password(temp_password)
                 user.save()
 
-                # 5. Create TenantSubscription (ACTIVE, no trial — super admin override)
+                # 5. Create TenantSubscription (10-day trial)
                 now = timezone.now()
                 TenantSubscription.objects.create(
                     organization=org,
                     plan=plan,
-                    status=TenantSubscription.Status.ACTIVE,
+                    status=TenantSubscription.Status.TRIAL,
                     current_period_start=now,
                     current_period_end=now + timedelta(days=30),
+                    trial_end=now + timedelta(days=10),
                 )
 
                 # 6. Auto-create a Lab in the tenant schema and mark onboarding

@@ -41,6 +41,52 @@ from django.core.cache import cache
 logger = structlog.get_logger(__name__)
 
 
+# ── Trial Expiration ────────────────────────────────────────────────────────────
+
+@shared_task(
+    name='billing.expire_trials',
+    max_retries=2,
+    default_retry_delay=60,
+)
+def expire_trials() -> int:
+    """
+    Transition TRIAL subscriptions whose trial_end has passed to EXPIRED.
+    Scheduled to run hourly via Celery Beat.
+
+    Returns the number of subscriptions expired.
+    """
+    from django.utils import timezone as tz
+    from apps.billing.models import TenantSubscription
+
+    now = tz.now()
+    expired_subs = TenantSubscription.objects.filter(
+        status=TenantSubscription.Status.TRIAL,
+        trial_end__lte=now,
+    )
+
+    count = 0
+    for sub in expired_subs:
+        try:
+            sub.transition_to(TenantSubscription.Status.EXPIRED)
+            sub.save(update_fields=['status', 'updated_at'])
+            cache.delete(f'plan_limit_over:{sub.organization_id}')
+            logger.info(
+                'billing.trial_expired',
+                org_id=str(sub.organization_id),
+            )
+            count += 1
+        except (ValueError, Exception) as exc:
+            logger.error(
+                'billing.trial_expire_failed',
+                org_id=str(sub.organization_id),
+                error=str(exc),
+            )
+
+    if count:
+        logger.info('billing.expire_trials_complete', expired_count=count)
+    return count
+
+
 # ── Usage Increment ─────────────────────────────────────────────────────────────
 
 @shared_task(
@@ -842,6 +888,7 @@ def send_lab_created_email(
     user_id: str,
     org_name: str,
     plan_name: str,
+    trial_days: int = 10,
 ) -> None:
     """
     Email the admin user when a super admin creates a new lab on their behalf.
@@ -873,10 +920,13 @@ def send_lab_created_email(
         f'Hi {user.name or user.username},\n\n'
         f'Your organisation "{org_name}" has been set up on Clinomic.\n\n'
         f'Plan     : {plan_name}\n'
+        f'Trial    : {trial_days} days\n'
         f'Username : {user.username}\n\n'
         f'Please set your password by clicking the link below:\n'
         f'{setup_url}\n\n'
         f'This link expires in 3 days.\n\n'
+        f'You have {trial_days} days of full access to all features. '
+        f'To continue after your trial, visit the Billing section of your dashboard.\n\n'
         f'After setting your password, you will also need to set up two-factor\n'
         f'authentication (MFA) before accessing sensitive features.\n\n'
         f'Steps to get started:\n'

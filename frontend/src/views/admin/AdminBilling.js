@@ -20,7 +20,9 @@ const fmtINR = (n) =>
 const STATUS_PILL = {
   ACTIVE:    "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
   TRIAL:     "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
+  EXPIRED:   "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400",
   SUSPENDED: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400",
+  CANCELLED: "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400",
   PAST_DUE:  "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400",
 };
 
@@ -149,7 +151,7 @@ const AdminBilling = () => {
 
   const periodStart  = usageData?.period_start || sub.current_period_start;
   const periodEnd    = usageData?.period_end   || sub.current_period_end;
-  const trialEnd     = sub.trial_end_date;
+  const trialEnd     = sub.trial_end;
   const history      = usageData?.history ?? [];
 
   const daysLeft = (() => {
@@ -199,6 +201,21 @@ const AdminBilling = () => {
             </p>
             <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
               Upgrade before your trial ends to avoid interruption.{trialEnd ? ` Trial ends ${fmtDate(trialEnd)}.` : ""}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Expired trial banner */}
+      {status === "EXPIRED" && (
+        <div className="flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
+          <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-800 dark:text-red-300">
+              Your trial has expired
+            </p>
+            <p className="text-xs text-red-700 dark:text-red-400 mt-0.5">
+              Upgrade to a paid plan below to continue running screenings. Your existing data is safe.
             </p>
           </div>
         </div>

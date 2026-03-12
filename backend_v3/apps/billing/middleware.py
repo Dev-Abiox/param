@@ -20,6 +20,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -186,15 +187,20 @@ class PlanLimitMiddleware:
         if request.method == 'POST' and path in self.PREDICT_PATHS:
             org = getattr(request, 'tenant', None)
             if org and getattr(org, 'schema_name', 'public') != 'public':
-                over = self._is_over_limit(org)
-                if over:
+                blocked, reason = self._is_blocked(org)
+                if blocked:
                     return JsonResponse(
-                        {'error': 'Monthly screening limit reached. Please upgrade your plan.'},
+                        {'error': reason},
                         status=402,
                     )
         return self.get_response(request)
 
-    def _is_over_limit(self, org) -> bool:
+    _REASON_EXPIRED = 'Your trial has expired. Please upgrade to a paid plan to continue screening.'
+    _REASON_CANCELLED = 'Your subscription is cancelled. Please reactivate to continue screening.'
+    _REASON_LIMIT = 'Monthly screening limit reached. Please upgrade your plan.'
+
+    def _is_blocked(self, org) -> tuple[bool, str]:
+        """Return (blocked: bool, reason: str)."""
         cache_key = f'plan_limit_over:{org.id}'
         cached = cache.get(cache_key)
         if cached is not None:
@@ -203,13 +209,35 @@ class PlanLimitMiddleware:
         from apps.billing.models import TenantSubscription
         try:
             sub = TenantSubscription.objects.select_related('plan').get(organization=org)
-            lim = sub.plan.monthly_limit
-            over = lim != -1 and sub.current_period_count >= lim
+
+            # Block screenings for expired or cancelled subscriptions
+            if sub.status == TenantSubscription.Status.EXPIRED:
+                result = (True, self._REASON_EXPIRED)
+            elif sub.status == TenantSubscription.Status.CANCELLED:
+                result = (True, self._REASON_CANCELLED)
+            # Auto-expire trial if past trial_end (belt-and-suspenders
+            # alongside the Celery beat task)
+            elif (
+                sub.status == TenantSubscription.Status.TRIAL
+                and sub.trial_end
+                and sub.trial_end <= timezone.now()
+            ):
+                try:
+                    sub.transition_to(TenantSubscription.Status.EXPIRED)
+                    sub.save(update_fields=['status', 'updated_at'])
+                    logger.info('PlanLimitMiddleware: auto-expired trial for org %s', org.id)
+                except ValueError:
+                    pass
+                result = (True, self._REASON_EXPIRED)
+            else:
+                lim = sub.plan.monthly_limit
+                over = lim != -1 and sub.current_period_count >= lim
+                result = (True, self._REASON_LIMIT) if over else (False, '')
         except TenantSubscription.DoesNotExist:
-            over = False
+            result = (False, '')
         except Exception:
             logger.error('PlanLimitMiddleware: DB error checking limit for org %s', org.id, exc_info=True)
-            return True  # fail closed — do NOT cache error state
+            return (True, self._REASON_LIMIT)  # fail closed — do NOT cache error state
 
-        cache.set(cache_key, over, timeout=self.CACHE_TTL)
-        return over
+        cache.set(cache_key, result, timeout=self.CACHE_TTL)
+        return result
