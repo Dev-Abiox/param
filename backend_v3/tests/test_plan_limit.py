@@ -40,7 +40,7 @@ class TestPlanLimitMiddleware:
         org.id = 'org-1'
         request.tenant = org
 
-        with patch.object(middleware, '_is_over_limit', return_value=False):
+        with patch.object(middleware, '_is_blocked', return_value=(False, '')):
             result = middleware(request)
 
         assert result == 'ok'
@@ -53,7 +53,7 @@ class TestPlanLimitMiddleware:
         org.id = 'org-1'
         request.tenant = org
 
-        with patch.object(middleware, '_is_over_limit', return_value=True):
+        with patch.object(middleware, '_is_blocked', return_value=(True, 'Monthly screening limit reached. Please upgrade your plan.')):
             result = middleware(request)
 
         assert isinstance(result, JsonResponse)
@@ -87,7 +87,7 @@ class TestPlanLimitMiddleware:
         org.id = 'org-1'
         request.tenant = org
 
-        with patch.object(middleware, '_is_over_limit', return_value=True):
+        with patch.object(middleware, '_is_blocked', return_value=(True, 'limit')):
             result = middleware(request)
 
         assert isinstance(result, JsonResponse)
@@ -102,7 +102,7 @@ class TestPlanLimitMiddleware:
         org.id = 'org-1'
         request.tenant = org
 
-        with patch.object(middleware, '_is_over_limit', return_value=True):
+        with patch.object(middleware, '_is_blocked', return_value=(True, 'limit')):
             result = middleware(request)
 
         assert isinstance(result, JsonResponse)
@@ -116,7 +116,7 @@ class TestPlanLimitMiddleware:
         org.id = 'org-1'
         request.tenant = org
 
-        with patch.object(middleware, '_is_over_limit', return_value=True):
+        with patch.object(middleware, '_is_blocked', return_value=(True, 'limit')):
             result = middleware(request)
 
         assert isinstance(result, JsonResponse)
@@ -141,10 +141,10 @@ class TestPlanLimitMiddleware:
         assert result == 'ok'
 
 
-class TestIsOverLimit:
+class TestIsBlocked:
 
     def test_db_error_fails_closed(self, rf):
-        """DB errors should fail closed (return True) and NOT cache."""
+        """DB errors should fail closed (return blocked) and NOT cache."""
         from apps.billing.middleware import PlanLimitMiddleware
         from apps.billing.models import TenantSubscription
 
@@ -156,9 +156,9 @@ class TestIsOverLimit:
             MockSub.DoesNotExist = TenantSubscription.DoesNotExist
             MockSub.objects.select_related.return_value.get.side_effect = RuntimeError('db down')
 
-            result = mw._is_over_limit(org)
+            result = mw._is_blocked(org)
 
-        assert result is True
+        assert result[0] is True
         # Should NOT be cached
         assert cache.get(f'plan_limit_over:{org.id}') is None
 
@@ -170,16 +170,16 @@ class TestIsOverLimit:
         org = MagicMock()
         org.id = 'org-cached'
 
-        cache.set(f'plan_limit_over:{org.id}', True, timeout=60)
+        cache.set(f'plan_limit_over:{org.id}', (True, 'limit'), timeout=60)
 
         with patch('apps.billing.models.TenantSubscription') as MockSub:
-            result = mw._is_over_limit(org)
+            result = mw._is_blocked(org)
 
-        assert result is True
+        assert result[0] is True
         MockSub.objects.select_related.assert_not_called()
 
     def test_no_subscription_returns_false(self, rf):
-        """Missing subscription should return False (no limit to enforce)."""
+        """Missing subscription should return not-blocked."""
         from apps.billing.middleware import PlanLimitMiddleware
         from apps.billing.models import TenantSubscription
 
@@ -191,6 +191,6 @@ class TestIsOverLimit:
             MockSub.DoesNotExist = TenantSubscription.DoesNotExist
             MockSub.objects.select_related.return_value.get.side_effect = TenantSubscription.DoesNotExist
 
-            result = mw._is_over_limit(org)
+            result = mw._is_blocked(org)
 
-        assert result is False
+        assert result[0] is False
