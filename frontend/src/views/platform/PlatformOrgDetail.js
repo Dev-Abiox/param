@@ -67,7 +67,7 @@ const PlatformOrgDetail = () => {
     try {
       const data = await PlatformService.getOrg(schema);
       setOrg(data);
-      setSelectedPlan(data.subscription?.plan?.replace("_", "") || "");
+      setSelectedPlan(data.subscription?.plan?.name?.replace("_", "") || "");
     } catch (err) {
       setError(err?.response?.data?.error || "Failed to load organisation.");
     } finally {
@@ -242,10 +242,10 @@ const PlatformOrgDetail = () => {
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
             <p className="text-xs text-slate-400 dark:text-slate-500 mb-1">Current Plan</p>
             <p className="text-xl font-bold text-slate-800 dark:text-slate-100 capitalize">
-              {sub.plan_display || sub.plan || "—"}
+              {sub.plan?.display_name || sub.plan?.name || "—"}
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {sub.monthly_limit > 0 ? `${sub.monthly_limit.toLocaleString()} screenings / month` : "Unlimited screenings"}
+              {(sub.plan?.monthly_limit ?? -1) > 0 ? `${sub.plan.monthly_limit.toLocaleString()} screenings / month` : "Unlimited screenings"}
             </p>
           </div>
 
@@ -253,9 +253,9 @@ const PlatformOrgDetail = () => {
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
             <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">Usage This Period</p>
             <UsageBar
-              count={sub.current_count || 0}
-              limit={sub.monthly_limit || -1}
-              pct={sub.pct_used || 0}
+              count={sub.current_period_count || 0}
+              limit={sub.plan?.monthly_limit ?? -1}
+              pct={sub.plan?.monthly_limit > 0 ? Math.round((sub.current_period_count || 0) / sub.plan.monthly_limit * 100) : 0}
             />
           </div>
 
