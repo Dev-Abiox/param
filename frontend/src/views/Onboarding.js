@@ -1,4 +1,4 @@
-import React, { useReducer } from "react";
+import React, { useEffect, useReducer } from "react";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle, Building2, Stethoscope, UserPlus, PartyPopper, ArrowLeft } from "lucide-react";
 import { AdminService, BillingService } from "@/services/api";
@@ -51,6 +51,8 @@ function reducer(state, action) {
       return { ...state, step: state.step + 1, error: null };
     case "GO_BACK":
       return { ...state, step: Math.max(1, state.step - 1), error: null };
+    case "SET_STEP":
+      return { ...state, step: action.value };
     case "SET_CREATED_LAB":
       return { ...state, createdLabId: action.value };
     default:
@@ -64,6 +66,23 @@ const Onboarding = ({ user }) => {
   const { step, loading, error, createdLabId, lab, doctor, user: userForm } = state;
 
   const setField = (form, field, value) => dispatch({ type: "SET_FIELD", form, field, value });
+
+  // Resume from the first incomplete step if the user returns mid-onboarding
+  useEffect(() => {
+    BillingService.getOnboardingStatus()
+      .then((status) => {
+        const flags = ["lab_added", "doctor_added", "user_invited"];
+        const firstIncomplete = flags.findIndex((f) => !status[f]);
+        if (status.completed || firstIncomplete === -1) {
+          dispatch({ type: "SET_STEP", value: 4 });
+        } else if (firstIncomplete > 0) {
+          dispatch({ type: "SET_STEP", value: firstIncomplete + 1 });
+        }
+      })
+      .catch(() => {
+        // first visit or MFA not yet set up — start from step 1
+      });
+  }, []);
 
   const markFlag = async (flag) => {
     try {
@@ -288,13 +307,17 @@ const Onboarding = ({ user }) => {
               ) : (
                 <span />
               )}
-              <button
-                type="button"
-                onClick={() => handleSkip(currentStep.flag)}
-                className="py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                Skip this step
-              </button>
+              {step === 1 ? (
+                <span className="text-xs text-slate-300 dark:text-slate-600 italic">A lab is required to start screening</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleSkip(currentStep.flag)}
+                  className="py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  I'll do this later
+                </button>
+              )}
             </div>
           )}
         </div>

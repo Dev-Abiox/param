@@ -30,7 +30,7 @@ const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"
 const SetPassword = lazy(() => import("@/views/SetPassword"));
 const ResetPassword = lazy(() => import("@/views/ResetPassword"));
 
-import { AuthService } from "@/services/api";
+import { AuthService, BillingService } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -117,6 +117,21 @@ const App = () => {
   // MFA challenge state).
   const [loginInProgress, setLoginInProgress] = useState(false);
 
+  // Check if a LAB/SUPER_ADMIN user still has incomplete onboarding
+  const checkOnboardingRedirect = async (userObj) => {
+    if (!canManageOrg(userObj.role)) return false;
+    try {
+      const status = await BillingService.getOnboardingStatus();
+      if (!status.completed) {
+        navigate("/onboarding", { replace: true });
+        return true;
+      }
+    } catch {
+      // MFA not yet set up or API error — skip check
+    }
+    return false;
+  };
+
   const handleLogin = async (u, p) => {
     setLoginInProgress(true);
     setError(null);
@@ -129,12 +144,15 @@ const App = () => {
       }
 
       setUser(result);
-      const from = location.state?.from?.pathname;
-      const defaultRoute = getDefaultRoute(result.role);
-      navigate(from || defaultRoute, { replace: true });
+      const redirected = await checkOnboardingRedirect(result);
+      if (!redirected) {
+        const from = location.state?.from?.pathname;
+        const defaultRoute = getDefaultRoute(result.role);
+        navigate(from || defaultRoute, { replace: true });
+      }
       return result;
     } catch (err) {
-      setError("Invalid username or password");
+      setError("Invalid credentials. Please check your username/email and password.");
       throw err;
     } finally {
       setLoginInProgress(false);
@@ -149,9 +167,12 @@ const App = () => {
       fullUser = await AuthService.getMe();
     } catch { /* fall back to partial user data */ }
     setUser(fullUser);
-    const from = location.state?.from?.pathname;
-    const defaultRoute = getDefaultRoute(fullUser.role);
-    navigate(from || defaultRoute, { replace: true });
+    const redirected = await checkOnboardingRedirect(fullUser);
+    if (!redirected) {
+      const from = location.state?.from?.pathname;
+      const defaultRoute = getDefaultRoute(fullUser.role);
+      navigate(from || defaultRoute, { replace: true });
+    }
   };
 
   const handleLogout = async () => {
