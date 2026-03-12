@@ -325,6 +325,25 @@ class PlatformCreateOrgView(PublicSchemaMixin, APIView):
                     current_period_end=now + timedelta(days=30),
                 )
 
+                # 6. Auto-create a Lab in the tenant schema and mark onboarding
+                # complete so the LAB user doesn't go through the wizard.
+                from django_tenants.utils import schema_context
+                with schema_context(org.schema_name):
+                    from apps.screening.models import Lab
+                    lab_code = f'LAB-{schema_name[:30].upper()}'
+                    Lab.objects.create(
+                        code=lab_code,
+                        name=org_name,
+                        contact_email=admin_email,
+                    )
+                org.onboarding_status = {
+                    'lab_added': True,
+                    'doctor_added': False,
+                    'user_invited': False,
+                    'completed': False,
+                }
+                org.save(update_fields=['onboarding_status'])
+
         except IntegrityError:
             return Response(
                 {'error': 'An organisation or account with that name already exists.'},

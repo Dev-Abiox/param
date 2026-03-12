@@ -1085,6 +1085,23 @@ class AdminUserListView(APIView):
         user.set_password(password)
         user.save()
 
+        # Auto-create a Doctor record in the tenant schema when a DOCTOR
+        # user is created, so they can immediately start screening.
+        if role == Role.DOCTOR:
+            try:
+                from apps.screening.models import Doctor, Lab
+                lab = Lab.objects.filter(is_active=True).order_by('created_at').first()
+                if lab and not Doctor.objects.filter(email=user.email).exists():
+                    doctor_code = f'D-{username.upper()}'
+                    Doctor.objects.create(
+                        code=doctor_code,
+                        name=name or username,
+                        email=user.email or '',
+                        lab=lab,
+                    )
+            except Exception as exc:
+                logger.warning('auto_create_doctor_failed user_id=%s error=%s', user.id, exc)
+
         # Send credentials email asynchronously (if email provided)
         if user.email:
             try:

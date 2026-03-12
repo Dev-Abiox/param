@@ -318,6 +318,7 @@ CELERY_TASK_DEFAULT_QUEUE = 'default'
 # the alert queue. Workers consume all queues: -Q default,webhooks,alerts,email
 CELERY_TASK_ROUTES = {
     'billing.deliver_webhook':        {'queue': 'webhooks'},
+    'billing.increment_usage':        {'queue': 'default'},
     'billing.send_high_risk_alert':   {'queue': 'alerts'},
     'billing.send_usage_alert':       {'queue': 'email'},
     'billing.send_lab_created_email': {'queue': 'email'},
