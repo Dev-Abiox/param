@@ -47,15 +47,26 @@ def purge_old_screenings() -> int:
     Default is 2555 days (7 years) per HIPAA minimum.  Runs daily at 02:00 UTC.
     The associated Patient record is NOT deleted — it may be referenced by
     other screenings still within the retention window.
+
+    Iterates all tenant schemas because Screening is a tenant-specific model.
     """
+    from apps.core.models import Organization
     from apps.screening.models import Screening
+    from django_tenants.utils import schema_context
 
     retention_days = getattr(settings, 'DATA_RETENTION_DAYS', 2555)
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    total_deleted = 0
 
-    deleted, _ = Screening.objects.filter(created_at__lt=cutoff).delete()
-    logger.info("retention_purge", entity="screenings", deleted=deleted, retention_days=retention_days)
-    return deleted
+    for org in Organization.objects.exclude(schema_name='public'):
+        with schema_context(org.schema_name):
+            deleted, _ = Screening.objects.filter(created_at__lt=cutoff).delete()
+            if deleted:
+                logger.info("retention_purge", entity="screenings", deleted=deleted,
+                            retention_days=retention_days, schema=org.schema_name)
+                total_deleted += deleted
+
+    return total_deleted
 
 
 @shared_task(name='core.expire_stale_consents')
@@ -63,17 +74,27 @@ def expire_stale_consents() -> int:
     """
     Transition active consents whose expires_at has passed to 'expired' status.
     Runs hourly so the GET endpoint never needs to mutate state.
+
+    Iterates all tenant schemas because Consent is a tenant-specific model.
     """
+    from apps.core.models import Organization
     from apps.screening.models import Consent
+    from django_tenants.utils import schema_context
 
     now = datetime.now(timezone.utc)
-    updated = Consent.objects.filter(
-        status='active',
-        expires_at__lt=now,
-    ).update(status='expired')
-    if updated:
-        logger.info("consents_expired", count=updated)
-    return updated
+    total_updated = 0
+
+    for org in Organization.objects.exclude(schema_name='public'):
+        with schema_context(org.schema_name):
+            updated = Consent.objects.filter(
+                status='active',
+                expires_at__lt=now,
+            ).update(status='expired')
+            if updated:
+                logger.info("consents_expired", count=updated, schema=org.schema_name)
+                total_updated += updated
+
+    return total_updated
 
 
 @shared_task(name='core.purge_old_consents')
@@ -83,18 +104,28 @@ def purge_old_consents() -> int:
     DATA_RETENTION_DAYS.  Active consents are never deleted.
 
     Runs daily at 02:00 UTC alongside purge_old_screenings.
+    Iterates all tenant schemas because Consent is a tenant-specific model.
     """
+    from apps.core.models import Organization
     from apps.screening.models import Consent
+    from django_tenants.utils import schema_context
 
     retention_days = getattr(settings, 'DATA_RETENTION_DAYS', 2555)
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    total_deleted = 0
 
-    deleted, _ = Consent.objects.filter(
-        status__in=['revoked', 'expired'],
-        updated_at__lt=cutoff,
-    ).delete()
-    logger.info("retention_purge", entity="consents", deleted=deleted, retention_days=retention_days)
-    return deleted
+    for org in Organization.objects.exclude(schema_name='public'):
+        with schema_context(org.schema_name):
+            deleted, _ = Consent.objects.filter(
+                status__in=['revoked', 'expired'],
+                updated_at__lt=cutoff,
+            ).delete()
+            if deleted:
+                logger.info("retention_purge", entity="consents", deleted=deleted,
+                            retention_days=retention_days, schema=org.schema_name)
+                total_deleted += deleted
+
+    return total_deleted
 
 
 @shared_task(name='core.backup_database', bind=True, max_retries=2)

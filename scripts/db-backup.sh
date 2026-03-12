@@ -39,7 +39,7 @@ mkdir -p $BACKUP_DIR
 log "Starting database backup..."
 
 # Create backup
-if docker exec clinomic-db-1 pg_dump -U postgres clinomic > "$BACKUP_DIR/$BACKUP_FILE" 2>>$LOG_FILE; then
+if docker exec clinomic-b12-platform-db-1 pg_dump -U postgres clinomic > "$BACKUP_DIR/$BACKUP_FILE" 2>>$LOG_FILE; then
     success "Database backup created successfully: $BACKUP_DIR/$BACKUP_FILE"
     
     # Compress the backup
