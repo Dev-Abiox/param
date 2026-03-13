@@ -255,7 +255,7 @@ const AdminBilling = () => {
           <div>
             <p className="text-xs text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wide">Price</p>
             <p className="font-semibold text-slate-800 dark:text-slate-100">
-              {monthlyPrice == null ? "—" : monthlyPrice === 0 ? "Custom" : `${fmtINR(monthlyPrice)}/mo`}
+              Coming Soon
             </p>
           </div>
           <div>
@@ -364,10 +364,7 @@ const AdminBilling = () => {
                     {isSelected && !isCurrent && <CheckCircle className="h-4 w-4 text-teal-600 dark:text-teal-400 ml-auto shrink-0" />}
                   </div>
                   <p className="text-xl font-bold text-teal-700 dark:text-teal-400 mb-1">
-                    {p.price_monthly === 0 ? "Custom" : fmtINR(p.price_monthly)}
-                    {p.price_monthly > 0 && (
-                      <span className="text-sm font-normal text-slate-400 dark:text-slate-500">/mo</span>
-                    )}
+                    Coming Soon
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                     <Zap className="h-3 w-3" />

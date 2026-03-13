@@ -851,7 +851,10 @@ class SetPasswordView(APIView):
 
         logger.info("Password set via credentials link for user: %s", user.username)
 
-        return Response({'detail': 'Password has been set successfully. You can now log in.'})
+        return Response({
+            'detail': 'Password has been set successfully. You can now log in.',
+            'username': user.username,
+        })
 
 
 # ── Active Session Management ──────────────────────────────────────────────────

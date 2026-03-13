@@ -4,9 +4,9 @@ import { Building2, ArrowLeft, CheckCircle } from "lucide-react";
 import { PlatformService } from "@/services/PlatformService";
 
 const PLANS = [
-  { value: "starter",      label: "Starter",      desc: "500 screenings/mo · ₹2,999/mo" },
-  { value: "professional", label: "Professional",  desc: "2,000 screenings/mo · ₹7,999/mo" },
-  { value: "enterprise",   label: "Enterprise",    desc: "Unlimited · Custom pricing" },
+  { value: "starter",      label: "Starter",      desc: "500 screenings/mo · Coming Soon" },
+  { value: "professional", label: "Professional",  desc: "2,000 screenings/mo · Coming Soon" },
+  { value: "enterprise",   label: "Enterprise",    desc: "Unlimited · Coming Soon" },
 ];
 
 const PlatformCreateOrg = () => {

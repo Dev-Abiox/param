@@ -13,6 +13,7 @@ const SetPassword = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [username, setUsername] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -29,7 +30,8 @@ const SetPassword = () => {
 
     setLoading(true);
     try {
-      await AuthService.setPassword(uid, token, password);
+      const res = await AuthService.setPassword(uid, token, password);
+      setUsername(res.username || "");
       setSuccess(true);
     } catch (err) {
       const msg = err?.response?.data?.error;
@@ -58,7 +60,20 @@ const SetPassword = () => {
             <div className="text-center space-y-4">
               <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Password Set Successfully</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-300">You can now log in with your new password.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300">Your login credentials:</p>
+              <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 text-left space-y-2">
+                {username && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">Username</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{username}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500 dark:text-slate-400">Password</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">{password}</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Save these credentials before navigating away.</p>
               <button
                 onClick={() => navigate("/login")}
                 className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500"
