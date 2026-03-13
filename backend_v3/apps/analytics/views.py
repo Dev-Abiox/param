@@ -158,8 +158,8 @@ class LabStatsView(APIView):
             return Response(cached)
 
         labs = Lab.objects.filter(is_active=True).annotate(
-            doctors_count=Count('doctors'),
-            cases_count=Count('screenings')
+            doctors_count=Count('doctors', distinct=True),
+            cases_count=Count('screenings', distinct=True),
         )
 
         result = []
