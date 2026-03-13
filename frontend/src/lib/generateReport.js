@@ -162,15 +162,11 @@ export async function generateReport(patient, result, cbcRows) {
   doc.line(14, 48, 196, 48);
 
   // ── Result ───────────────────────────────────────────────────────────────
-  // Derive the display label from probabilities so the PDF matches the graph
-  const probs = result.probabilities || {};
-  const pNorm = probs.normal || 0;
-  const pBord = probs.borderline || 0;
-  const pDef  = probs.deficient || 0;
-  let labelText = "Normal";
-  let color = [34, 197, 94];
-  if (pDef >= pNorm && pDef >= pBord) { labelText = "Deficient"; color = [239, 68, 68]; }
-  else if (pBord >= pNorm) { labelText = "Borderline"; color = [245, 158, 11]; }
+  // Use the backend's authoritative risk classification (considers both model probability and clinical indices)
+  const labelMap = { 1: "Normal", 2: "Borderline", 3: "Deficient" };
+  const colorMap = { 1: [34, 197, 94], 2: [245, 158, 11], 3: [239, 68, 68] };
+  const labelText = labelMap[result.label] || "Normal";
+  const color = colorMap[result.label] || [34, 197, 94];
 
   doc.setFontSize(14);
   doc.setFont("helvetica", "normal");
