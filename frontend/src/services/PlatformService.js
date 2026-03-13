@@ -80,4 +80,8 @@ export const PlatformService = {
   /** Override an org's plan directly (no Razorpay) */
   changeOrgPlan: (schema, planName) =>
     platformAPI.post(`/orgs/${schema}/plan/`, { plan: planName }).then((r) => r.data),
+
+  /** Resend credentials email to a user */
+  resendCredentials: (schema, userId) =>
+    platformAPI.post(`/orgs/${schema}/users/${userId}/resend-credentials/`).then((r) => r.data),
 };

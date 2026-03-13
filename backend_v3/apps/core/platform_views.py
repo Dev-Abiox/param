@@ -742,3 +742,45 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
             'role': user.role,
             'message': f'User created. Login credentials sent to {email}.',
         }, status=status.HTTP_201_CREATED)
+
+
+class PlatformResendCredentialsView(PublicSchemaMixin, APIView):
+    """POST /api/v1/platform/orgs/<schema_name>/users/<user_id>/resend-credentials/
+
+    Re-generate a password-setup link and email it to the user.
+    """
+    permission_classes = _PLATFORM_PERMS
+
+    def _get_org(self, schema_name):
+        try:
+            return Organization.objects.get(schema_name=schema_name)
+        except Organization.DoesNotExist:
+            return None
+
+    def post(self, request, schema_name, user_id):
+        org = self._get_org(schema_name)
+        if not org:
+            return Response({'error': 'Organisation not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            user = User.objects.get(id=user_id, organization=org)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not user.email:
+            return Response({'error': 'User has no email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from apps.billing.tasks import send_credentials_email
+            send_credentials_email.delay(str(user.id), org.name)
+        except Exception as exc:
+            logger.warning('resend_credentials_failed user_id=%s error=%s', user.id, exc)
+            return Response({'error': 'Failed to queue email.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        logger.info(
+            'platform.credentials_resent',
+            org=org.name,
+            user_email=user.email,
+            triggered_by=request.user.username,
+        )
+        return Response({'message': f'Credentials email sent to {user.email}.'})
