@@ -185,6 +185,7 @@ REST_FRAMEWORK = {
         'user': '200/minute',
         'login': '5/minute',
         'screening': '50/minute',
+        'password_reset': '3/hour',
         # mfa_verify and mfa_resend rates are defined directly on their throttle classes
         # (MFATOTPThrottle, MFAResendThrottle) with custom 5-minute windows.
     },

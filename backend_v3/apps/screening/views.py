@@ -28,10 +28,13 @@ from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, Scr
 from .narrative_engine import NarrativeEngine
 from .ws_broadcast import broadcast_high_risk_alert, broadcast_new_screening, broadcast_status_change
 from .serializers import (
+    AdminDoctorUpdateSerializer,
+    AdminLabUpdateSerializer,
     ConsentRecordSerializer,
     ConsentSerializer,
     DoctorSerializer,
     LabSerializer,
+    ReviewScreeningSerializer,
     ScreeningRequestSerializer,
     ScreeningSerializer,
 )
@@ -683,11 +686,14 @@ class ReviewScreeningView(APIView):
             if not doctor or screening.doctor_id != doctor.id:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
+        serializer = ReviewScreeningSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         screening.is_reviewed = True
         screening.reviewed_at = datetime.now(timezone.utc)
         screening.reviewed_by = request.user.username
-        if 'clinical_note' in request.data:
-            screening.clinical_note = request.data['clinical_note']
+        if 'clinical_note' in serializer.validated_data:
+            screening.clinical_note = serializer.validated_data['clinical_note']
         screening.save(update_fields=['is_reviewed', 'reviewed_at', 'reviewed_by', 'clinical_note'])
 
         log_phi_access(
@@ -874,7 +880,7 @@ class BulkImportStatusView(APIView):
 
     def get(self, request, job_id):
         try:
-            job = BulkImportJob.objects.get(id=job_id)
+            job = BulkImportJob.objects.get(id=job_id, submitted_by=request.user.username)
         except BulkImportJob.DoesNotExist:
             return Response({'error': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1173,9 +1179,10 @@ class AdminLabDetailView(APIView):
         if not lab:
             return Response({'error': 'Lab not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        for field in ['name', 'tier', 'contact_email', 'is_active']:
-            if field in request.data:
-                setattr(lab, field, request.data[field])
+        serializer = AdminLabUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        for field, value in serializer.validated_data.items():
+            setattr(lab, field, value)
         lab.save()
         return Response({
             'id': str(lab.id),
@@ -1293,15 +1300,18 @@ class AdminDoctorDetailView(APIView):
         if not doctor:
             return Response({'error': 'Doctor not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        for field in ['name', 'department', 'specialization', 'email', 'is_active']:
-            if field in request.data:
-                setattr(doctor, field, request.data[field])
+        serializer = AdminDoctorUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
 
-        if 'lab_id' in request.data:
+        if 'lab_id' in validated:
             try:
-                doctor.lab = Lab.objects.get(id=request.data['lab_id'])
+                doctor.lab = Lab.objects.get(id=validated.pop('lab_id'))
             except Lab.DoesNotExist:
                 return Response({'error': 'Lab not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        for field, value in validated.items():
+            setattr(doctor, field, value)
 
         doctor.save()
         return Response({

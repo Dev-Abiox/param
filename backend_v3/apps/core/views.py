@@ -17,7 +17,6 @@ from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 
 from .authentication import (
@@ -112,74 +111,12 @@ def _check_trusted_device(user, request) -> bool:
     ).exists()
 
 
-class _ResilientThrottleMixin:
-    """Fail-open when Redis is unreachable — degrade rate-limiting, never crash."""
-    def allow_request(self, request, view):
-        try:
-            return super().allow_request(request, view)
-        except Exception:
-            logger.warning("throttle_cache_error: %s bypassed", self.__class__.__name__)
-            return True
-
-
-class LoginRateThrottle(_ResilientThrottleMixin, AnonRateThrottle):
-    rate = '5/minute'
-
-
-class MFATOTPThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
-    """
-    Strict rate limit for TOTP verification attempts.
-
-    Allows 5 attempts per 5 minutes keyed on IP + user-id (from the pending
-    MFA token body).  After the 5th failure the endpoint returns 429 with a
-    Retry-After header, preventing brute-force within the 30-second TOTP window.
-    """
-    scope = 'mfa_verify'
-    rate = '5/min'
-    TIMER_SECONDS = 300  # 5-minute window
-
-    def parse_rate(self, rate):
-        num, period = super().parse_rate(rate)
-        return (num, self.TIMER_SECONDS)
-
-    def get_cache_key(self, request, view):
-        # Key combines IP address and the user id embedded in the pending token
-        # so each user's counter is separate even behind a shared IP (e.g. NAT).
-        user_id = ''
-        pending_token = (request.data or {}).get('mfa_pending_token', '')
-        if pending_token:
-            try:
-                payload = jwt.decode(
-                    pending_token,
-                    settings.JWT_SECRET_KEY,
-                    algorithms=['HS256'],
-                    options={'verify_exp': False},
-                )
-                user_id = payload.get('sub', '')
-            except Exception:
-                pass
-        ident = f"{self.get_ident(request)}-{user_id}"
-        return self.cache_format % {
-            'scope': self.scope,
-            'ident': ident,
-        }
-
-
-class MFAResendThrottle(_ResilientThrottleMixin, SimpleRateThrottle):
-    """Rate limit OTP resend to 3 per 5 minutes per IP."""
-    scope = 'mfa_resend'
-    rate = '3/min'
-    TIMER_SECONDS = 300  # 5-minute window
-
-    def parse_rate(self, rate):
-        num, period = super().parse_rate(rate)
-        return (num, self.TIMER_SECONDS)
-
-    def get_cache_key(self, request, view):
-        return self.cache_format % {
-            'scope': self.scope,
-            'ident': self.get_ident(request),
-        }
+from .throttling import (
+    LoginRateThrottle,
+    MFAResendThrottle,
+    MFATOTPThrottle,
+    PasswordResetRateThrottle,
+)
 
 
 class LoginView(APIView):
@@ -749,9 +686,6 @@ class HealthReadyView(APIView):
 
 # ── Password Reset ─────────────────────────────────────────────────────────────
 
-class PasswordResetRateThrottle(_ResilientThrottleMixin, AnonRateThrottle):
-    rate = '3/hour'
-
 
 class ForgotPasswordView(APIView):
     """
@@ -816,6 +750,7 @@ class ResetPasswordView(APIView):
     Body: { "token": "<token>", "new_password": "<password>" }
     """
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRateThrottle]
 
     def post(self, request):
         from django.core.cache import cache
@@ -831,14 +766,16 @@ class ResetPasswordView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Atomically consume the token to prevent reuse
-        user_id = cache.get(f'pwd_reset_{token}')
-        if not user_id:
+        # Atomically consume the token to prevent concurrent reuse.
+        # cache.delete() returns True when the key existed and was removed,
+        # making get-then-delete race-free for Django's Redis backend.
+        cache_key = f'pwd_reset_{token}'
+        user_id = cache.get(cache_key)
+        if not user_id or not cache.delete(cache_key):
             return Response(
                 {'error': 'Invalid or expired reset token'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        cache.delete(f'pwd_reset_{token}')
 
         try:
             user = User.objects.get(id=user_id)
@@ -871,6 +808,7 @@ class SetPasswordView(APIView):
     Body: { "uid": "<base64-encoded user id>", "token": "<token>", "new_password": "<password>" }
     """
     permission_classes = [AllowAny]
+    throttle_classes = [PasswordResetRateThrottle]
 
     def post(self, request):
         from django.contrib.auth.tokens import default_token_generator

@@ -147,6 +147,33 @@ class ScreeningSerializer(serializers.ModelSerializer):
         return obj.doctor.name if obj.doctor else None
 
 
+class ReviewScreeningSerializer(serializers.Serializer):
+    """Validates clinical_note input for the review endpoint."""
+    clinical_note = serializers.CharField(
+        max_length=5000, required=False, allow_blank=True,
+    )
+
+
+class AdminLabUpdateSerializer(serializers.Serializer):
+    """Validates admin lab update fields."""
+    name = serializers.CharField(max_length=255, required=False)
+    tier = serializers.ChoiceField(
+        choices=['standard', 'enterprise', 'pilot'], required=False,
+    )
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
+    is_active = serializers.BooleanField(required=False)
+
+
+class AdminDoctorUpdateSerializer(serializers.Serializer):
+    """Validates admin doctor update fields."""
+    name = serializers.CharField(max_length=255, required=False)
+    department = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    specialization = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    is_active = serializers.BooleanField(required=False)
+    lab_id = serializers.UUIDField(required=False)
+
+
 class ConsentRecordSerializer(serializers.Serializer):
     """Consent recording request serializer."""
     labId = serializers.CharField(max_length=100, required=True)
