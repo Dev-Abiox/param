@@ -1,25 +1,33 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Building2, ArrowLeft, CheckCircle } from "lucide-react";
 import { PlatformService } from "@/services/PlatformService";
 
-const PLANS = [
-  { value: "starter",      label: "Starter",      desc: "500 screenings/mo · Coming Soon" },
-  { value: "professional", label: "Professional",  desc: "2,000 screenings/mo · Coming Soon" },
-  { value: "enterprise",   label: "Enterprise",    desc: "Unlimited · Coming Soon" },
-];
+const formatLimit = (limit) =>
+  limit === -1 ? "Unlimited" : `${Number(limit).toLocaleString("en-IN")} screenings/mo`;
 
 const PlatformCreateOrg = () => {
   const navigate = useNavigate();
+  const [plans, setPlans] = useState([]);
   const [form, setForm] = useState({
     org_name: "",
     admin_name: "",
     admin_email: "",
-    plan_name: "starter",
+    plan_name: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  useEffect(() => {
+    PlatformService.getStats().then((data) => {
+      const fetched = data.available_plans || [];
+      setPlans(fetched);
+      if (fetched.length > 0 && !form.plan_name) {
+        setForm((f) => ({ ...f, plan_name: fetched[0].name }));
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleChange = (e) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -158,11 +166,11 @@ const PlatformCreateOrg = () => {
             Plan *
           </label>
           <div className="space-y-2">
-            {PLANS.map((plan) => (
+            {plans.map((plan) => (
               <label
-                key={plan.value}
+                key={plan.name}
                 className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  form.plan_name === plan.value
+                  form.plan_name === plan.name
                     ? "border-teal-500 bg-teal-50 dark:bg-teal-900/20"
                     : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30"
                 }`}
@@ -170,14 +178,16 @@ const PlatformCreateOrg = () => {
                 <input
                   type="radio"
                   name="plan_name"
-                  value={plan.value}
-                  checked={form.plan_name === plan.value}
+                  value={plan.name}
+                  checked={form.plan_name === plan.name}
                   onChange={handleChange}
                   className="text-teal-600"
                 />
                 <div>
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{plan.label}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{plan.desc}</p>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{plan.display_name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {formatLimit(plan.monthly_limit)} · Coming Soon
+                  </p>
                 </div>
               </label>
             ))}

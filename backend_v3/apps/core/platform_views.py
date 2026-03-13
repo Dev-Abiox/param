@@ -123,6 +123,8 @@ class PlatformStatsView(PublicSchemaMixin, APIView):
             pname = sub.plan.name if sub.plan else 'unknown'
             plan_counts[pname] = plan_counts.get(pname, 0) + 1
 
+        all_plans = SubscriptionPlan.objects.filter(is_active=True).order_by('price_monthly')
+
         return Response({
             'total_orgs': total_orgs,
             'active_orgs': active_orgs,
@@ -131,6 +133,7 @@ class PlatformStatsView(PublicSchemaMixin, APIView):
             'mrr_inr': float(mrr),
             'total_screenings_this_month': total_screenings,
             'plan_breakdown': plan_counts,
+            'available_plans': SubscriptionPlanSerializer(all_plans, many=True).data,
         })
 
 
