@@ -146,7 +146,7 @@ class IsMFAVerified(permissions.BasePermission):
             required_roles = getattr(django_settings, 'MFA_REQUIRED_ROLES', [])
             if request.user.role in required_roles:
                 from datetime import timedelta
-                grace_cutoff = request.user.date_joined + timedelta(hours=MFA_GRACE_PERIOD_HOURS)
+                grace_cutoff = request.user.created_at + timedelta(hours=MFA_GRACE_PERIOD_HOURS)
                 if dj_tz.now() > grace_cutoff:
                     self.message = 'MFA setup required. Please enable MFA in Settings.'
                     return False
