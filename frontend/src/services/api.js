@@ -260,7 +260,10 @@ export const LisService = {
   },
 
   getPatientRecords: async (doctorId, labId, page = 1, pageSize = 50) => {
-    const res = await API.get("/analytics/cases", { params: { doctorId, labId, page, page_size: pageSize } });
+    const params = { page, page_size: pageSize };
+    if (doctorId) params.doctorId = doctorId;
+    if (labId) params.labId = labId;
+    const res = await API.get("/analytics/cases", { params });
     return res.data;
   },
 
