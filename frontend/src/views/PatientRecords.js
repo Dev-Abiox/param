@@ -23,6 +23,9 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
   const [trend, setTrend] = useState(null);
   const [trendLoading, setTrendLoading] = useState(false);
 
+  // Increment to force a re-fetch (e.g. after navigating back from screening)
+  const [refreshKey, setRefreshKey] = useState(0);
+
   useEffect(() => {
     const fetchRecords = async () => {
       setLoading(true);
@@ -37,7 +40,14 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
       }
     };
     fetchRecords();
-  }, [doctorId, page]);
+  }, [doctorId, page, refreshKey]);
+
+  // Re-fetch when the tab/window regains focus (catches new screenings)
+  useEffect(() => {
+    const handleFocus = () => setRefreshKey((k) => k + 1);
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, []);
 
   const handleViewDetails = async (record) => {
     setDetailLoading(true);

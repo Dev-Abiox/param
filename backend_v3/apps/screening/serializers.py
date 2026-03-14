@@ -8,19 +8,19 @@ from .models import Consent, Doctor, Lab, Patient, Screening
 
 
 class CBCSerializer(serializers.Serializer):
-    """CBC (Complete Blood Count) data serializer."""
-    Hb_g_dL = serializers.FloatField(source='Hb')
-    RBC_million_uL = serializers.FloatField(source='RBC')
-    HCT_percent = serializers.FloatField(source='HCT')
-    MCV_fL = serializers.FloatField(source='MCV')
-    MCH_pg = serializers.FloatField(source='MCH')
-    MCHC_g_dL = serializers.FloatField(source='MCHC')
-    RDW_percent = serializers.FloatField(source='RDW')
-    WBC_10_3_uL = serializers.FloatField(source='WBC')
-    Platelets_10_3_uL = serializers.FloatField(source='Platelets')
-    Neutrophils_percent = serializers.FloatField(source='Neutrophils')
-    Lymphocytes_percent = serializers.FloatField(source='Lymphocytes')
-    Age = serializers.IntegerField()
+    """CBC (Complete Blood Count) data serializer with clinical range validation."""
+    Hb_g_dL = serializers.FloatField(source='Hb', min_value=1.0, max_value=25.0)
+    RBC_million_uL = serializers.FloatField(source='RBC', min_value=0.5, max_value=10.0)
+    HCT_percent = serializers.FloatField(source='HCT', min_value=5.0, max_value=75.0)
+    MCV_fL = serializers.FloatField(source='MCV', min_value=30.0, max_value=160.0)
+    MCH_pg = serializers.FloatField(source='MCH', min_value=10.0, max_value=60.0)
+    MCHC_g_dL = serializers.FloatField(source='MCHC', min_value=20.0, max_value=45.0)
+    RDW_percent = serializers.FloatField(source='RDW', min_value=5.0, max_value=40.0)
+    WBC_10_3_uL = serializers.FloatField(source='WBC', min_value=0.1, max_value=100.0)
+    Platelets_10_3_uL = serializers.FloatField(source='Platelets', min_value=1.0, max_value=2000.0)
+    Neutrophils_percent = serializers.FloatField(source='Neutrophils', min_value=0.0, max_value=100.0)
+    Lymphocytes_percent = serializers.FloatField(source='Lymphocytes', min_value=0.0, max_value=100.0)
+    Age = serializers.IntegerField(min_value=0, max_value=150)
     Sex = serializers.CharField(max_length=1)
 
 
@@ -179,7 +179,7 @@ class ConsentRecordSerializer(serializers.Serializer):
     labId = serializers.CharField(max_length=100, required=True)
     patientId = serializers.CharField(max_length=100)
     consentType = serializers.CharField(max_length=50, default='screening')
-    consentText = serializers.CharField()
+    consentText = serializers.CharField(max_length=10000)
     consentMethod = serializers.ChoiceField(
         choices=['verbal', 'written', 'electronic'],
         default='verbal'

@@ -267,6 +267,19 @@ class PredictView(APIView):
                     str(doctor.id) if doctor else None,
                 )
 
+        # Bust analytics caches so records/counts refresh immediately
+        try:
+            from django.core.cache import cache as _cache
+            from django.db import connection as _conn
+            _schema = getattr(_conn, 'schema_name', 'public')
+            _doctor_code = doctor.code if doctor else 'all'
+            _cache.delete(f'analytics:{_schema}:doctors:{_doctor_code}')
+            _cache.delete(f'analytics:{_schema}:doctors:all')
+            _cache.delete(f'analytics:{_schema}:labs:')
+            _cache.delete(f'analytics:{_schema}:summary:{request.user.id}')
+        except Exception:
+            pass  # cache bust is best-effort
+
         log_phi_access(request, patient_id, 'PHI_PREDICT', {
             'screening_id': str(screening.id),
             'risk_class': result['riskClass'],

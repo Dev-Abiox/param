@@ -55,7 +55,7 @@ class Doctor(models.Model):
     specialization = models.CharField(max_length=100, blank=True)
     lab = models.ForeignKey(
         Lab,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='doctors'
     )
     email = models.EmailField(blank=True)
@@ -80,8 +80,8 @@ class Patient(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     patient_id = models.CharField(max_length=100)  # External patient ID
     name_encrypted = models.TextField()   # Encrypted patient name (PHI)
-    age_encrypted = models.TextField(blank=True)  # Encrypted patient age (PHI)
-    sex_encrypted = models.TextField(blank=True)  # Encrypted patient sex (PHI)
+    age_encrypted = models.TextField(blank=True, null=True)  # Encrypted patient age (PHI)
+    sex_encrypted = models.TextField(blank=True, null=True)  # Encrypted patient sex (PHI)
 
     lab = models.ForeignKey(
         Lab,
@@ -271,6 +271,9 @@ class BulkImportJob(models.Model):
     class Meta:
         db_table = 'bulk_import_jobs'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at'], name='bulkimport_created_idx'),
+        ]
 
     def __str__(self):
         return f"BulkImportJob {self.id} [{self.status}]"

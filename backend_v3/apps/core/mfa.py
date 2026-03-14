@@ -313,4 +313,4 @@ class MFAManager:
     @staticmethod
     def _generate_backup_codes(count: int = 10) -> list[str]:
         """Generate cryptographically secure backup codes."""
-        return [secrets.token_hex(4).upper() for _ in range(count)]
+        return [secrets.token_hex(8).upper() for _ in range(count)]

@@ -62,6 +62,7 @@ const AdminDoctors = () => {
   const [formLoading, setFormLoading] = useState(false);
   const [confirmDeactivate, setConfirmDeactivate] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [actionError, setActionError] = useState(null);
 
   const emptyForm = { code: "", name: "", department: "", specialization: "", email: "", lab_id: "" };
   const [form, setForm] = useState(emptyForm);
@@ -115,31 +116,36 @@ const AdminDoctors = () => {
   };
 
   const handleDeactivate = async (doc) => {
+    setActionError(null);
     try {
       await AdminService.deactivateDoctor(doc.id);
       setConfirmDeactivate(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setConfirmDeactivate(null);
+      setActionError(err?.response?.data?.error || "Failed to deactivate doctor.");
     }
   };
 
   const handleReactivate = async (doc) => {
+    setActionError(null);
     try {
       await AdminService.reactivateDoctor(doc.id);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setActionError(err?.response?.data?.error || "Failed to reactivate doctor.");
     }
   };
 
   const handlePermanentDelete = async (doc) => {
+    setActionError(null);
     try {
       await AdminService.permanentDeleteDoctor(doc.id);
       setConfirmDelete(null);
       load();
-    } catch {
-      // silent
+    } catch (err) {
+      setConfirmDelete(null);
+      setActionError(err?.response?.data?.error || "Failed to permanently remove doctor.");
     }
   };
 
@@ -156,6 +162,12 @@ const AdminDoctors = () => {
           <Plus className="h-4 w-4" /> Add Doctor
         </button>
       </div>
+
+      {actionError && (
+        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
+          {actionError}
+        </div>
+      )}
 
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (

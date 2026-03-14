@@ -1,13 +1,10 @@
 """
-Resilient throttle classes that fail-open when the cache backend is unavailable.
+Resilient throttle classes that fail-closed when the cache backend is unavailable.
 
 DRF's built-in throttle classes crash with a 500 when Redis is down because
 cache.get()/set() raises ConnectionError.  These wrappers catch cache
-exceptions and allow the request through, so a Redis outage degrades
-rate-limiting but does not break the API.
-
-Auth-critical throttles (login, MFA, password reset) fail *closed* instead:
-a Redis outage must not allow unlimited brute-force attempts.
+exceptions and deny the request, so a Redis outage disables the endpoint
+rather than allowing unlimited unthrottled access.
 """
 
 import logging
@@ -24,8 +21,8 @@ class ResilientAnonRateThrottle(AnonRateThrottle):
         try:
             return super().allow_request(request, view)
         except Exception:
-            logger.warning("throttle_cache_error: AnonRateThrottle bypassed")
-            return True
+            logger.error("throttle_cache_error: AnonRateThrottle denied (fail-closed)")
+            return False
 
 
 class ResilientUserRateThrottle(UserRateThrottle):
@@ -33,8 +30,8 @@ class ResilientUserRateThrottle(UserRateThrottle):
         try:
             return super().allow_request(request, view)
         except Exception:
-            logger.warning("throttle_cache_error: UserRateThrottle bypassed")
-            return True
+            logger.error("throttle_cache_error: UserRateThrottle denied (fail-closed)")
+            return False
 
 
 class _FailClosedMixin:
@@ -85,7 +82,7 @@ class MFATOTPThrottle(_FailClosedMixin, SimpleRateThrottle):
                     pending_token,
                     settings.JWT_SECRET_KEY,
                     algorithms=[settings.JWT_ALGORITHM],
-                    options={'verify_exp': False},
+                    options={'verify_exp': True},
                 )
                 user_id = payload.get('sub', '')
             except Exception:

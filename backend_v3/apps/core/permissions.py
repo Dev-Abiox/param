@@ -142,6 +142,14 @@ class IsMFAVerified(permissions.BasePermission):
             mfa_settings = None
 
         if mfa_settings is None or not mfa_settings.is_enabled:
+            # Enforce MFA setup after grace period for required roles
+            required_roles = getattr(django_settings, 'MFA_REQUIRED_ROLES', [])
+            if request.user.role in required_roles:
+                from datetime import timedelta
+                grace_cutoff = request.user.date_joined + timedelta(hours=MFA_GRACE_PERIOD_HOURS)
+                if dj_tz.now() > grace_cutoff:
+                    self.message = 'MFA setup required. Please enable MFA in Settings.'
+                    return False
             return True
 
         # MFA is enabled — require mfa_verified claim in the token

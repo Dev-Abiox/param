@@ -343,11 +343,6 @@ export const AdminService = {
     return res.data;
   },
 
-  getSystemConfig: async () => {
-    const res = await API.get("/v1/health/ready");
-    return res.data;
-  },
-
   // ── User Management ──────────────────────────────────────────────────────────
   getUsers: async () => {
     const res = await API.get("/v1/admin/users");

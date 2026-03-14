@@ -97,7 +97,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     # Organization reference (for non-super users)
     organization = models.ForeignKey(
         Organization,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='users'

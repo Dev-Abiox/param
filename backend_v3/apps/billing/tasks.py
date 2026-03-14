@@ -65,17 +65,20 @@ def expire_trials() -> int:
     )
 
     count = 0
+    from django.db import transaction as db_tx
+
     for sub in expired_subs:
         try:
             sub.transition_to(TenantSubscription.Status.EXPIRED)
-            sub.save(update_fields=['status', 'updated_at'])
+            with db_tx.atomic():
+                sub.save(update_fields=['status', 'updated_at'])
             cache.delete(f'plan_limit_over:{sub.organization_id}')
             logger.info(
                 'billing.trial_expired',
                 org_id=str(sub.organization_id),
             )
             count += 1
-        except (ValueError, Exception) as exc:
+        except (ValueError, OSError, TenantSubscription.DoesNotExist) as exc:
             logger.error(
                 'billing.trial_expire_failed',
                 org_id=str(sub.organization_id),
@@ -157,7 +160,10 @@ def increment_usage(org_id: str, screening_id: str) -> None:
                             limit=limit,
                         )
         except TenantSubscription.DoesNotExist:
-            pass
+            logger.error(
+                'billing.subscription_not_found_for_threshold',
+                org_id=org_id,
+            )
         except Exception as exc:
             logger.error(
                 'billing.usage_threshold_check_failed',

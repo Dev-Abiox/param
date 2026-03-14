@@ -102,6 +102,7 @@ class TenantSubscription(models.Model):
         """Validate and set a new subscription status.
 
         Raises ValueError if the transition is not allowed.
+        Caller must wrap the subsequent .save() in transaction.atomic().
         """
         allowed = self.ALLOWED_TRANSITIONS.get(self.status, set())
         if new_status not in allowed:

@@ -223,8 +223,10 @@ class PlanLimitMiddleware:
                 and sub.trial_end <= timezone.now()
             ):
                 try:
+                    from django.db import transaction as db_tx
                     sub.transition_to(TenantSubscription.Status.EXPIRED)
-                    sub.save(update_fields=['status', 'updated_at'])
+                    with db_tx.atomic():
+                        sub.save(update_fields=['status', 'updated_at'])
                     logger.info('PlanLimitMiddleware: auto-expired trial for org %s', org.id)
                 except ValueError:
                     pass
