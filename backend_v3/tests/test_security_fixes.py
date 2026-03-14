@@ -123,8 +123,8 @@ class TestMFAGracePeriod:
         # Since user was just created, access should be granted
 
     @override_settings(MFA_REQUIRED_ROLES=['LAB', 'DOCTOR'])
-    def test_old_user_without_mfa_is_allowed(self):
-        """Users without MFA enabled should always be allowed — frontend handles redirect."""
+    def test_new_user_without_mfa_within_grace_period_is_allowed(self):
+        """Users within the 24h grace period should be allowed even without MFA."""
         from apps.core.models import MFASettings
         from apps.core.permissions import IsMFAVerified
 
@@ -132,7 +132,7 @@ class TestMFAGracePeriod:
         user = MagicMock()
         user.is_authenticated = True
         user.role = 'LAB'
-        user.created_at = timezone.now() - timedelta(hours=48)  # Created 48h ago
+        user.created_at = timezone.now() - timedelta(hours=1)  # Created 1h ago (within grace)
 
         # Simulate no MFA settings
         type(user).mfa_settings = property(lambda self: (_ for _ in ()).throw(
@@ -143,7 +143,30 @@ class TestMFAGracePeriod:
         request.user = user
 
         result = perm.has_permission(request, None)
-        assert result is True, "User without MFA enabled should be allowed (frontend redirects to setup)"
+        assert result is True, "User within grace period should be allowed without MFA"
+
+    @override_settings(MFA_REQUIRED_ROLES=['LAB', 'DOCTOR'])
+    def test_old_user_without_mfa_past_grace_period_is_blocked(self):
+        """Users past the 24h grace period must have MFA set up."""
+        from apps.core.models import MFASettings
+        from apps.core.permissions import IsMFAVerified
+
+        perm = IsMFAVerified()
+        user = MagicMock()
+        user.is_authenticated = True
+        user.role = 'LAB'
+        user.created_at = timezone.now() - timedelta(hours=48)  # Created 48h ago (past grace)
+
+        # Simulate no MFA settings
+        type(user).mfa_settings = property(lambda self: (_ for _ in ()).throw(
+            MFASettings.DoesNotExist()
+        ))
+
+        request = MagicMock()
+        request.user = user
+
+        result = perm.has_permission(request, None)
+        assert result is False, "User past grace period without MFA should be blocked"
 
 
 class TestWorkQueuePHIRemoval:
