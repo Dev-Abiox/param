@@ -409,7 +409,7 @@ const App = () => {
         <Route
           path="/work-queue"
           element={
-            user.role === Role.LAB || user.role === Role.DOCTOR || isSuperAdmin(user) ? (
+            user.role === Role.LAB || isSuperAdmin(user) ? (
               <WorkQueue />
             ) : (
               <Navigate to={getDefaultRoute(user.role)} replace />

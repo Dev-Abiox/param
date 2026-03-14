@@ -269,7 +269,7 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
           </>
         )}
 
-        {/* DOCTOR (technician): Screening, Work Queue, Records */}
+        {/* DOCTOR: Screening, Records */}
         {isDoctor && (
           <>
             <NavItem
@@ -277,13 +277,6 @@ const Layout = ({ user, onLogout, activeView, onChangeView, children }) => {
               label="New Screening"
               active={activeView === "workspace"}
               onClick={() => handleNavClick("workspace")}
-              roleColor={config.color}
-            />
-            <NavItem
-              icon={FileText}
-              label="Work Queue"
-              active={activeView === "work_queue"}
-              onClick={() => handleNavClick("work_queue")}
               roleColor={config.color}
             />
             <NavItem
