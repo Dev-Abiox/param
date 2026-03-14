@@ -393,7 +393,7 @@ const App = () => {
                 userRole={user.role}
               />
             ) : user.role === Role.DOCTOR ? (
-              <PatientRecords doctorId={user.doctor_code} doctorName={user.name} userRole={user.role} />
+              <PatientRecords doctorName={user.name} userRole={user.role} />
             ) : (
               <PatientRecords
                 doctorId={selectedDoctorId}
