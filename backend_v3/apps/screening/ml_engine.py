@@ -123,34 +123,71 @@ class B12ClinicalEngine:
         return row
 
     def apply_rules(self, row: dict[str, Any]) -> tuple[float, list[str]]:
-        """Apply clinical rules for score adjustment."""
+        """Apply clinical rules for score adjustment.
+
+        Rules are MCV-context-aware: B12 deficiency causes macrocytosis
+        (MCV > 100) while iron deficiency causes microcytosis (MCV < 90).
+        Markers like high RDW and Mentzer > 13 are only B12 risk factors
+        in a macrocytic context; in microcytic context they indicate iron
+        deficiency instead.
+        """
         score = 0.0
         rules: list[str] = []
 
-        # Risk factors
-        if (row.get("MCV") or 0) > 100:
+        mcv = row.get("MCV") or 0
+        mch = row.get("MCH") or 0
+        mchc = row.get("MCHC") or 0
+        rdw = row.get("RDW") or 0
+        hb = row.get("Hb") or 0
+        platelets = row.get("Platelets") or 0
+
+        # Iron deficiency pattern: microcytic + hypochromic = opposite of B12
+        is_microcytic = 0 < mcv < 90
+        is_hypochromic = (0 < mch < 27) or (0 < mchc < 32)
+        iron_def_pattern = is_microcytic and is_hypochromic
+
+        # ── Risk factors ──
+        if mcv > 100:
             score += 1
             rules.append("Macrocytosis")
-        if (row.get("RDW") or 0) > 15:
-            score += 1
-            rules.append("High RDW")
-        if (row.get("Mentzer") or 0) > 13:
+            if mcv > 115:
+                score += 1
+                rules.append("Severe macrocytosis")
+
+        # High RDW: only a B12 risk in macrocytic context
+        if rdw > 15:
+            if mcv >= 95:
+                score += 1
+                rules.append("High RDW (macrocytic context)")
+            elif not iron_def_pattern:
+                score += 0.5
+                rules.append("High RDW (normocytic)")
+            # else: expected in iron deficiency, not a B12 signal
+
+        # Mentzer > 13: only relevant for B12 when MCV >= 95
+        if (row.get("Mentzer") or 0) > 13 and mcv >= 95:
             score += 1
             rules.append("Ineffective erythropoiesis")
+
         if (row.get("Pancytopenia") or 0) == 1:
             score += 2
             rules.append("Pancytopenia")
 
-        # Protective factors
-        if (row.get("MCV") or 0) < 100 and (row.get("Pancytopenia") or 0) == 0:
+        # ── Protective factors ──
+        if 0 < mcv < 100 and (row.get("Pancytopenia") or 0) == 0:
             score -= 0.5
             rules.append("No macrocytosis / no pancytopenia")
-        if (row.get("Hb") or 0) > 11 and (row.get("Platelets") or 0) > 150:
+        if hb > 11 and platelets > 150:
             score -= 0.5
             rules.append("Preserved cell counts")
-        if (row.get("MCV") or 0) < 96 and (row.get("RDW") or 0) < 14 and (row.get("Hb") or 0) > 12:
+        if 0 < mcv < 96 and rdw < 14 and hb > 12:
             score -= 1
             rules.append("Normal marrow pattern")
+
+        # Iron deficiency pattern: strong protective against B12 risk
+        if iron_def_pattern:
+            score -= 3
+            rules.append("Iron deficiency pattern (microcytic/hypochromic)")
 
         return score, rules
 
@@ -248,6 +285,21 @@ class B12ClinicalEngine:
         rule_weight = float(self.thresholds.get("rule_weight", 0.0))
         p_def_final = min(1, max(0, p_def + rule_weight * float(rule_score)))
 
+        # Microcytic pattern override: iron deficiency (microcytic +
+        # hypochromic) is the opposite of B12 deficiency.  Cap the B12
+        # deficiency probability because the CatBoost model cannot
+        # distinguish iron-deficient from B12-deficient CBC patterns.
+        mcv_val = cbc_dict.get("MCV") or 0
+        mch_val = cbc_dict.get("MCH") or 0
+        mchc_val = cbc_dict.get("MCHC") or 0
+        if 0 < mcv_val < 90 and ((0 < mch_val < 27) or (0 < mchc_val < 32)):
+            if mcv_val < 80 and 0 < mch_val < 27 and 0 < mchc_val < 32:
+                # Strong microcytic: textbook iron deficiency
+                p_def_final = min(p_def_final, 0.15)
+            else:
+                # Moderate microcytic with hypochromia
+                p_def_final = min(p_def_final, 0.30)
+
         # Three-class probabilities
         p_normal = 1 - max(p_abnormal, p_def_final)
         p_borderline = max(0, p_abnormal - p_def_final)
@@ -269,18 +321,28 @@ class B12ClinicalEngine:
         has_pancytopenia = row.get("Pancytopenia", 0) == 1
         has_high_mentzer = mentzer > 13
         has_normal_marrow = mcv < 96 and rdw < 14 and hb > 12
+        has_iron_def_pattern = (
+            0 < mcv < 90
+            and ((0 < (row.get("MCH") or 0) < 27) or (0 < (row.get("MCHC") or 0) < 32))
+        )
+        # Iron deficiency indices (high RDW/Mentzer) are explained by iron
+        # deficiency, not B12 — treat them as "clean" for B12 purposes.
         all_indices_clean = (
             not has_macrocytosis
             and not has_high_rdw
             and not has_pancytopenia
             and not has_high_mentzer
-        )
+        ) or has_iron_def_pattern
 
         if winner == "deficient":
             cls = 3
             label_text = "DEFICIENT"
-            # Downgrade: no clinical markers support deficiency
+            # Downgrade: no B12-relevant markers support deficiency
             if all_indices_clean:
+                cls = 2
+                label_text = "BORDERLINE"
+            # Downgrade: iron deficiency pattern contradicts B12
+            elif has_iron_def_pattern and not has_macrocytosis:
                 cls = 2
                 label_text = "BORDERLINE"
 
@@ -302,8 +364,11 @@ class B12ClinicalEngine:
             cls = 1
             label_text = "NORMAL"
             # Upgrade: risk markers contradict normal classification
-            if has_macrocytosis or has_pancytopenia \
-               or (has_high_rdw and has_high_mentzer):
+            # Iron deficiency pattern explains high RDW/Mentzer — not a B12 signal
+            if not has_iron_def_pattern and (
+                has_macrocytosis or has_pancytopenia
+                or (has_high_rdw and has_high_mentzer)
+            ):
                 cls = 2
                 label_text = "BORDERLINE"
 

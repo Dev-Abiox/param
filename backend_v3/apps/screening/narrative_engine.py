@@ -86,7 +86,17 @@ DIFFERENTIAL_TABLE = {
         'Liver disease',
         'Hypothyroidism',
     ],
-    'High RDW': [
+    'Severe macrocytosis': [
+        'Vitamin B12 deficiency',
+        'Folate deficiency',
+        'Myelodysplastic syndrome',
+    ],
+    'High RDW (macrocytic context)': [
+        'Combined deficiency (B12 + iron)',
+        'Early B12 deficiency',
+        'Chronic disease',
+    ],
+    'High RDW (normocytic)': [
         'Combined deficiency (B12 + iron)',
         'Early B12 deficiency',
         'Chronic disease',
@@ -101,6 +111,12 @@ DIFFERENTIAL_TABLE = {
         'B12 deficiency',
         'Thalassemia trait',
         'Iron deficiency anemia',
+    ],
+    'Iron deficiency pattern (microcytic/hypochromic)': [
+        'Iron deficiency anemia',
+        'Thalassemia trait',
+        'Anemia of chronic disease',
+        'Sideroblastic anemia',
     ],
 }
 
