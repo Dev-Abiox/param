@@ -248,20 +248,64 @@ class B12ClinicalEngine:
         rule_weight = float(self.thresholds.get("rule_weight", 0.0))
         p_def_final = min(1, max(0, p_def + rule_weight * float(rule_score)))
 
-        # Classification
-        deficient_threshold = float(self.thresholds.get("deficient_threshold", 0.7))
-        borderline_threshold = float(self.thresholds.get("borderline_threshold", 0.4))
-        abnormal_threshold = float(self.thresholds.get("abnormal_threshold", 0.5))
+        # Three-class probabilities
+        p_normal = 1 - max(p_abnormal, p_def_final)
+        p_borderline = max(0, p_abnormal - p_def_final)
+        p_deficient = p_def_final
 
-        if p_def_final >= deficient_threshold:
+        # Classification: highest probability wins, cross-validated by indices
+        probs = {"normal": p_normal, "borderline": p_borderline, "deficient": p_deficient}
+        winner = max(probs, key=probs.get)
+
+        # Extract index signals for cross-validation
+        mcv = row.get("MCV") or 0
+        rdw = row.get("RDW") or 0
+        hb = row.get("Hb") or 0
+        rbc = row.get("RBC") or 0
+        mentzer = mcv / rbc if rbc > 0 else 0
+        has_macrocytosis = mcv > 100
+        has_severe_macrocytosis = mcv > 115
+        has_high_rdw = rdw > 15
+        has_pancytopenia = row.get("Pancytopenia", 0) == 1
+        has_high_mentzer = mentzer > 13
+        has_normal_marrow = mcv < 96 and rdw < 14 and hb > 12
+        all_indices_clean = (
+            not has_macrocytosis
+            and not has_high_rdw
+            and not has_pancytopenia
+            and not has_high_mentzer
+        )
+
+        if winner == "deficient":
             cls = 3
             label_text = "DEFICIENT"
-        elif p_def_final >= borderline_threshold or p_abnormal >= abnormal_threshold:
+            # Downgrade: no clinical markers support deficiency
+            if all_indices_clean:
+                cls = 2
+                label_text = "BORDERLINE"
+
+        elif winner == "borderline":
             cls = 2
             label_text = "BORDERLINE"
-        else:
+            # Upgrade: severe markers point to deficiency
+            if (has_macrocytosis and has_pancytopenia) \
+               or has_severe_macrocytosis \
+               or (has_macrocytosis and has_high_rdw and has_high_mentzer):
+                cls = 3
+                label_text = "DEFICIENT"
+            # Downgrade: all indices clean with normal marrow
+            elif all_indices_clean and has_normal_marrow:
+                cls = 1
+                label_text = "NORMAL"
+
+        else:  # normal
             cls = 1
             label_text = "NORMAL"
+            # Upgrade: risk markers contradict normal classification
+            if has_macrocytosis or has_pancytopenia \
+               or (has_high_rdw and has_high_mentzer):
+                cls = 2
+                label_text = "BORDERLINE"
 
         # Compute SHAP values only when explicitly requested (opt-in).
         # Skipped by default to avoid latency on bulk imports and routine predictions.
@@ -271,9 +315,9 @@ class B12ClinicalEngine:
             "riskClass": cls,
             "labelText": label_text,
             "probabilities": {
-                "normal": round(1 - max(p_abnormal, p_def_final), 3),
-                "borderline": round(max(0, p_abnormal - p_def_final), 3),
-                "deficient": round(p_def_final, 3),
+                "normal": round(p_normal, 3),
+                "borderline": round(p_borderline, 3),
+                "deficient": round(p_deficient, 3),
             },
             "rulesFired": rules,
             "modelVersion": self._model_version,
