@@ -176,7 +176,7 @@ class AdminDoctorUpdateSerializer(serializers.Serializer):
 
 class ConsentRecordSerializer(serializers.Serializer):
     """Consent recording request serializer."""
-    labId = serializers.CharField(max_length=100, required=True)
+    labId = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
     patientId = serializers.CharField(max_length=100)
     consentType = serializers.CharField(max_length=50, default='screening')
     consentText = serializers.CharField(max_length=10000)

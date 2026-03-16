@@ -422,7 +422,7 @@ class ConsentRecordView(APIView):
 
     def post(self, request):
         # Validate that the user is associated with a lab in this tenant
-        _, err_response = _validate_lab_association(request.user)
+        assoc_lab, err_response = _validate_lab_association(request.user)
         if err_response:
             return err_response
 
@@ -430,11 +430,16 @@ class ConsentRecordView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        # Get lab by labId (REQUIRED)
-        lab = Lab.objects.filter(code=data['labId']).first()
+        # Resolve lab: use labId from request if provided, otherwise fall back
+        # to the lab resolved from the user's association (e.g. DOCTOR role).
+        lab = None
+        if data.get('labId'):
+            lab = Lab.objects.filter(code=data['labId']).first()
+        if not lab:
+            lab = assoc_lab
         if not lab:
             return Response(
-                {'error': 'labId not found or inactive'},
+                {'error': 'Could not determine lab. Provide a valid labId or ensure your account is linked to a lab.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
