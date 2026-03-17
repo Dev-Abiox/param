@@ -16,6 +16,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django_tenants.utils import schema_context
+
 from apps.core.audit import log_phi_access
 from apps.core.models import Role
 from apps.core.permissions import HasRole, IsMFAVerified
@@ -146,6 +148,24 @@ class LabStatsView(APIView):
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
     required_roles = [Role.SUPER_ADMIN]
 
+    def _labs_for_schema(self):
+        """Return lab stats for the current tenant schema."""
+        labs = Lab.objects.filter(is_active=True).annotate(
+            doctors_count=Count('doctors', distinct=True),
+            cases_count=Count('screenings', distinct=True),
+        )
+        result = []
+        for lab in labs:
+            result.append({
+                'id': str(lab.id),
+                'code': lab.code,
+                'name': lab.name,
+                'tier': lab.tier,
+                'doctors': lab.doctors_count,
+                'cases': lab.cases_count,
+            })
+        return result
+
     def get(self, request):
         ck = _cache_key('labs')
         try:
@@ -157,21 +177,15 @@ class LabStatsView(APIView):
             logger.debug("cache_hit", key=ck)
             return Response(cached)
 
-        labs = Lab.objects.filter(is_active=True).annotate(
-            doctors_count=Count('doctors', distinct=True),
-            cases_count=Count('screenings', distinct=True),
-        )
-
-        result = []
-        for lab in labs:
-            result.append({
-                'id': str(lab.id),
-                'code': lab.code,
-                'name': lab.name,
-                'tier': lab.tier,
-                'doctors': lab.doctors_count,
-                'cases': lab.cases_count,
-            })
+        # SUPER_ADMIN: aggregate labs across ALL tenant schemas
+        if request.user.is_superuser or request.user.role == Role.SUPER_ADMIN:
+            from apps.core.models import Organization
+            result = []
+            for org in Organization.objects.exclude(schema_name='public').filter(is_active=True):
+                with schema_context(org.schema_name):
+                    result.extend(self._labs_for_schema())
+        else:
+            result = self._labs_for_schema()
 
         try:
             cache.set(ck, result, timeout=120)
