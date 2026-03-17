@@ -89,14 +89,23 @@ class TestSummaryView:
 class TestLabStatsView:
 
     @patch("apps.analytics.views.cache")
+    @patch("apps.analytics.views.schema_context")
+    @patch("apps.core.models.Organization.objects")
     @patch("apps.analytics.views.Lab.objects.filter")
-    def test_superadmin_sees_labs(self, mock_filter, mock_cache):
+    def test_superadmin_sees_labs(self, mock_filter, mock_org_objects, mock_schema_ctx, mock_cache):
         mock_cache.get.return_value = None
         lab = MagicMock()
         lab.id = "00000000-0000-0000-0000-000000000001"
         lab.code, lab.name, lab.tier = "LAB-001", "Test Lab", "standard"
         lab.doctors_count, lab.cases_count = 3, 10
         mock_filter.return_value.annotate.return_value = [lab]
+
+        # Mock Organization queryset for cross-schema iteration
+        mock_org = MagicMock()
+        mock_org.schema_name = "test_tenant"
+        mock_org_objects.exclude.return_value.filter.return_value = [mock_org]
+        mock_schema_ctx.return_value.__enter__ = MagicMock(return_value=None)
+        mock_schema_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         user = _make_user(role=Role.SUPER_ADMIN)
         response = LabStatsView.as_view()(_get("/api/analytics/labs", user))
