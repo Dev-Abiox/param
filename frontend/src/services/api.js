@@ -5,10 +5,14 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 // In-memory access token — never touches localStorage or sessionStorage.
 // The refresh token lives in an httpOnly cookie (set by the backend).
 let _accessToken = null;
+let _orgId = null;
 
 export const setAccessToken = (token) => { _accessToken = token; };
 export const clearAccessToken = () => { _accessToken = null; };
 export const getAccessToken = () => _accessToken;
+
+export const setOrgId = (orgId) => { _orgId = orgId; };
+export const clearOrgId = () => { _orgId = null; };
 
 const API = axios.create({
   baseURL: `${BACKEND_URL}/api`,
@@ -34,6 +38,9 @@ API.interceptors.request.use((config) => {
 
   if (_accessToken) {
     config.headers.Authorization = `Bearer ${_accessToken}`;
+  }
+  if (_orgId) {
+    config.headers['X-Org-Id'] = _orgId;
   }
   return config;
 });

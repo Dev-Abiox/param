@@ -148,7 +148,7 @@ class LabStatsView(APIView):
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
     required_roles = [Role.SUPER_ADMIN]
 
-    def _labs_for_schema(self):
+    def _labs_for_schema(self, org_id=None):
         """Return lab stats for the current tenant schema."""
         labs = Lab.objects.filter(is_active=True).annotate(
             doctors_count=Count('doctors', distinct=True),
@@ -156,14 +156,17 @@ class LabStatsView(APIView):
         )
         result = []
         for lab in labs:
-            result.append({
+            entry = {
                 'id': str(lab.id),
                 'code': lab.code,
                 'name': lab.name,
                 'tier': lab.tier,
                 'doctors': lab.doctors_count,
                 'cases': lab.cases_count,
-            })
+            }
+            if org_id:
+                entry['org_id'] = str(org_id)
+            result.append(entry)
         return result
 
     def get(self, request):
@@ -183,7 +186,7 @@ class LabStatsView(APIView):
             result = []
             for org in Organization.objects.exclude(schema_name='public').filter(is_active=True):
                 with schema_context(org.schema_name):
-                    result.extend(self._labs_for_schema())
+                    result.extend(self._labs_for_schema(org_id=org.id))
         else:
             result = self._labs_for_schema()
 

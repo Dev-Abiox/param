@@ -29,7 +29,7 @@ const PlatformOrgDetail = lazy(() => import("@/views/platform/PlatformOrgDetail"
 const SetPassword = lazy(() => import("@/views/SetPassword"));
 const ResetPassword = lazy(() => import("@/views/ResetPassword"));
 
-import { AuthService, BillingService } from "@/services/api";
+import { AuthService, BillingService, setOrgId, clearOrgId } from "@/services/api";
 import { Role, isSuperAdmin, canManageOrg } from "@/types";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -109,6 +109,7 @@ const App = () => {
     setSelectedLabName(undefined);
     setSelectedDoctorId(undefined);
     setSelectedDoctorName(undefined);
+    clearOrgId();
   };
 
   // loginInProgress tracks the button spinner inside <Login> without
@@ -192,9 +193,10 @@ const App = () => {
     enabled: !!user,
   });
 
-  const handleSelectLab = (labId, labName) => {
+  const handleSelectLab = (labId, labName, orgId) => {
     setSelectedLabId(labId);
     setSelectedLabName(labName);
+    if (orgId) setOrgId(orgId);
     navigate("/doctors");
   };
 

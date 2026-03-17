@@ -45,7 +45,7 @@ const LabList = ({ onSelectLab }) => {
             <div
               key={lab.id}
               data-testid={`lab-card-${lab.id}`}
-              onClick={() => onSelectLab(lab.code, lab.name)}
+              onClick={() => onSelectLab(lab.code, lab.name, lab.org_id)}
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-6 shadow-sm hover:shadow-md hover:border-teal-300 cursor-pointer transition-all group relative"
             >
               <div className="flex items-start justify-between mb-4">
