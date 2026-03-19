@@ -18,8 +18,8 @@ class CBCSerializer(serializers.Serializer):
     RDW_percent = serializers.FloatField(source='RDW', min_value=5.0, max_value=40.0)
     WBC_10_3_uL = serializers.FloatField(source='WBC', min_value=0.1, max_value=100.0)
     Platelets_10_3_uL = serializers.FloatField(source='Platelets', min_value=1.0, max_value=2000.0)
-    Neutrophils_percent = serializers.FloatField(source='Neutrophils', min_value=0.0, max_value=100.0)
-    Lymphocytes_percent = serializers.FloatField(source='Lymphocytes', min_value=0.0, max_value=100.0)
+    Neutrophils_percent = serializers.FloatField(source='Neutrophils', min_value=0.0, max_value=100.0, required=False, default=0.0)
+    Lymphocytes_percent = serializers.FloatField(source='Lymphocytes', min_value=0.0, max_value=100.0, required=False, default=0.0)
     Age = serializers.IntegerField(min_value=0, max_value=150)
     Sex = serializers.CharField(max_length=1)
 
