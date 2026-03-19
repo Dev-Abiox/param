@@ -53,104 +53,115 @@ class TestAgeGroupClassification:
 # ── Template Selection ────────────────────────────────────────────────────────
 
 class TestTemplateSelection:
+    """v2: select_template_key uses cbc_snapshot + indices instead of rules_fired."""
+
+    # Helper CBC dicts that trigger the desired clinical flags
+    _NORMAL_CBC = {'MCV': 90, 'MCH': 30, 'MCHC': 34, 'RDW': 13, 'Hb': 14, 'WBC': 7, 'Platelets': 250}
+    _MACROCYTIC_CBC = {'MCV': 108, 'MCH': 34, 'MCHC': 34, 'RDW': 18.5, 'Hb': 10, 'WBC': 5, 'Platelets': 200}
+    _LOW_MCV_CBC = {'MCV': 75, 'MCH': 30, 'MCHC': 34, 'RDW': 14, 'Hb': 12, 'WBC': 6, 'Platelets': 220}
+    _DEFICIENT_NO_MACRO = {'MCV': 95, 'MCH': 30, 'MCHC': 34, 'RDW': 17, 'Hb': 10, 'WBC': 5, 'Platelets': 200}
 
     def test_macrocytic_high_risk(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(3, 'middle_aged', 'M', ['Macrocytosis', 'High RDW'])
+        key = engine.select_template_key(3, 'middle_aged', 'M', self._MACROCYTIC_CBC, {'mentzer': 15})
         assert key == 'macrocytic_high_risk'
 
     def test_borderline_elderly(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(2, 'elderly', 'F', [])
+        key = engine.select_template_key(2, 'elderly', 'F', self._NORMAL_CBC, {'mentzer': 11})
         assert key == 'borderline_elderly'
 
     def test_normal_young_adult(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(1, 'young_adult', 'M', [])
+        key = engine.select_template_key(1, 'young_adult', 'M', self._NORMAL_CBC, {'mentzer': 11})
         assert key == 'normal_young'
 
     def test_normal_pediatric(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(1, 'pediatric', 'F', [])
+        key = engine.select_template_key(1, 'pediatric', 'F', self._NORMAL_CBC, {'mentzer': 11})
         assert key == 'normal_young'
 
     def test_deficient_with_trend(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(3, 'middle_aged', 'M', ['High RDW'])
+        key = engine.select_template_key(3, 'middle_aged', 'M', self._DEFICIENT_NO_MACRO, {'mentzer': 14})
         assert key == 'deficient_with_trend'
 
     def test_borderline_low_mcv(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(2, 'middle_aged', 'F', ['Preserved cell counts'])
+        key = engine.select_template_key(2, 'middle_aged', 'F', self._LOW_MCV_CBC, {'mentzer': 10})
         assert key == 'borderline_low_mcv'
 
     def test_normal_elderly_uses_default(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(1, 'elderly', 'M', [])
+        key = engine.select_template_key(1, 'elderly', 'M', self._NORMAL_CBC, {'mentzer': 11})
         assert key == 'normal_default'
 
     def test_borderline_with_macrocytosis_uses_default(self):
         engine = NarrativeEngine()
-        key = engine.select_template_key(2, 'young_adult', 'M', ['Macrocytosis'])
+        cbc = {'MCV': 105, 'MCH': 34, 'MCHC': 34, 'RDW': 13, 'Hb': 13, 'WBC': 6, 'Platelets': 220}
+        key = engine.select_template_key(2, 'young_adult', 'M', cbc, {'mentzer': 12})
         assert key == 'borderline_default'
 
     def test_all_template_keys_exist_in_templates(self):
         engine = NarrativeEngine()
         combos = [
-            (3, 'middle_aged', 'M', ['Macrocytosis']),
-            (2, 'elderly', 'F', []),
-            (1, 'young_adult', 'M', []),
-            (3, 'young_adult', 'M', []),
-            (2, 'middle_aged', 'F', []),
-            (1, 'elderly', 'F', []),
-            (1, 'middle_aged', 'M', []),
+            (3, 'middle_aged', 'M', self._MACROCYTIC_CBC, {'mentzer': 15}),
+            (2, 'elderly', 'F', self._NORMAL_CBC, {'mentzer': 11}),
+            (1, 'young_adult', 'M', self._NORMAL_CBC, {'mentzer': 11}),
+            (3, 'young_adult', 'M', self._DEFICIENT_NO_MACRO, {'mentzer': 14}),
+            (2, 'middle_aged', 'F', self._NORMAL_CBC, {'mentzer': 11}),
+            (1, 'elderly', 'F', self._NORMAL_CBC, {'mentzer': 11}),
+            (1, 'middle_aged', 'M', self._NORMAL_CBC, {'mentzer': 11}),
         ]
-        for risk, age_g, sex, rules in combos:
-            key = engine.select_template_key(risk, age_g, sex, rules)
+        for risk, age_g, sex, cbc, idx in combos:
+            key = engine.select_template_key(risk, age_g, sex, cbc, idx)
             assert key in TEMPLATES, f"Key {key} not in TEMPLATES"
 
 
 # ── Differential Suggestions ─────────────────────────────────────────────────
 
 class TestDifferentialSuggestions:
+    """v2: get_differential_suggestions uses cbc_snapshot + indices instead of rules_fired."""
+
+    _NORMAL_CBC = {'MCV': 90, 'MCH': 30, 'MCHC': 34, 'RDW': 13, 'Hb': 14, 'WBC': 7, 'Platelets': 250}
 
     def test_macrocytosis_differentials(self):
         engine = NarrativeEngine()
-        diffs = engine.get_differential_suggestions(3, ['Macrocytosis'], {})
+        cbc = {'MCV': 108, 'MCH': 34, 'MCHC': 34, 'RDW': 13, 'Hb': 14, 'WBC': 7, 'Platelets': 250}
+        diffs = engine.get_differential_suggestions(3, cbc, {})
         assert 'Vitamin B12 deficiency' in diffs
         assert 'Folate deficiency' in diffs
 
-    def test_multiple_rules_deduplicates(self):
+    def test_multiple_flags_deduplicates(self):
         engine = NarrativeEngine()
-        diffs = engine.get_differential_suggestions(
-            3, ['Macrocytosis', 'Pancytopenia'], {},
-        )
-        # Severe B12 deficiency appears in Pancytopenia table
+        # MCV > 100 → macrocytosis; Hb < 12, WBC < 4, Platelets < 150 → pancytopenia
+        cbc = {'MCV': 108, 'MCH': 34, 'MCHC': 34, 'RDW': 13, 'Hb': 9, 'WBC': 3, 'Platelets': 100}
+        diffs = engine.get_differential_suggestions(3, cbc, {})
         assert 'Severe B12 deficiency' in diffs
-        # Myelodysplastic syndrome appears in both tables but should appear once
         count = diffs.count('Myelodysplastic syndrome')
         assert count == 1
 
-    def test_empty_rules_borderline_returns_subclinical(self):
+    def test_normal_cbc_borderline_returns_subclinical(self):
         engine = NarrativeEngine()
-        diffs = engine.get_differential_suggestions(2, [], {})
+        diffs = engine.get_differential_suggestions(2, self._NORMAL_CBC, {})
         assert 'Subclinical B12 deficiency' in diffs
 
-    def test_empty_rules_normal_returns_empty(self):
+    def test_normal_cbc_normal_risk_returns_empty(self):
         engine = NarrativeEngine()
-        diffs = engine.get_differential_suggestions(1, [], {})
+        diffs = engine.get_differential_suggestions(1, self._NORMAL_CBC, {})
         assert diffs == []
 
-    def test_high_mentzer_adds_iron_deficiency(self):
+    def test_iron_def_pattern_adds_iron_deficiency(self):
         engine = NarrativeEngine()
-        diffs = engine.get_differential_suggestions(3, [], {'mentzer': 15.0})
+        # MCV < 90, MCH < 27 → iron deficiency pattern
+        cbc = {'MCV': 72, 'MCH': 24, 'MCHC': 30, 'RDW': 16, 'Hb': 10, 'WBC': 6, 'Platelets': 200}
+        diffs = engine.get_differential_suggestions(3, cbc, {})
         assert 'Iron deficiency anemia' in diffs
 
-    def test_mentzer_not_duplicated_with_erythropoiesis(self):
+    def test_iron_def_not_duplicated(self):
         engine = NarrativeEngine()
-        diffs = engine.get_differential_suggestions(
-            3, ['Ineffective erythropoiesis'], {'mentzer': 15.0},
-        )
+        cbc = {'MCV': 72, 'MCH': 24, 'MCHC': 30, 'RDW': 16, 'Hb': 10, 'WBC': 6, 'Platelets': 200}
+        diffs = engine.get_differential_suggestions(3, cbc, {'mentzer': 15.0})
         count = diffs.count('Iron deficiency anemia')
         assert count == 1
 
