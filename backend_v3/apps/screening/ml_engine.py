@@ -13,10 +13,10 @@ Architecture:
            - Uses 17 features (base + indices + p_stage1)
            - AUC ~0.61 in uncertain zone
 
-  Classification (triple gate):
-           - p_stage1 > T_DEF -> Deficient (class 3)
-           - p_stage1 < 0.12 AND MCV < 92 AND RDW < 13.5 AND green_king < 80 -> Normal (class 1)
-           - Everything else -> Borderline (class 2, cautious default)
+  Classification (dual-model gate):
+           - p_stage1 > 0.43 -> Deficient (class 3)
+           - p_stage1 < 0.30 AND p_stage2 < 0.25 -> Normal (class 1, both models confirm)
+           - Everything else -> Borderline (class 2, any doubt stays borderline)
 """
 
 import asyncio
@@ -270,29 +270,18 @@ class B12ClinicalEngine:
         X1 = self._build_stage1_vector(cbc_dict)
         p_stage1 = float(self.stage1.predict_proba(X1)[0][1])
 
-        # Stage 2: Borderline detection (only in uncertain zone)
-        in_zone = self.zone_lo <= p_stage1 <= self.zone_hi
-        p_stage2 = None
+        # Stage 2: runs on ALL patients (Normal gate needs p_stage2)
+        X2 = self._build_stage2_vector(cbc_dict, clinical_indices, p_stage1)
+        p_stage2 = float(self.stage2.predict_proba(X2)[0][1])
+        in_zone = self.zone_lo <= p_stage1 <= self.zone_hi  # keep for response data
 
-        if in_zone:
-            X2 = self._build_stage2_vector(cbc_dict, clinical_indices, p_stage1)
-            p_stage2 = float(self.stage2.predict_proba(X2)[0][1])
-
-        # Classification — triple gate: Normal requires LOW p1 + CLEAN indices.
-        # Everything uncertain defaults to Borderline (screening = cautious).
-        green_king = clinical_indices["green_king"]
-        mcv = cbc_dict["MCV"]
-        rdw = cbc_dict["RDW"]
-
-        if p_stage1 > self.t_def:
-            prediction = 3  # Deficient
-        elif (p_stage1 < 0.12
-              and mcv < 92
-              and rdw < 13.5
-              and green_king < 80):
-            prediction = 1  # Normal — triple confirmed clean
+        # Classification
+        if p_stage1 > 0.43:
+            prediction = 3  # DEFICIENT
+        elif p_stage1 < 0.30 and p_stage2 < 0.25:
+            prediction = 1  # NORMAL — both models confirm clean
         else:
-            prediction = 2  # Borderline — default for ALL uncertain cases
+            prediction = 2  # BORDERLINE — any doubt stays borderline
 
         # Derive display probabilities
         if prediction == 3:

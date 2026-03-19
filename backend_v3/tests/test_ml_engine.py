@@ -151,16 +151,16 @@ class TestMLEnginePrediction:
         assert result["p_stage2"] is not None
         mock_engine.stage2.predict_proba.assert_called_once()
 
-    def test_predict_outside_zone_skips_stage2(self, mock_engine, sample_cbc_data):
-        """When p_stage1 is outside uncertain zone, stage2 should not fire."""
+    def test_predict_outside_zone_still_runs_stage2(self, mock_engine, sample_cbc_data):
+        """Stage2 now runs on ALL patients (Normal gate needs p_stage2)."""
         import numpy as np
         mock_engine.stage1.predict_proba.return_value = np.array([[0.95, 0.05]])  # below zone
 
         result = mock_engine.predict(sample_cbc_data)
 
         assert result["in_uncertain_zone"] is False
-        assert result["p_stage2"] is None
-        mock_engine.stage2.predict_proba.assert_not_called()
+        assert result["p_stage2"] is not None
+        mock_engine.stage2.predict_proba.assert_called_once()
 
 
 class TestMLEngineValidation:
