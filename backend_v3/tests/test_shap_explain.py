@@ -1,5 +1,8 @@
 """
-Tests for SHAP explainability endpoint and ML engine SHAP computation.
+Tests for SHAP explainability endpoint.
+
+Note: v1 CatBoost engine does not compute SHAP values inline.
+The ExplainView reads shap_values from stored screening.indices if present.
 """
 
 import uuid
@@ -157,50 +160,3 @@ class TestExplainView:
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data['features']) == 2
-
-
-# ── SHAP Computation ─────────────────────────────────────────────────────────
-# v2 engine (HistGradientBoosting) does not support SHAP.
-# compute_shap_values was removed. predict() returns shap_values: {} always.
-# These tests verify the v2 engine returns empty SHAP in indices.
-
-class TestSHAPComputation:
-
-    def test_v2_predict_returns_empty_shap_values(self):
-        """v2 engine always returns shap_values: {} in indices."""
-        from apps.screening.ml_engine import B12ClinicalEngine
-
-        import numpy as np
-
-        engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
-        engine._ready = True
-        engine._load_error = None
-        engine._model_version = "2.0.0"
-        engine._model_artifact_hash = "test"
-        engine.model_dir = MagicMock()
-        engine.zone_lo = 0.1
-        engine.zone_hi = 0.6
-        engine.t_def = 0.42
-        engine.t_norm = 0.2
-        engine.t_s2 = 0.35
-        engine.config = {"version": "2.0.0"}
-
-        engine.stage1 = MagicMock()
-        engine.stage1.predict_proba.return_value = np.array([[0.8, 0.2]])
-        engine.stage2 = MagicMock()
-        engine.stage2.predict_proba.return_value = np.array([[0.6, 0.4]])
-
-        cbc = {
-            'Hb': 14.0, 'RBC': 5.0, 'HCT': 42.0, 'MCV': 90.0,
-            'MCH': 30.0, 'MCHC': 34.0, 'RDW': 13.0, 'WBC': 7.0,
-            'Platelets': 250.0, 'Age': 35, 'Sex': 'M',
-            'Neutrophils': 60.0, 'Lymphocytes': 30.0,
-        }
-        result = engine.predict(cbc, include_shap=True)
-
-        assert result['indices']['shap_values'] == {}
-
-    def test_v2_engine_has_no_compute_shap_method(self):
-        """Confirm compute_shap_values was removed from v2 engine."""
-        from apps.screening.ml_engine import B12ClinicalEngine
-        assert not hasattr(B12ClinicalEngine, 'compute_shap_values')

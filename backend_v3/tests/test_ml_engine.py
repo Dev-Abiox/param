@@ -1,29 +1,29 @@
 """
-Tests for the ML engine (B12 screening classification) v2.
+Tests for the ML engine (B12 screening classification) v1.
 """
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+
 
 def _make_mock_engine():
-    """Create a v2 engine with mocked models and config."""
+    """Create a v1 engine with mocked CatBoost models and thresholds."""
     from apps.screening.ml_engine import B12ClinicalEngine
 
     engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
     engine._ready = True
     engine._load_error = None
-    engine._model_version = "2.0.0"
+    engine._model_version = "1.0.0"
     engine._model_artifact_hash = "test_hash"
     engine.model_dir = MagicMock()
-    engine.config = {"version": "2.0.0", "stage1_auc": 0.877}
-    engine.zone_lo = 0.1
-    engine.zone_hi = 0.6
-    engine.t_def = 0.42
-    engine.t_norm = 0.2
-    engine.t_s2 = 0.35
+    engine.thresholds = {
+        "rule_weight": 0.05,
+        "deficient_threshold": 0.7,
+        "borderline_threshold": 0.4,
+    }
 
-    import numpy as np
     mock_stage1 = MagicMock()
     mock_stage1.predict_proba.return_value = np.array([[0.8, 0.2]])
     mock_stage2 = MagicMock()
@@ -50,7 +50,6 @@ class TestMLEngineConfig:
         from apps.screening.ml_engine import B12ClinicalEngine
 
         engine = B12ClinicalEngine(Path("../../backend_v3/ml/models"))
-        # Without model files, engine should not be ready
         assert engine.is_ready is False
 
     def test_engine_has_model_not_ready_error(self):
@@ -70,7 +69,6 @@ class TestMLEnginePrediction:
 
     def test_predict_normal_sample(self, mock_engine, sample_cbc_data):
         """Test prediction returns valid result for healthy CBC values."""
-        import numpy as np
         mock_engine.stage1.predict_proba.return_value = np.array([[0.85, 0.15]])
 
         result = mock_engine.predict(sample_cbc_data)
@@ -81,17 +79,16 @@ class TestMLEnginePrediction:
 
     def test_predict_deficient_sample(self, mock_engine, sample_cbc_deficient):
         """Test prediction returns Deficient for abnormal CBC values."""
-        import numpy as np
         mock_engine.stage1.predict_proba.return_value = np.array([[0.1, 0.9]])
-        mock_engine.stage2.predict_proba.return_value = np.array([[0.2, 0.8]])
+        mock_engine.stage2.predict_proba.return_value = np.array([[0.1, 0.9]])
 
         result = mock_engine.predict(sample_cbc_deficient)
 
         assert result is not None
         assert result["riskClass"] == 3  # Deficient
 
-    def test_predict_returns_v1_compat_keys(self, mock_engine, sample_cbc_data):
-        """Test prediction returns all v1-compatible keys."""
+    def test_predict_returns_expected_keys(self, mock_engine, sample_cbc_data):
+        """Test prediction returns all expected keys."""
         result = mock_engine.predict(sample_cbc_data)
 
         assert "riskClass" in result
@@ -102,27 +99,36 @@ class TestMLEnginePrediction:
         assert "modelArtifactHash" in result
         assert "indices" in result
 
-    def test_predict_returns_v2_new_keys(self, mock_engine, sample_cbc_data):
-        """Test prediction returns new v2 fields."""
+    def test_predict_indices_keys(self, mock_engine, sample_cbc_data):
+        """Test prediction indices contain expected clinical indices."""
         result = mock_engine.predict(sample_cbc_data)
 
-        assert "p_stage1" in result
-        assert "p_stage2" in result
-        assert "in_uncertain_zone" in result
-        assert "confidence" in result
-        assert "clinical_indices" in result
-        assert "data_quality" in result
-        assert "labelDescription" in result
+        assert "mentzer" in result["indices"]
+        assert "greenKing" in result["indices"]
+        assert "nlr" in result["indices"]
+        assert "pancytopenia" in result["indices"]
 
-    def test_predict_rules_fired_always_empty(self, mock_engine, sample_cbc_data):
-        """v2 has no clinical rules — rulesFired should always be []."""
+    def test_predict_rules_fired_is_list(self, mock_engine, sample_cbc_data):
+        """rulesFired should be a list of strings."""
         result = mock_engine.predict(sample_cbc_data)
-        assert result["rulesFired"] == []
+        assert isinstance(result["rulesFired"], list)
 
-    def test_predict_shap_values_always_empty(self, mock_engine, sample_cbc_data):
-        """v2 does not support SHAP — shap_values should always be {}."""
-        result = mock_engine.predict(sample_cbc_data, include_shap=True)
-        assert result["indices"]["shap_values"] == {}
+    def test_predict_stage2_skipped_when_p_abnormal_low(self, mock_engine, sample_cbc_data):
+        """When p_abnormal <= 0.3, stage2 is skipped and p_def defaults to 0.05."""
+        mock_engine.stage1.predict_proba.return_value = np.array([[0.85, 0.15]])
+
+        result = mock_engine.predict(sample_cbc_data)
+
+        mock_engine.stage2.predict_proba.assert_not_called()
+        assert result["riskClass"] == 1  # NORMAL
+
+    def test_predict_stage2_runs_when_p_abnormal_high(self, mock_engine, sample_cbc_data):
+        """When p_abnormal > 0.3, stage2 should run."""
+        mock_engine.stage1.predict_proba.return_value = np.array([[0.3, 0.7]])
+
+        result = mock_engine.predict(sample_cbc_data)
+
+        mock_engine.stage2.predict_proba.assert_called_once()
 
     def test_predict_not_ready_raises_error(self, sample_cbc_data):
         """Test prediction raises error when engine not ready."""
@@ -135,32 +141,10 @@ class TestMLEnginePrediction:
         engine.stage2 = None
         engine._model_version = "unknown"
         engine._model_artifact_hash = ""
-        engine.config = None
+        engine.thresholds = None
 
         with pytest.raises(MLModelNotReadyError):
             engine.predict(sample_cbc_data)
-
-    def test_predict_uncertain_zone_triggers_stage2(self, mock_engine, sample_cbc_data):
-        """When p_stage1 is in uncertain zone, stage2 should fire."""
-        import numpy as np
-        mock_engine.stage1.predict_proba.return_value = np.array([[0.7, 0.3]])  # in [0.1, 0.6]
-
-        result = mock_engine.predict(sample_cbc_data)
-
-        assert result["in_uncertain_zone"] is True
-        assert result["p_stage2"] is not None
-        mock_engine.stage2.predict_proba.assert_called_once()
-
-    def test_predict_outside_zone_still_runs_stage2(self, mock_engine, sample_cbc_data):
-        """Stage2 now runs on ALL patients (Normal gate needs p_stage2)."""
-        import numpy as np
-        mock_engine.stage1.predict_proba.return_value = np.array([[0.95, 0.05]])  # below zone
-
-        result = mock_engine.predict(sample_cbc_data)
-
-        assert result["in_uncertain_zone"] is False
-        assert result["p_stage2"] is not None
-        mock_engine.stage2.predict_proba.assert_called_once()
 
 
 class TestMLEngineValidation:
@@ -187,15 +171,25 @@ class TestMLEngineValidation:
         result = mock_engine.predict(cbc)
         assert 'riskClass' in result
 
-    def test_data_quality_flags_out_of_range(self, mock_engine):
-        """data_quality should flag values outside valid ranges."""
-        cbc = {'Hb': 30.0, 'MCV': 90.0, 'MCH': 30.0, 'MCHC': 34.0,
-               'RBC': 5.0, 'HCT': 42.0, 'RDW': 13.0, 'WBC': 7.0,
-               'Platelets': 250.0, 'Sex': 'M', 'Age': 35,
+    def test_clinical_rules_macrocytosis(self, mock_engine):
+        """MCV > 100 should trigger Macrocytosis rule."""
+        cbc = {'Hb': 10.0, 'MCV': 110.0, 'MCH': 30.0, 'MCHC': 34.0,
+               'RBC': 3.5, 'HCT': 35.0, 'RDW': 16.0, 'WBC': 5.0,
+               'Platelets': 200.0, 'Sex': 'M', 'Age': 50,
                'Neutrophils': 60.0, 'Lymphocytes': 30.0}
-        result = mock_engine.predict(cbc)
-        assert result['data_quality']['valid'] is False
-        assert len(result['data_quality']['warnings']) > 0
+        row = mock_engine.add_indices(cbc)
+        _, rules = mock_engine.apply_rules(row)
+        assert "Macrocytosis" in rules
+
+    def test_clinical_rules_pancytopenia(self, mock_engine):
+        """Low Hb, WBC, Platelets should trigger Pancytopenia rule."""
+        cbc = {'Hb': 8.0, 'MCV': 105.0, 'MCH': 30.0, 'MCHC': 34.0,
+               'RBC': 2.5, 'HCT': 25.0, 'RDW': 18.0, 'WBC': 3.0,
+               'Platelets': 100.0, 'Sex': 'F', 'Age': 60,
+               'Neutrophils': 40.0, 'Lymphocytes': 50.0}
+        row = mock_engine.add_indices(cbc)
+        _, rules = mock_engine.apply_rules(row)
+        assert "Pancytopenia" in rules
 
 
 class TestMLEngineAsync:
@@ -216,7 +210,7 @@ class TestMLEngineAsync:
 
         mock_result = {
             'riskClass': 1,
-            'label': 'Normal',
+            'labelText': 'NORMAL',
             'probabilities': {'normal': 0.85, 'borderline': 0.1, 'deficient': 0.05},
         }
         with patch('apps.screening.ml_engine.get_ml_engine') as mock_get_engine:
@@ -226,4 +220,4 @@ class TestMLEngineAsync:
 
             result = await predict_async(sample_cbc_data)
             assert result == mock_result
-            mock_engine.predict.assert_called_once_with(sample_cbc_data, include_shap=False)
+            mock_engine.predict.assert_called_once_with(sample_cbc_data)

@@ -1,0 +1,5 @@
+{
+    "deficient_threshold": 0.85,
+    "borderline_threshold": 0.45,
+    "rule_weight": 0.07
+}
