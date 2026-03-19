@@ -150,6 +150,9 @@ class PredictView(APIView):
             age=int(cbc.get('Age', 0)),
             sex=str(cbc.get('Sex', 'M')),
             patient_id=patient_id,
+            confidence=result.get('confidence', 'moderate'),
+            p_stage1=result.get('p_stage1'),
+            clinical_indices=result.get('clinical_indices'),
         )
 
         now = datetime.now(timezone.utc)
@@ -297,6 +300,12 @@ class PredictView(APIView):
             'rulesFired': result['rulesFired'],
             'modelVersion': result['modelVersion'],
             'narrative': narrative_text,
+            'p_stage1': result.get('p_stage1'),
+            'p_stage2': result.get('p_stage2'),
+            'in_uncertain_zone': result.get('in_uncertain_zone'),
+            'confidence': result.get('confidence'),
+            'clinical_indices': result.get('clinical_indices'),
+            'data_quality': result.get('data_quality'),
         })
 
 
@@ -1118,10 +1127,21 @@ class FHIRBundleView(APIView):
                     'display': result['labelText'],
                 }]
             }],
-            'extension': [{
-                'url': 'https://clinomiclabs.com/fhir/StructureDefinition/b12-probabilities',
-                'valueString': str(result['probabilities']),
-            }],
+            'extension': [
+                {
+                    'url': 'https://clinomiclabs.com/fhir/StructureDefinition/b12-probabilities',
+                    'valueString': str(result['probabilities']),
+                },
+                {
+                    'url': 'https://clinomiclabs.com/fhir/StructureDefinition/b12-staging',
+                    'extension': [
+                        {'url': 'p_stage1', 'valueDecimal': result.get('p_stage1')},
+                        {'url': 'p_stage2', 'valueDecimal': result.get('p_stage2')},
+                        {'url': 'in_uncertain_zone', 'valueBoolean': result.get('in_uncertain_zone')},
+                        {'url': 'confidence', 'valueString': result.get('confidence')},
+                    ],
+                },
+            ],
         }, status=status.HTTP_201_CREATED)
 
 

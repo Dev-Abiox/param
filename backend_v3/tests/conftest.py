@@ -65,19 +65,19 @@ def test_user_id():
 def sample_cbc_data():
     """Provide sample CBC data for screening tests."""
     return {
-        "Haemoglobin": 14.5,
+        "Hb": 14.5,
+        "RBC": 4.8,
+        "HCT": 43.0,
         "MCV": 88.0,
         "MCH": 29.5,
         "MCHC": 33.5,
-        "RDW_CV": 13.2,
+        "RDW": 13.2,
         "WBC": 6.8,
-        "Platelet": 245,
+        "Platelets": 245,
+        "Age": 35,
+        "Sex": "M",
         "Neutrophils": 58.0,
         "Lymphocytes": 32.0,
-        "Monocytes": 6.0,
-        "Eosinophils": 3.0,
-        "Basophils": 1.0,
-        "LUC": 0.0,
     }
 
 
@@ -85,19 +85,19 @@ def sample_cbc_data():
 def sample_cbc_deficient():
     """Provide sample CBC data indicating B12 deficiency."""
     return {
-        "Haemoglobin": 9.8,
+        "Hb": 9.8,
+        "RBC": 2.8,
+        "HCT": 30.0,
         "MCV": 108.0,
         "MCH": 36.5,
         "MCHC": 33.8,
-        "RDW_CV": 18.5,
+        "RDW": 18.5,
         "WBC": 3.5,
-        "Platelet": 145,
+        "Platelets": 145,
+        "Age": 55,
+        "Sex": "F",
         "Neutrophils": 45.0,
         "Lymphocytes": 45.0,
-        "Monocytes": 6.0,
-        "Eosinophils": 3.0,
-        "Basophils": 1.0,
-        "LUC": 0.0,
     }
 
 

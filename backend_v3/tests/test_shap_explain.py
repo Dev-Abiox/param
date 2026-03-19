@@ -2,9 +2,8 @@
 Tests for SHAP explainability endpoint and ML engine SHAP computation.
 """
 
-import sys
 import uuid
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
@@ -161,64 +160,47 @@ class TestExplainView:
 
 
 # ── SHAP Computation ─────────────────────────────────────────────────────────
+# v2 engine (HistGradientBoosting) does not support SHAP.
+# compute_shap_values was removed. predict() returns shap_values: {} always.
+# These tests verify the v2 engine returns empty SHAP in indices.
 
 class TestSHAPComputation:
 
-    def test_compute_shap_returns_dict_with_feature_names(self):
+    def test_v2_predict_returns_empty_shap_values(self):
+        """v2 engine always returns shap_values: {} in indices."""
         from apps.screening.ml_engine import B12ClinicalEngine
-
-        engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
-        engine._ready = True
-        engine._load_error = None
-        engine.stage1 = MagicMock()
-        engine.stage2 = MagicMock()
-        engine.thresholds = {}
-        engine._model_version = "test"
-        engine._model_artifact_hash = ""
 
         import numpy as np
-        mock_shap = MagicMock()
-        mock_explainer = MagicMock()
-        # Return list of 2 arrays (one per class)
-        mock_explainer.shap_values.return_value = [
-            np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]]),
-            np.array([[-0.1, -0.2, 0.3, 0.4, -0.5, 0.6, 0.7, -0.8, 0.9, 0.1, -0.11, 0.12, -0.13]]),
-        ]
-        mock_shap.TreeExplainer.return_value = mock_explainer
-
-        with patch.dict(sys.modules, {'shap': mock_shap}):
-            type(engine).is_ready = PropertyMock(return_value=True)
-            result = engine.compute_shap_values({'MCV': 108, 'Age': 55, 'Sex': 'M'})
-
-        assert isinstance(result, dict)
-        assert 'Age' in result
-        assert 'MCV' in result
-        assert len(result) == 13  # All 13 features
-
-    def test_compute_shap_not_ready_returns_empty(self):
-        from apps.screening.ml_engine import B12ClinicalEngine
-
-        engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
-        engine._ready = False
-        engine._load_error = "not loaded"
-        engine.stage1 = None
-        engine.stage2 = None
-
-        result = engine.compute_shap_values({'MCV': 108})
-        assert result == {}
-
-    def test_compute_shap_exception_returns_empty(self):
-        from apps.screening.ml_engine import B12ClinicalEngine
 
         engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
         engine._ready = True
         engine._load_error = None
+        engine._model_version = "2.0.0"
+        engine._model_artifact_hash = "test"
+        engine.model_dir = MagicMock()
+        engine.zone_lo = 0.1
+        engine.zone_hi = 0.6
+        engine.t_def = 0.42
+        engine.t_norm = 0.2
+        engine.t_s2 = 0.35
+        engine.config = {"version": "2.0.0"}
+
         engine.stage1 = MagicMock()
+        engine.stage1.predict_proba.return_value = np.array([[0.8, 0.2]])
+        engine.stage2 = MagicMock()
+        engine.stage2.predict_proba.return_value = np.array([[0.6, 0.4]])
 
-        mock_shap = MagicMock()
-        mock_shap.TreeExplainer.side_effect = RuntimeError("SHAP failed")
+        cbc = {
+            'Hb': 14.0, 'RBC': 5.0, 'HCT': 42.0, 'MCV': 90.0,
+            'MCH': 30.0, 'MCHC': 34.0, 'RDW': 13.0, 'WBC': 7.0,
+            'Platelets': 250.0, 'Age': 35, 'Sex': 'M',
+            'Neutrophils': 60.0, 'Lymphocytes': 30.0,
+        }
+        result = engine.predict(cbc, include_shap=True)
 
-        with patch.dict(sys.modules, {'shap': mock_shap}):
-            type(engine).is_ready = PropertyMock(return_value=True)
-            result = engine.compute_shap_values({'MCV': 108})
-            assert result == {}
+        assert result['indices']['shap_values'] == {}
+
+    def test_v2_engine_has_no_compute_shap_method(self):
+        """Confirm compute_shap_values was removed from v2 engine."""
+        from apps.screening.ml_engine import B12ClinicalEngine
+        assert not hasattr(B12ClinicalEngine, 'compute_shap_values')

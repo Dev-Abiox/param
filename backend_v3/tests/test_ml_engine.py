@@ -1,9 +1,38 @@
 """
-Tests for the ML engine (B12 screening classification).
+Tests for the ML engine (B12 screening classification) v2.
 """
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+
+def _make_mock_engine():
+    """Create a v2 engine with mocked models and config."""
+    from apps.screening.ml_engine import B12ClinicalEngine
+
+    engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
+    engine._ready = True
+    engine._load_error = None
+    engine._model_version = "2.0.0"
+    engine._model_artifact_hash = "test_hash"
+    engine.model_dir = MagicMock()
+    engine.config = {"version": "2.0.0", "stage1_auc": 0.877}
+    engine.zone_lo = 0.1
+    engine.zone_hi = 0.6
+    engine.t_def = 0.42
+    engine.t_norm = 0.2
+    engine.t_s2 = 0.35
+
+    import numpy as np
+    mock_stage1 = MagicMock()
+    mock_stage1.predict_proba.return_value = np.array([[0.8, 0.2]])
+    mock_stage2 = MagicMock()
+    mock_stage2.predict_proba.return_value = np.array([[0.6, 0.4]])
+
+    engine.stage1 = mock_stage1
+    engine.stage2 = mock_stage2
+
+    return engine
 
 
 class TestMLEngineConfig:
@@ -37,43 +66,12 @@ class TestMLEnginePrediction:
 
     @pytest.fixture
     def mock_engine(self):
-        """Create engine with mocked models."""
-        from pathlib import Path
-        from apps.screening.ml_engine import B12ClinicalEngine
-        from unittest.mock import MagicMock, PropertyMock
-
-        engine = B12ClinicalEngine(Path("../../backend_v3/ml/models"))
-
-        # Mock the internal state
-        engine._ready = True
-        engine._load_error = None
-
-        # Create mock models
-        mock_stage1 = MagicMock()
-        mock_stage1.predict_proba.return_value = [[0.8, 0.2]]  # Normal vs Not-Normal
-
-        mock_stage2 = MagicMock()
-        mock_stage2.predict_proba.return_value = [[0.7, 0.3]]  # Borderline vs Deficient
-
-        # Create mock thresholds
-        engine.thresholds = {
-            "rule_weight": 0.5,
-            "deficient_threshold": 0.7,
-            "borderline_threshold": 0.4
-        }
-
-        engine.stage1 = mock_stage1
-        engine.stage2 = mock_stage2
-
-        # Mock the is_ready property to return True
-        type(engine).is_ready = PropertyMock(return_value=True)
-
-        return engine
+        return _make_mock_engine()
 
     def test_predict_normal_sample(self, mock_engine, sample_cbc_data):
-        """Test prediction returns Normal for healthy CBC values."""
-        # Adjust mock for normal result
-        mock_engine.stage1.predict_proba.return_value = [[0.85, 0.15]]
+        """Test prediction returns valid result for healthy CBC values."""
+        import numpy as np
+        mock_engine.stage1.predict_proba.return_value = np.array([[0.85, 0.15]])
 
         result = mock_engine.predict(sample_cbc_data)
 
@@ -83,46 +81,86 @@ class TestMLEnginePrediction:
 
     def test_predict_deficient_sample(self, mock_engine, sample_cbc_deficient):
         """Test prediction returns Deficient for abnormal CBC values."""
-        # Adjust mock for deficient result
-        mock_engine.stage1.predict_proba.return_value = [[0.1, 0.9]]  # Not normal
-        mock_engine.stage2.predict_proba.return_value = [[0.2, 0.8]]  # Deficient
+        import numpy as np
+        mock_engine.stage1.predict_proba.return_value = np.array([[0.1, 0.9]])
+        mock_engine.stage2.predict_proba.return_value = np.array([[0.2, 0.8]])
 
         result = mock_engine.predict(sample_cbc_deficient)
 
         assert result is not None
         assert result["riskClass"] == 3  # Deficient
 
-    def test_predict_handles_missing_fields_gracefully(self, mock_engine):
-        """Test prediction handles missing required fields by using defaults."""
-        incomplete_cbc = {"Haemoglobin": 14.5}  # Missing required fields
+    def test_predict_returns_v1_compat_keys(self, mock_engine, sample_cbc_data):
+        """Test prediction returns all v1-compatible keys."""
+        result = mock_engine.predict(sample_cbc_data)
 
-        # Should not raise an exception and return a valid result
-        result = mock_engine.predict(incomplete_cbc)
-        
-        assert result is not None
         assert "riskClass" in result
+        assert "labelText" in result
+        assert "probabilities" in result
+        assert "rulesFired" in result
+        assert "modelVersion" in result
+        assert "modelArtifactHash" in result
+        assert "indices" in result
+
+    def test_predict_returns_v2_new_keys(self, mock_engine, sample_cbc_data):
+        """Test prediction returns new v2 fields."""
+        result = mock_engine.predict(sample_cbc_data)
+
+        assert "p_stage1" in result
+        assert "p_stage2" in result
+        assert "in_uncertain_zone" in result
+        assert "confidence" in result
+        assert "clinical_indices" in result
+        assert "data_quality" in result
+        assert "labelDescription" in result
+
+    def test_predict_rules_fired_always_empty(self, mock_engine, sample_cbc_data):
+        """v2 has no clinical rules — rulesFired should always be []."""
+        result = mock_engine.predict(sample_cbc_data)
+        assert result["rulesFired"] == []
+
+    def test_predict_shap_values_always_empty(self, mock_engine, sample_cbc_data):
+        """v2 does not support SHAP — shap_values should always be {}."""
+        result = mock_engine.predict(sample_cbc_data, include_shap=True)
+        assert result["indices"]["shap_values"] == {}
 
     def test_predict_not_ready_raises_error(self, sample_cbc_data):
         """Test prediction raises error when engine not ready."""
-        from unittest.mock import MagicMock, PropertyMock
         from apps.screening.ml_engine import B12ClinicalEngine, MLModelNotReadyError
 
-        # Create a mock engine with is_ready property returning False
-        engine = B12ClinicalEngine.__new__(B12ClinicalEngine)  # Create without calling __init__
+        engine = B12ClinicalEngine.__new__(B12ClinicalEngine)
         engine._ready = False
         engine._load_error = "Models not found"
         engine.stage1 = None
         engine.stage2 = None
-        engine.thresholds = None
         engine._model_version = "unknown"
         engine._model_artifact_hash = ""
-        engine._validation_metrics = None
-        
-        # Mock the is_ready property to return False
-        type(engine).is_ready = PropertyMock(return_value=False)
+        engine.config = None
 
         with pytest.raises(MLModelNotReadyError):
             engine.predict(sample_cbc_data)
+
+    def test_predict_uncertain_zone_triggers_stage2(self, mock_engine, sample_cbc_data):
+        """When p_stage1 is in uncertain zone, stage2 should fire."""
+        import numpy as np
+        mock_engine.stage1.predict_proba.return_value = np.array([[0.7, 0.3]])  # in [0.1, 0.6]
+
+        result = mock_engine.predict(sample_cbc_data)
+
+        assert result["in_uncertain_zone"] is True
+        assert result["p_stage2"] is not None
+        mock_engine.stage2.predict_proba.assert_called_once()
+
+    def test_predict_outside_zone_skips_stage2(self, mock_engine, sample_cbc_data):
+        """When p_stage1 is outside uncertain zone, stage2 should not fire."""
+        import numpy as np
+        mock_engine.stage1.predict_proba.return_value = np.array([[0.95, 0.05]])  # below zone
+
+        result = mock_engine.predict(sample_cbc_data)
+
+        assert result["in_uncertain_zone"] is False
+        assert result["p_stage2"] is None
+        mock_engine.stage2.predict_proba.assert_not_called()
 
 
 class TestMLEngineValidation:
@@ -130,38 +168,34 @@ class TestMLEngineValidation:
 
     @pytest.fixture
     def mock_engine(self):
-        """Create engine with mocked models."""
-        from pathlib import Path
-        from apps.screening.ml_engine import B12ClinicalEngine
-        from unittest.mock import MagicMock, PropertyMock
-
-        engine = B12ClinicalEngine(Path("../../backend_v3/ml/models"))
-        engine._ready = True
-        engine._load_error = None
-
-        mock_stage1 = MagicMock()
-        mock_stage1.predict_proba.return_value = [[0.8, 0.2]]
-        mock_stage2 = MagicMock()
-        mock_stage2.predict_proba.return_value = [[0.7, 0.3]]
-
-        engine.thresholds = {"rule_weight": 0.5, "deficient_threshold": 0.7, "borderline_threshold": 0.4}
-        engine.stage1 = mock_stage1
-        engine.stage2 = mock_stage2
-        type(engine).is_ready = PropertyMock(return_value=True)
-        return engine
+        return _make_mock_engine()
 
     def test_predict_with_missing_fields(self, mock_engine):
         """Engine should handle prediction even with sparse input."""
-        sparse_cbc = {'Hb': 12.0, 'MCV': 85.0, 'Sex': 'M', 'Age': 40}
+        sparse_cbc = {'Hb': 12.0, 'MCV': 85.0, 'MCH': 30.0, 'MCHC': 34.0,
+                       'RBC': 4.5, 'HCT': 40.0, 'RDW': 13.0, 'WBC': 7.0,
+                       'Platelets': 250.0, 'Sex': 'M', 'Age': 40}
         result = mock_engine.predict(sparse_cbc)
         assert 'riskClass' in result
         assert 'labelText' in result
 
-    def test_predict_with_zero_values(self, mock_engine):
-        """Engine should handle zero CBC values without crashing."""
-        zero_cbc = {'Hb': 0, 'MCV': 0, 'RBC': 0, 'WBC': 0, 'Platelets': 0, 'Sex': 'M', 'Age': 0}
-        result = mock_engine.predict(zero_cbc)
+    def test_predict_with_zero_rbc_no_crash(self, mock_engine):
+        """Engine should handle zero RBC (division guard) without crashing."""
+        cbc = {'Hb': 0, 'MCV': 0, 'MCH': 0, 'MCHC': 0, 'RBC': 0, 'HCT': 0,
+               'RDW': 0, 'WBC': 0, 'Platelets': 0, 'Sex': 'M', 'Age': 0,
+               'Neutrophils': 0, 'Lymphocytes': 0}
+        result = mock_engine.predict(cbc)
         assert 'riskClass' in result
+
+    def test_data_quality_flags_out_of_range(self, mock_engine):
+        """data_quality should flag values outside valid ranges."""
+        cbc = {'Hb': 30.0, 'MCV': 90.0, 'MCH': 30.0, 'MCHC': 34.0,
+               'RBC': 5.0, 'HCT': 42.0, 'RDW': 13.0, 'WBC': 7.0,
+               'Platelets': 250.0, 'Sex': 'M', 'Age': 35,
+               'Neutrophils': 60.0, 'Lymphocytes': 30.0}
+        result = mock_engine.predict(cbc)
+        assert result['data_quality']['valid'] is False
+        assert len(result['data_quality']['warnings']) > 0
 
 
 class TestMLEngineAsync:

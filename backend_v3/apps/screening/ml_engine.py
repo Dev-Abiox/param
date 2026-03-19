@@ -1,7 +1,22 @@
 """
-ML Engine for B12 Clinical Screening.
+B12 Clinical Engine v2.0.0
+Two-Stage Architecture: Binary Deficient Detector + Borderline Refinement
 
-Provides CatBoost-based two-stage classification with rule-based adjustments.
+Architecture:
+  Stage 1: HistGradientBoosting (Deficient vs Not-Deficient)
+           - Trained on clear cases only (B12 <200 vs >=300)
+           - Class-weighted for balance
+           - 10 features, AUC ~0.878
+
+  Stage 2: HistGradientBoosting (Borderline vs Normal)
+           - Fires ONLY in Stage 1's uncertain zone
+           - Uses 17 features (base + indices + p_stage1)
+           - AUC ~0.61 in uncertain zone
+
+  Classification:
+           - p_stage1 > T_DEF -> Deficient (class 3)
+           - p_stage1 < T_NORM and (not in zone OR p_stage2 < T_S2) -> Normal (class 1)
+           - Everything else -> Borderline (class 2)
 """
 
 import asyncio
@@ -14,77 +29,101 @@ from pathlib import Path
 from typing import Any, Optional
 
 import joblib
-import pandas as pd
+import numpy as np
 from django.conf import settings
 
 from apps.core.exceptions import MLModelNotReadyError
 
 logger = logging.getLogger(__name__)
 
+VALID_RANGES = {
+    "Hb":          (1.0, 25.0),
+    "RBC":         (0.5, 10.0),
+    "HCT":         (5.0, 75.0),
+    "MCV":         (30.0, 160.0),
+    "MCH":         (10.0, 60.0),
+    "MCHC":        (20.0, 45.0),
+    "RDW":         (5.0, 40.0),
+    "WBC":         (0.1, 100.0),
+    "Platelets":   (1.0, 2000.0),
+    "Neutrophils": (0.0, 100.0),
+    "Lymphocytes": (0.0, 100.0),
+    "Age":         (0, 120),
+}
+
+LABEL_MAP = {1: "NORMAL", 2: "BORDERLINE", 3: "DEFICIENT"}
+LABEL_DESCRIPTION_MAP = {
+    1: "Low Risk / Likely Normal",
+    2: "Intermediate Risk / Possible Early Deficiency",
+    3: "High Risk / Likely Deficient",
+}
+
 
 class B12ClinicalEngine:
     """
-    Two-stage ML engine for B12 deficiency prediction.
+    Two-stage B12 deficiency screening engine (v2).
 
-    Stage 1: Normal vs Abnormal
-    Stage 2: Borderline vs Deficient
+    Stage 1: Binary deficiency probability (HistGradientBoosting)
+    Stage 2: Borderline refinement in uncertain zone (HistGradientBoosting)
     """
 
     def __init__(self, model_dir: Path):
-        self.model_dir = model_dir
+        self.model_dir = Path(model_dir)
         self.stage1 = None
         self.stage2 = None
-        self.thresholds = None
+        self.config = None
         self._ready = False
         self._load_error = None
         self._model_version = "unknown"
         self._model_artifact_hash = ""
-        self._validation_metrics = {}
 
         self._load_models()
 
     def _load_models(self):
         """Load ML models. Sets _ready=True on success, stores error on failure."""
         try:
-            stage1_path = self.model_dir / "stage1_normal_vs_abnormal.pkl"
-            stage2_path = self.model_dir / "stage2_borderline_vs_deficient.pkl"
-            thresholds_path = self.model_dir / "thresholds.json"
-            version_path = self.model_dir / "version.json"
+            stage1_path = self.model_dir / "stage1_binary.pkl"
+            stage2_path = self.model_dir / "stage2_borderline.pkl"
+            config_path = self.model_dir / "model_config.json"
 
             self.stage1 = joblib.load(str(stage1_path))
             self.stage2 = joblib.load(str(stage2_path))
 
-            with open(thresholds_path, "r", encoding="utf-8") as f:
-                self.thresholds = json.load(f)
+            with open(config_path, "r", encoding="utf-8") as f:
+                self.config = json.load(f)
 
-            # Load version info
-            if version_path.exists():
-                with open(version_path, "r", encoding="utf-8") as f:
-                    version_info = json.load(f)
-                    self._model_version = version_info.get("version", "1.0.0")
-                    self._validation_metrics = version_info.get("validation", {})
+            self.zone_lo, self.zone_hi = self.config["zone"]
+            self.t_def = self.config["thresholds"]["deficient"]
+            self.t_norm = self.config["thresholds"]["normal"]
+            self.t_s2 = self.config["thresholds"]["s2_border"]
 
-            # Compute artifact hash for reproducibility
+            self._model_version = self.config.get("version", "2.0.0")
             self._model_artifact_hash = self._compute_artifact_hash()
 
             self._ready = True
-            logger.info(f"ML models loaded successfully (version: {self._model_version})")
+            logger.info(
+                "B12ClinicalEngine v%s loaded. Stage1 AUC=%s, Zone=[%s, %s]",
+                self._model_version,
+                self.config.get("stage1_auc"),
+                self.zone_lo,
+                self.zone_hi,
+            )
 
         except FileNotFoundError as e:
             self._load_error = f"Model file not found: {e}"
             self._ready = False
-            logger.error(f"CRITICAL: {self._load_error}")
+            logger.error("CRITICAL: %s", self._load_error)
         except Exception as e:
             self._load_error = str(e)
             self._ready = False
-            logger.error(f"CRITICAL: Failed to load ML models: {e}")
+            logger.error("CRITICAL: Failed to load ML models: %s", e)
 
     def _compute_artifact_hash(self) -> str:
         """Compute hash of model artifacts for versioning."""
         files = [
-            self.model_dir / "stage1_normal_vs_abnormal.pkl",
-            self.model_dir / "stage2_borderline_vs_deficient.pkl",
-            self.model_dir / "thresholds.json",
+            self.model_dir / "stage1_binary.pkl",
+            self.model_dir / "stage2_borderline.pkl",
+            self.model_dir / "model_config.json",
         ]
         combined = ""
         for f in files:
@@ -94,332 +133,235 @@ class B12ClinicalEngine:
 
     @property
     def is_ready(self) -> bool:
-        """Check if the ML engine is ready for predictions."""
         return self._ready and self.stage1 is not None and self.stage2 is not None
 
     def get_status(self) -> dict:
-        """Get ML engine status for health checks."""
         return {
             "ready": self.is_ready,
             "stage1_loaded": self.stage1 is not None,
             "stage2_loaded": self.stage2 is not None,
-            "thresholds_loaded": self.thresholds is not None,
+            "config_loaded": self.config is not None,
             "version": self._model_version,
             "artifact_hash": self._model_artifact_hash,
-            "validation_metrics": self._validation_metrics,
             "error": self._load_error,
         }
 
-    def add_indices(self, row: dict[str, Any]) -> dict[str, Any]:
-        """Calculate clinical indices from CBC values."""
-        row = dict(row)
-        row["Mentzer"] = (row.get("MCV") or 0) / (row.get("RBC") or 1)
-        row["RDW_MCV"] = (row.get("RDW") or 0) / (row.get("MCV") or 1)
-        row["Pancytopenia"] = int(
-            (row.get("Hb") or 0) < 12 and
-            (row.get("WBC") or 0) < 4 and
-            (row.get("Platelets") or 0) < 150
-        )
-        return row
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+    def _validate(self, cbc: dict) -> dict:
+        """Validate CBC input. Returns data_quality dict."""
+        warnings_list = []
 
-    def apply_rules(self, row: dict[str, Any]) -> tuple[float, list[str]]:
-        """Apply clinical rules for score adjustment.
+        for key in ["Platelets", "WBC", "Hb", "RBC", "HCT"]:
+            val = cbc.get(key)
+            if val is not None and val < 0:
+                warnings_list.append(
+                    f"Physically impossible value: {key}={val}"
+                )
 
-        Rules are MCV-context-aware: B12 deficiency causes macrocytosis
-        (MCV > 100) while iron deficiency causes microcytosis (MCV < 90).
-        Markers like high RDW and Mentzer > 13 are only B12 risk factors
-        in a macrocytic context; in microcytic context they indicate iron
-        deficiency instead.
-        """
-        score = 0.0
-        rules: list[str] = []
+        for key, (lo, hi) in VALID_RANGES.items():
+            val = cbc.get(key)
+            if val is not None and (val < lo or val > hi):
+                warnings_list.append(
+                    f"{key}={val} outside expected range [{lo}, {hi}]"
+                )
 
-        mcv = row.get("MCV") or 0
-        mch = row.get("MCH") or 0
-        mchc = row.get("MCHC") or 0
-        rdw = row.get("RDW") or 0
-        hb = row.get("Hb") or 0
-        platelets = row.get("Platelets") or 0
+        hb = cbc.get("Hb")
+        hct = cbc.get("HCT")
+        mchc = cbc.get("MCHC")
+        if hb and hct and mchc and hct > 0:
+            mchc_calc = (hb / hct) * 100
+            if abs(mchc - mchc_calc) > 5.0:
+                warnings_list.append(
+                    f"MCHC inconsistency: reported={mchc:.1f}, "
+                    f"calculated={mchc_calc:.1f}"
+                )
 
-        # Iron deficiency pattern: microcytic + hypochromic = opposite of B12
-        is_microcytic = 0 < mcv < 90
-        is_hypochromic = (0 < mch < 27) or (0 < mchc < 32)
-        iron_def_pattern = is_microcytic and is_hypochromic
+        neut = cbc.get("Neutrophils", 0)
+        lymph = cbc.get("Lymphocytes", 0)
+        diff_sum = neut + lymph
+        if diff_sum > 0 and (diff_sum < 30 or diff_sum > 110):
+            warnings_list.append(
+                f"WBC differential partial sum {diff_sum:.1f}% looks unusual"
+            )
 
-        # ── Risk factors ──
-        if mcv > 100:
-            score += 1
-            rules.append("Macrocytosis")
-            if mcv > 115:
-                score += 1
-                rules.append("Severe macrocytosis")
+        return {
+            "valid": len(warnings_list) == 0,
+            "warnings": warnings_list,
+        }
 
-        # High RDW: only a B12 risk in macrocytic context
-        if rdw > 15:
-            if mcv >= 95:
-                score += 1
-                rules.append("High RDW (macrocytic context)")
-            elif not iron_def_pattern:
-                score += 0.5
-                rules.append("High RDW (normocytic)")
-            # else: expected in iron deficiency, not a B12 signal
+    # ------------------------------------------------------------------
+    # Feature computation
+    # ------------------------------------------------------------------
+    def _compute_indices(self, cbc: dict) -> dict:
+        """Compute clinical hematological indices."""
+        mcv = cbc.get("MCV", 0)
+        rbc = cbc.get("RBC", 0)
+        rdw = cbc.get("RDW", 0)
+        hb = cbc.get("Hb", 0)
+        neut = cbc.get("Neutrophils", 50.0)
+        lymph = cbc.get("Lymphocytes", 30.0)
 
-        # Mentzer > 13: only relevant for B12 when MCV >= 95
-        if (row.get("Mentzer") or 0) > 13 and mcv >= 95:
-            score += 1
-            rules.append("Ineffective erythropoiesis")
+        mentzer = mcv / rbc if rbc > 0 else 0
+        green_king = (mcv ** 2 * rdw) / (100 * hb) if hb > 0 else 0
+        nlr = neut / lymph if lymph > 0 else 0
 
-        if (row.get("Pancytopenia") or 0) == 1:
-            score += 2
-            rules.append("Pancytopenia")
+        return {
+            "mentzer": round(mentzer, 2),
+            "green_king": round(green_king, 2),
+            "nlr": round(nlr, 2),
+        }
 
-        # ── Protective factors ──
-        if 0 < mcv < 100 and (row.get("Pancytopenia") or 0) == 0:
-            score -= 0.5
-            rules.append("No macrocytosis / no pancytopenia")
-        if hb > 11 and platelets > 150:
-            score -= 0.5
-            rules.append("Preserved cell counts")
-        if 0 < mcv < 96 and rdw < 14 and hb > 12:
-            score -= 1
-            rules.append("Normal marrow pattern")
+    def _build_stage1_vector(self, cbc: dict) -> np.ndarray:
+        return np.array([[
+            cbc["Hb"], cbc["RBC"], cbc["HCT"], cbc["MCV"], cbc["MCH"],
+            cbc["MCHC"], cbc["RDW"], cbc["WBC"], cbc["Platelets"], cbc["Age"],
+        ]])
 
-        # Iron deficiency pattern: strong protective against B12 risk
-        if iron_def_pattern:
-            score -= 3
-            rules.append("Iron deficiency pattern (microcytic/hypochromic)")
+    def _build_stage2_vector(self, cbc: dict, indices: dict, p_stage1: float) -> np.ndarray:
+        sex_enc = 1 if str(cbc.get("Sex", "")).upper() in ("M", "MALE") else 0
+        return np.array([[
+            cbc["Hb"], cbc["RBC"], cbc["HCT"], cbc["MCV"], cbc["MCH"],
+            cbc["MCHC"], cbc["RDW"], cbc["WBC"], cbc["Platelets"], cbc["Age"],
+            sex_enc,
+            cbc.get("Neutrophils", 50.0),
+            cbc.get("Lymphocytes", 30.0),
+            indices["mentzer"],
+            indices["green_king"],
+            indices["nlr"],
+            p_stage1,
+        ]])
 
-        return score, rules
-
-    def compute_shap_values(self, cbc_dict: dict[str, Any]) -> dict[str, float]:
-        """
-        Compute SHAP values for the given CBC input against the stage1 model.
-
-        Returns a dict mapping feature names to their SHAP values for the
-        "abnormal" class (class index 1). Uses TreeExplainer for CatBoost
-        models (fast, exact for tree models).
-        """
-        if not self.is_ready:
-            return {}
-
-        try:
-            import shap
-
-            df = pd.DataFrame([cbc_dict])
-            expected_cols = [
-                "Age", "Sex", "Hb", "RBC", "HCT", "MCV", "MCH", "MCHC",
-                "RDW", "WBC", "Platelets", "Neutrophils", "Lymphocytes",
-            ]
-            for col in expected_cols:
-                if col not in df.columns:
-                    df[col] = 0
-            df = df[expected_cols]
-
-            if df["Sex"].dtype == "object":
-                df["Sex"] = df["Sex"].map({"M": 1, "F": 0, "m": 1, "f": 0}).fillna(0)
-
-            if not hasattr(self, '_shap_explainer') or self._shap_explainer is None:
-                self._shap_explainer = shap.TreeExplainer(self.stage1)
-            explainer = self._shap_explainer
-            shap_values = explainer.shap_values(df)
-
-            # shap_values is a list of arrays (one per class) for classification
-            # We want the "abnormal" class (index 1)
-            if isinstance(shap_values, list):
-                values = shap_values[1][0]  # class 1, first (only) sample
-            else:
-                values = shap_values[0]  # single output
-
-            return {
-                col: round(float(val), 6)
-                for col, val in zip(expected_cols, values)
-            }
-        except Exception as e:
-            logger.warning("SHAP computation failed: %s", e)
-            return {}
-
+    # ------------------------------------------------------------------
+    # Prediction
+    # ------------------------------------------------------------------
     def predict(self, cbc_dict: dict[str, Any], include_shap: bool = False) -> dict[str, Any]:
         """
         Perform B12 deficiency prediction.
 
         Args:
-            cbc_dict: CBC values with Age, Sex, Hb, RBC, HCT, MCV, MCH, MCHC, RDW, WBC, Platelets, Neutrophils, Lymphocytes
-            include_shap: If True, compute and include SHAP feature attributions.
-                          Defaults to False to avoid latency on bulk imports and
-                          routine predictions. Set to True for explain/ endpoints.
+            cbc_dict: CBC values with Age, Sex, Hb, RBC, HCT, MCV, MCH, MCHC,
+                      RDW, WBC, Platelets, Neutrophils, Lymphocytes
+            include_shap: Ignored in v2 (SHAP not supported for HistGradientBoosting).
+                          Kept for API compatibility.
 
         Returns:
-            dict with riskClass, labelText, probabilities, rulesFired, indices
+            dict with v1-compat keys (riskClass, labelText, probabilities,
+            rulesFired, modelVersion, modelArtifactHash, indices) plus
+            v2 fields (p_stage1, p_stage2, in_uncertain_zone, confidence,
+            clinical_indices, data_quality, labelDescription).
 
         Raises:
             MLModelNotReadyError: If models are not loaded
         """
-        # CRITICAL: Fail closed if models are not ready
         if not self.is_ready:
             raise MLModelNotReadyError(
                 f"ML models not ready for prediction. Status: {self.get_status()}"
             )
 
-        df = pd.DataFrame([cbc_dict])
+        # Validate
+        data_quality = self._validate(cbc_dict)
 
-        expected_cols = [
-            "Age", "Sex", "Hb", "RBC", "HCT", "MCV", "MCH", "MCHC",
-            "RDW", "WBC", "Platelets", "Neutrophils", "Lymphocytes",
-        ]
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = 0
-        df = df[expected_cols]
+        # Compute indices
+        clinical_indices = self._compute_indices(cbc_dict)
 
-        if df["Sex"].dtype == "object":
-            df["Sex"] = df["Sex"].map({"M": 1, "F": 0, "m": 1, "f": 0}).fillna(0)
+        # Stage 1: Binary deficiency probability
+        X1 = self._build_stage1_vector(cbc_dict)
+        p_stage1 = float(self.stage1.predict_proba(X1)[0][1])
 
-        # Two-stage prediction
-        p_abnormal = float(self.stage1.predict_proba(df)[0][1])
-        p_def = float(self.stage2.predict_proba(df)[0][1]) if p_abnormal > 0.3 else 0.05
+        # Stage 2: Borderline detection (only in uncertain zone)
+        in_zone = self.zone_lo <= p_stage1 <= self.zone_hi
+        p_stage2 = None
 
-        # Apply clinical rules
-        row = self.add_indices(cbc_dict)
-        rule_score, rules = self.apply_rules(row)
+        if in_zone:
+            X2 = self._build_stage2_vector(cbc_dict, clinical_indices, p_stage1)
+            p_stage2 = float(self.stage2.predict_proba(X2)[0][1])
 
-        rule_weight = float(self.thresholds.get("rule_weight", 0.0))
-        p_def_final = min(1, max(0, p_def + rule_weight * float(rule_score)))
-
-        # Microcytic pattern override: iron deficiency (microcytic +
-        # hypochromic) is the opposite of B12 deficiency.  Cap the B12
-        # deficiency probability because the CatBoost model cannot
-        # distinguish iron-deficient from B12-deficient CBC patterns.
-        mcv_val = cbc_dict.get("MCV") or 0
-        mch_val = cbc_dict.get("MCH") or 0
-        mchc_val = cbc_dict.get("MCHC") or 0
-        if 0 < mcv_val < 90 and ((0 < mch_val < 27) or (0 < mchc_val < 32)):
-            if mcv_val < 80 and 0 < mch_val < 27 and 0 < mchc_val < 32:
-                # Strong microcytic: textbook iron deficiency
-                p_def_final = min(p_def_final, 0.15)
+        # Classification
+        if p_stage1 > self.t_def:
+            prediction = 3
+        elif p_stage1 < self.t_norm:
+            if in_zone and p_stage2 is not None and p_stage2 >= self.t_s2:
+                prediction = 2
             else:
-                # Moderate microcytic with hypochromia
-                p_def_final = min(p_def_final, 0.30)
+                prediction = 1
+        else:
+            prediction = 2
 
-        # Three-class probabilities
-        p_normal = 1 - max(p_abnormal, p_def_final)
-        p_borderline = max(0, p_abnormal - p_def_final)
-        p_deficient = p_def_final
+        # Derive display probabilities
+        if prediction == 3:
+            p_deficient = p_stage1
+            p_borderline = (1 - p_stage1) * 0.6
+            p_normal = (1 - p_stage1) * 0.4
+        elif prediction == 1:
+            p_normal = 1 - p_stage1
+            p_deficient = p_stage1 * 0.3
+            p_borderline = p_stage1 * 0.7
+        else:
+            if p_stage2 is not None:
+                p_borderline = 0.3 + 0.3 * p_stage2
+                p_deficient = p_stage1
+                p_normal = max(0, 1 - p_deficient - p_borderline)
+            else:
+                p_borderline = 0.4
+                p_deficient = p_stage1
+                p_normal = max(0, 1 - p_deficient - p_borderline)
 
-        # Classification: highest probability wins, cross-validated by indices
-        probs = {"normal": p_normal, "borderline": p_borderline, "deficient": p_deficient}
-        winner = max(probs, key=probs.get)
+        # Normalize
+        total = p_deficient + p_borderline + p_normal
+        if total > 0:
+            p_deficient /= total
+            p_borderline /= total
+            p_normal /= total
 
-        # Extract index signals for cross-validation
-        mcv = row.get("MCV") or 0
-        rdw = row.get("RDW") or 0
-        hb = row.get("Hb") or 0
-        rbc = row.get("RBC") or 0
-        mentzer = mcv / rbc if rbc > 0 else 0
-        has_macrocytosis = mcv > 100
-        has_severe_macrocytosis = mcv > 115
-        has_high_rdw = rdw > 15
-        has_pancytopenia = row.get("Pancytopenia", 0) == 1
-        has_high_mentzer = mentzer > 13
-        has_normal_marrow = mcv < 96 and rdw < 14 and hb > 12
-        has_iron_def_pattern = (
-            0 < mcv < 90
-            and ((0 < (row.get("MCH") or 0) < 27) or (0 < (row.get("MCHC") or 0) < 32))
+        # Confidence
+        if p_stage1 > 0.75 or p_stage1 < 0.10:
+            confidence = "high"
+        elif p_stage1 > 0.55 or p_stage1 < 0.20:
+            confidence = "moderate"
+        else:
+            confidence = "low"
+
+        # Pancytopenia flag (for backward-compat indices dict)
+        pancytopenia = int(
+            (cbc_dict.get("Hb", 0) or 0) < 12
+            and (cbc_dict.get("WBC", 0) or 0) < 4
+            and (cbc_dict.get("Platelets", 0) or 0) < 150
         )
-        # Iron deficiency indices (high RDW/Mentzer) are explained by iron
-        # deficiency, not B12 — treat them as "clean" for B12 purposes.
-        all_indices_clean = (
-            not has_macrocytosis
-            and not has_high_rdw
-            and not has_pancytopenia
-            and not has_high_mentzer
-        ) or has_iron_def_pattern
-
-        if winner == "deficient":
-            cls = 3
-            label_text = "DEFICIENT"
-            # Downgrade: no B12-relevant markers support deficiency
-            if all_indices_clean:
-                cls = 2
-                label_text = "BORDERLINE"
-            # Downgrade: iron deficiency pattern contradicts B12
-            elif has_iron_def_pattern and not has_macrocytosis:
-                cls = 2
-                label_text = "BORDERLINE"
-
-        elif winner == "borderline":
-            cls = 2
-            label_text = "BORDERLINE"
-            # Upgrade: severe markers point to deficiency
-            if (has_macrocytosis and has_pancytopenia) \
-               or has_severe_macrocytosis \
-               or (has_macrocytosis and has_high_rdw and has_high_mentzer):
-                cls = 3
-                label_text = "DEFICIENT"
-            # Downgrade: all indices clean with normal marrow
-            elif all_indices_clean and has_normal_marrow:
-                cls = 1
-                label_text = "NORMAL"
-
-        else:  # normal
-            cls = 1
-            label_text = "NORMAL"
-            # Upgrade: risk markers contradict normal classification
-            # Iron deficiency pattern explains high RDW/Mentzer — not a B12 signal
-            if not has_iron_def_pattern and (
-                has_macrocytosis or has_pancytopenia
-                or (has_high_rdw and has_high_mentzer)
-            ):
-                cls = 2
-                label_text = "BORDERLINE"
-
-        # Compute SHAP values only when explicitly requested (opt-in).
-        # Skipped by default to avoid latency on bulk imports and routine predictions.
-        shap_values = self.compute_shap_values(cbc_dict) if include_shap else {}
 
         return {
-            "riskClass": cls,
-            "labelText": label_text,
+            # ── v1-compat keys (unchanged shape) ──
+            "riskClass": prediction,
+            "labelText": LABEL_MAP[prediction],
             "probabilities": {
                 "normal": round(p_normal, 3),
                 "borderline": round(p_borderline, 3),
                 "deficient": round(p_deficient, 3),
             },
-            "rulesFired": rules,
+            "rulesFired": [],
             "modelVersion": self._model_version,
             "modelArtifactHash": self._model_artifact_hash,
             "indices": {
-                "mentzer": round(
-                    (cbc_dict.get("MCV", 0) / cbc_dict.get("RBC", 1))
-                    if (cbc_dict.get("RBC", 0) or 0) > 0 else 0,
-                    2,
-                ),
-                "greenKing": round(
-                    (
-                        ((pow(cbc_dict.get("MCV", 0), 2) * cbc_dict.get("RDW", 0)) / (100 * cbc_dict.get("Hb", 1)))
-                        if (cbc_dict.get("Hb", 0) or 0) > 0
-                        else 0
-                    ),
-                    2,
-                ),
-                "nlr": round(
-                    (
-                        ((cbc_dict.get("Neutrophils") or 0) / (cbc_dict.get("Lymphocytes") or 1))
-                        if (cbc_dict.get("Lymphocytes") or 0) > 0
-                        else 0
-                    ),
-                    2,
-                ),
-                "pancytopenia": int(
-                    (cbc_dict.get("Hb", 0) or 0) < 12
-                    and (cbc_dict.get("WBC", 0) or 0) < 4
-                    and (cbc_dict.get("Platelets", 0) or 0) < 150
-                ),
-                "shap_values": shap_values,
+                "mentzer": clinical_indices["mentzer"],
+                "greenKing": clinical_indices["green_king"],
+                "nlr": clinical_indices["nlr"],
+                "pancytopenia": pancytopenia,
+                "shap_values": {},
             },
+            # ── v2 new fields ──
+            "labelDescription": LABEL_DESCRIPTION_MAP[prediction],
+            "p_stage1": round(p_stage1, 4),
+            "p_stage2": round(p_stage2, 4) if p_stage2 is not None else None,
+            "in_uncertain_zone": in_zone,
+            "confidence": confidence,
+            "clinical_indices": clinical_indices,
+            "data_quality": data_quality,
         }
 
 
-# Singleton instance
+# ── Singleton & async infrastructure (unchanged from v1) ──
+
 _engine: Optional[B12ClinicalEngine] = None
 _executor: Optional[ThreadPoolExecutor] = None
 _engine_lock = threading.Lock()
