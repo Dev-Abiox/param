@@ -13,10 +13,10 @@ Architecture:
            - Uses 17 features (base + indices + p_stage1)
            - AUC ~0.61 in uncertain zone
 
-  Classification:
+  Classification (triple gate):
            - p_stage1 > T_DEF -> Deficient (class 3)
-           - p_stage1 < T_NORM and (not in zone OR p_stage2 < T_S2) -> Normal (class 1)
-           - Everything else -> Borderline (class 2)
+           - p_stage1 < 0.12 AND MCV < 92 AND RDW < 13.5 AND green_king < 80 -> Normal (class 1)
+           - Everything else -> Borderline (class 2, cautious default)
 """
 
 import asyncio
@@ -278,16 +278,21 @@ class B12ClinicalEngine:
             X2 = self._build_stage2_vector(cbc_dict, clinical_indices, p_stage1)
             p_stage2 = float(self.stage2.predict_proba(X2)[0][1])
 
-        # Classification
+        # Classification — triple gate: Normal requires LOW p1 + CLEAN indices.
+        # Everything uncertain defaults to Borderline (screening = cautious).
+        green_king = clinical_indices["green_king"]
+        mcv = cbc_dict["MCV"]
+        rdw = cbc_dict["RDW"]
+
         if p_stage1 > self.t_def:
-            prediction = 3
-        elif p_stage1 < self.t_norm:
-            if in_zone and p_stage2 is not None and p_stage2 >= self.t_s2:
-                prediction = 2
-            else:
-                prediction = 1
+            prediction = 3  # Deficient
+        elif (p_stage1 < 0.12
+              and mcv < 92
+              and rdw < 13.5
+              and green_king < 80):
+            prediction = 1  # Normal — triple confirmed clean
         else:
-            prediction = 2
+            prediction = 2  # Borderline — default for ALL uncertain cases
 
         # Derive display probabilities
         if prediction == 3:
