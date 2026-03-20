@@ -194,14 +194,27 @@ class B12ClinicalEngine:
         rule_weight = float(self.thresholds.get("rule_weight", 0.0))
         p_def_final = min(1, max(0, p_def + rule_weight * float(rule_score)))
 
-        # Classification
-        deficient_threshold = float(self.thresholds.get("deficient_threshold", 0.7))
-        borderline_threshold = float(self.thresholds.get("borderline_threshold", 0.4))
+        # Derive three-class probabilities
+        p_normal = max(0, 1 - p_abnormal)
+        p_borderline = max(0, p_abnormal - p_def_final)
+        p_deficient = p_def_final
 
-        if p_def_final >= deficient_threshold:
+        # Apply rule adjustment to shift probability mass toward/away from deficient
+        adjustment = rule_weight * float(rule_score)
+        p_deficient = min(1, max(0, p_deficient + adjustment))
+
+        # Re-normalise so probabilities sum to 1
+        total = p_normal + p_borderline + p_deficient
+        if total > 0:
+            p_normal /= total
+            p_borderline /= total
+            p_deficient /= total
+
+        # Classification: highest probability wins
+        if p_deficient >= p_borderline and p_deficient >= p_normal:
             cls = 3
             label_text = "DEFICIENT"
-        elif p_def_final >= borderline_threshold:
+        elif p_borderline >= p_normal:
             cls = 2
             label_text = "BORDERLINE"
         else:
@@ -212,9 +225,9 @@ class B12ClinicalEngine:
             "riskClass": cls,
             "labelText": label_text,
             "probabilities": {
-                "normal": round(1 - max(p_abnormal, p_def_final), 3),
-                "borderline": round(max(0, p_abnormal - p_def_final), 3),
-                "deficient": round(p_def_final, 3),
+                "normal": round(p_normal, 3),
+                "borderline": round(p_borderline, 3),
+                "deficient": round(p_deficient, 3),
             },
             "rulesFired": rules,
             "modelVersion": self._model_version,
