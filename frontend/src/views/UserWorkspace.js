@@ -176,7 +176,7 @@ const UserWorkspace = ({ user }) => {
     setResult(null);
     setScreeningError(null);
     setRows(INITIAL_CBC_ROWS.map((r) => ({ ...r, value: "" })));
-    setPatient((prev) => ({ ...prev, id: "", name: "" }));
+    setPatient((prev) => ({ ...prev, id: "", name: "", age: 0 }));
     setConsentId(null);
     setHasValidConsent(false);
     setShowConsentCapture(false);
