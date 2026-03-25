@@ -111,10 +111,11 @@ DATABASES = {
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'postgres'),
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        # Keep connections alive for 60 s to avoid reconnect overhead.
-        # In production traffic sits behind PgBouncer (transaction mode),
-        # so this value applies to the Django ↔ PgBouncer leg only.
-        'CONN_MAX_AGE': int(os.environ.get('CONN_MAX_AGE', '60')),
+        # PgBouncer (transaction mode) manages the real DB pool.
+        # CONN_MAX_AGE=0 closes Django's connection after each request,
+        # letting PgBouncer recycle server connections efficiently.
+        'CONN_MAX_AGE': int(os.environ.get('CONN_MAX_AGE', '0')),
+        'DISABLE_SERVER_SIDE_CURSORS': True,  # Required for PgBouncer transaction mode
     }
 }
 
