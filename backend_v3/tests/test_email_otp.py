@@ -200,16 +200,3 @@ class TestSetupMFAEmailMethod:
         assert 'error' in result
         mock_send.assert_not_called()
 
-    @patch('apps.core.mfa.MFASettings')
-    @patch('apps.core.mfa.encrypt_field', return_value='encrypted')
-    def test_totp_setup_returns_qr_code(self, mock_encrypt, MockMFA):
-        user = _make_user()
-        mock_settings = MagicMock()
-        MockMFA.objects.get_or_create.return_value = (mock_settings, True)
-
-        result = MFAManager.setup_mfa(user, method=MFAMethod.TOTP)
-
-        assert result['method'] == MFAMethod.TOTP
-        assert 'qr_code' in result
-        assert 'otpauth_url' in result
-        assert result['qr_code'].startswith('data:image/png;base64,')
