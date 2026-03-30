@@ -135,7 +135,7 @@ class TestGetMFAStatus:
         status = MFAManager.get_mfa_status(user)
         assert status['mfa_method'] == MFAMethod.EMAIL
 
-    def test_default_method_is_totp(self):
+    def test_default_method_is_email(self):
         user = _make_user()
         # No mfa_settings
         user.mfa_settings = MagicMock(side_effect=AttributeError)
@@ -148,7 +148,7 @@ class TestGetMFAStatus:
         with patch('apps.core.mfa.MFASettings') as MockMFA:
             MockMFA.DoesNotExist = Exception
             status = MFAManager.get_mfa_status(user)
-        assert status['mfa_method'] == MFAMethod.TOTP
+        assert status['mfa_method'] == MFAMethod.EMAIL
 
 
 class TestVerifyCodeEmailMethod:
