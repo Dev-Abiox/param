@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, User, ArrowLeft, Mail, CheckCircle, Shield, Smartphone, Key, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { Lock, User, ArrowLeft, Mail, CheckCircle, Shield, Key, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { AuthService, MFAService } from "@/services/api";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -16,7 +16,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
   const [mfaError, setMfaError] = useState(null);
   const [mfaLoading, setMfaLoading] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
-  const [mfaMethod, setMfaMethod] = useState("TOTP");
+  const [mfaMethod, setMfaMethod] = useState("EMAIL");
   const [maskedEmail, setMaskedEmail] = useState(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [rememberDevice, setRememberDevice] = useState(false);
@@ -39,9 +39,9 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
       if (result && result.mfaRequired) {
         setMfaPendingToken(result.mfaPendingToken);
         setPendingUser({ id: result.id, name: result.name, role: result.role });
-        setMfaMethod(result.mfaMethod || "TOTP");
+        setMfaMethod("EMAIL");
         setMaskedEmail(result.maskedEmail || null);
-        if (result.mfaMethod === "EMAIL") setResendCooldown(60);
+        setResendCooldown(60);
         setView("mfa_challenge");
       }
     } catch (err) {
@@ -73,7 +73,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
     setMfaPendingToken(null);
     setMfaError(null);
     setPendingUser(null);
-    setMfaMethod("TOTP");
+    setMfaMethod("EMAIL");
     setMaskedEmail(null);
     setResendCooldown(0);
     setRememberDevice(false);
@@ -128,17 +128,8 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
           <div className="bg-white dark:bg-slate-900 py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200 dark:border-slate-700">
             <div className="mb-6 flex items-center justify-center space-x-2 text-slate-500 dark:text-slate-400">
-              {mfaMethod === "EMAIL" ? (
-                <>
-                  <Mail className="h-5 w-5" />
-                  <span className="text-sm">We sent a code to <span className="font-medium">{maskedEmail}</span></span>
-                </>
-              ) : (
-                <>
-                  <Smartphone className="h-5 w-5" />
-                  <span className="text-sm">Enter the code from your authenticator app</span>
-                </>
-              )}
+              <Mail className="h-5 w-5" />
+              <span className="text-sm">We sent a code to <span className="font-medium">{maskedEmail}</span></span>
             </div>
 
             <form className="space-y-6" onSubmit={handleMFASubmit}>
@@ -196,20 +187,18 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
             </form>
 
             <div className="mt-6 border-t border-slate-200 dark:border-slate-700 pt-4 space-y-3">
-              {mfaMethod === "EMAIL" && (
-                <div className="text-center">
-                  <button
-                    data-testid="mfa-resend-button"
-                    type="button"
-                    onClick={handleResendOTP}
-                    disabled={resendCooldown > 0}
-                    className="text-sm text-teal-600 hover:text-teal-700 disabled:text-slate-400 disabled:cursor-not-allowed font-medium"
-                  >
-                    <RefreshCw className="h-4 w-4 inline mr-1" />
-                    {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend code"}
-                  </button>
-                </div>
-              )}
+              <div className="text-center">
+                <button
+                  data-testid="mfa-resend-button"
+                  type="button"
+                  onClick={handleResendOTP}
+                  disabled={resendCooldown > 0}
+                  className="text-sm text-teal-600 hover:text-teal-700 disabled:text-slate-400 disabled:cursor-not-allowed font-medium"
+                >
+                  <RefreshCw className="h-4 w-4 inline mr-1" />
+                  {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend code"}
+                </button>
+              </div>
               <div className="text-center">
                 <button
                   data-testid="use-backup-code-button"

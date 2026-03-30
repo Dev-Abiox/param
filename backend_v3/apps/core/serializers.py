@@ -75,7 +75,7 @@ class MFAResendOTPSerializer(serializers.Serializer):
 class MFASetupSerializer(serializers.Serializer):
     """MFA setup request serializer."""
     email = serializers.EmailField(required=False)
-    method = serializers.ChoiceField(choices=['TOTP', 'EMAIL'], default='TOTP', required=False)
+    method = serializers.ChoiceField(choices=['EMAIL'], default='EMAIL', required=False)
 
 
 class MFACodeSerializer(serializers.Serializer):

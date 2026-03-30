@@ -109,7 +109,7 @@ const Settings = ({ user }) => {
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
                     <div>
                       <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Method: {mfaStatus?.mfa_method === 'EMAIL' ? 'Email Code' : 'Authenticator App'}
+                        Method: Email Code
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Backup codes remaining: {mfaStatus?.backup_codes_remaining || 0}

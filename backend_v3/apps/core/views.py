@@ -213,6 +213,11 @@ class LoginView(APIView):
             return resp
 
         if mfa_status['enabled']:
+            # Auto-migrate TOTP users to EMAIL on login
+            if mfa_status['mfa_method'] != MFAMethod.EMAIL:
+                MFAManager.migrate_totp_to_email(user)
+                mfa_status['mfa_method'] = MFAMethod.EMAIL
+
             # Skip MFA if this device is trusted (remember-me cookie)
             if not mfa_code and _check_trusted_device(user, request):
                 access_token = create_access_token(user, mfa_verified=True)
@@ -228,22 +233,20 @@ class LoginView(APIView):
 
             if not mfa_code:
                 pending_token = create_mfa_pending_token(user)
+                from .mfa import _mask_email
+                otp_email = MFAManager.get_otp_email(user)
+                code = MFAManager.generate_email_otp(user)
+                MFAManager._send_otp_email(user, code, otp_email)
+
                 resp_data = {
                     'mfa_required': True,
                     'mfa_pending_token': pending_token,
-                    'mfa_method': mfa_status['mfa_method'],
+                    'mfa_method': MFAMethod.EMAIL,
                     'id': str(user.id),
                     'name': user.name or user.username,
                     'role': user.role,
+                    'masked_email': _mask_email(otp_email),
                 }
-
-                # For email OTP, auto-send the code
-                if mfa_status['mfa_method'] == MFAMethod.EMAIL:
-                    from .mfa import _mask_email
-                    otp_email = MFAManager.get_otp_email(user)
-                    code = MFAManager.generate_email_otp(user)
-                    MFAManager._send_otp_email(user, code, otp_email)
-                    resp_data['masked_email'] = _mask_email(otp_email)
 
                 return Response(resp_data)
 

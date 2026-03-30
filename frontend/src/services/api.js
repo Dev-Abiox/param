@@ -175,7 +175,7 @@ export const MFAService = {
     return res.data;
   },
 
-  setup: async (email, method = 'TOTP') => {
+  setup: async (email, method = 'EMAIL') => {
     const res = await API.post("/mfa/setup", { email, method });
     return res.data;
   },

@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Shield, Smartphone, Key, CheckCircle, Copy, AlertTriangle, RefreshCw, Mail } from "lucide-react";
+import { Shield, Key, CheckCircle, Copy, AlertTriangle, RefreshCw, Mail } from "lucide-react";
 import { MFAService } from "@/services/api";
 
 const MFASetup = ({ userEmail, onComplete, onCancel }) => {
-  const [step, setStep] = useState("loading"); // loading, status, choose_method, setup, email_verify, backup_codes, complete
+  const [step, setStep] = useState("loading"); // loading, status, email_verify, backup_codes, complete
   const [mfaStatus, setMfaStatus] = useState(null);
   const [setupData, setSetupData] = useState(null);
-  const [selectedMethod, setSelectedMethod] = useState(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,24 +34,14 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
     }
   };
 
-  const handleChooseMethod = () => {
-    setError(null);
-    setStep("choose_method");
-  };
-
-  const handleStartSetup = async (method) => {
+  const handleStartSetup = async () => {
     setIsLoading(true);
     setError(null);
-    setSelectedMethod(method);
     try {
-      const data = await MFAService.setup(userEmail, method);
+      const data = await MFAService.setup(userEmail, "EMAIL");
       setSetupData(data);
-      if (method === "EMAIL") {
-        setResendCooldown(60);
-        setStep("email_verify");
-      } else {
-        setStep("setup");
-      }
+      setResendCooldown(60);
+      setStep("email_verify");
     } catch (err) {
       setError(err.response?.data?.detail || err.response?.data?.error || "Failed to initialize MFA setup");
     } finally {
@@ -114,8 +103,8 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  // Method label helper
-  const methodLabel = mfaStatus?.mfa_method === "EMAIL" ? "Email Code" : "Authenticator App";
+  // Method label
+  const methodLabel = "Email Code";
 
   // Status View
   if (step === "status") {
@@ -181,7 +170,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
 
             <div className="flex space-x-3">
               <button
-                onClick={handleChooseMethod}
+                onClick={handleStartSetup}
                 disabled={isLoading}
                 className="px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium hover:bg-teal-700 disabled:opacity-50 flex items-center"
               >
@@ -202,136 +191,6 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
             </div>
           </div>
         )}
-      </div>
-    );
-  }
-
-  // Choose Method View
-  if (step === "choose_method") {
-    return (
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Choose Verification Method</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Select how you'd like to verify your identity</p>
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
-            {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <button
-            onClick={() => handleStartSetup("TOTP")}
-            disabled={isLoading}
-            className="flex flex-col items-center p-6 border-2 border-slate-200 dark:border-slate-700 rounded-lg hover:border-teal-500 dark:hover:border-teal-500 transition-colors text-left disabled:opacity-50"
-          >
-            <Smartphone className="h-10 w-10 text-teal-600 mb-3" />
-            <span className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Authenticator App</span>
-            <span className="text-xs text-slate-500 dark:text-slate-400 text-center">
-              Use Google Authenticator, Authy, or similar app
-            </span>
-          </button>
-
-          <button
-            onClick={() => handleStartSetup("EMAIL")}
-            disabled={isLoading}
-            className="flex flex-col items-center p-6 border-2 border-slate-200 dark:border-slate-700 rounded-lg hover:border-teal-500 dark:hover:border-teal-500 transition-colors text-left disabled:opacity-50"
-          >
-            <Mail className="h-10 w-10 text-teal-600 mb-3" />
-            <span className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Email Code</span>
-            <span className="text-xs text-slate-500 dark:text-slate-400 text-center">
-              Receive a verification code at your email
-            </span>
-          </button>
-        </div>
-
-        {isLoading && (
-          <div className="flex items-center justify-center text-sm text-slate-500">
-            <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Setting up...
-          </div>
-        )}
-
-        <button
-          onClick={() => setStep("status")}
-          className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
-        >
-          Back
-        </button>
-      </div>
-    );
-  }
-
-  // TOTP Setup View - Show QR Code
-  if (step === "setup") {
-    return (
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Set Up Authenticator App</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
-            {error}
-          </div>
-        )}
-
-        <div className="flex flex-col items-center mb-6">
-          <div className="bg-white dark:bg-slate-900 p-4 border-2 border-slate-200 dark:border-slate-700 rounded-lg mb-4">
-            {setupData?.qr_code ? (
-              <img
-                src={setupData.qr_code}
-                alt="MFA QR Code"
-                className="w-48 h-48"
-              />
-            ) : (
-              <div className="w-48 h-48 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                <Smartphone className="h-12 w-12 text-slate-300 dark:text-slate-600" />
-              </div>
-            )}
-          </div>
-
-          <div className="text-center">
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Can't scan? Enter this code manually:</p>
-            <code className="text-sm bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded font-mono">
-              {setupData?.otpauth_url?.split("secret=")[1]?.split("&")[0] || "Loading..."}
-            </code>
-          </div>
-        </div>
-
-        <form onSubmit={handleVerify} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Enter the 6-digit code from your app
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
-              value={verificationCode}
-              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
-              className="w-full text-center text-xl tracking-[0.5em] font-mono py-3 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-teal-500 focus:border-teal-500"
-              placeholder="000000"
-              autoFocus
-            />
-          </div>
-
-          <div className="flex space-x-3">
-            <button
-              type="submit"
-              disabled={isLoading || verificationCode.length !== 6}
-              className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
-            >
-              {isLoading ? "Verifying..." : "Verify & Enable"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setVerificationCode(""); setStep("choose_method"); }}
-              className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              Back
-            </button>
-          </div>
-        </form>
       </div>
     );
   }
@@ -396,7 +255,7 @@ const MFASetup = ({ userEmail, onComplete, onCancel }) => {
 
           <button
             type="button"
-            onClick={() => { setVerificationCode(""); setStep("choose_method"); }}
+            onClick={() => { setVerificationCode(""); setStep("status"); }}
             className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             Back
