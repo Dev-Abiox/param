@@ -9,14 +9,14 @@ from .models import Consent, Doctor, Lab, Patient, Screening
 
 class CBCSerializer(serializers.Serializer):
     """CBC (Complete Blood Count) data serializer with clinical range validation."""
-    Hb_g_dL = serializers.FloatField(source='Hb', min_value=1.0, max_value=25.0)
-    RBC_million_uL = serializers.FloatField(source='RBC', min_value=0.5, max_value=10.0)
-    HCT_percent = serializers.FloatField(source='HCT', min_value=5.0, max_value=75.0)
-    MCV_fL = serializers.FloatField(source='MCV', min_value=30.0, max_value=160.0)
+    Hb_g_dL = serializers.FloatField(source='Hb', min_value=1.0, max_value=30.0)
+    RBC_million_uL = serializers.FloatField(source='RBC', min_value=0.5, max_value=15.0)
+    HCT_percent = serializers.FloatField(source='HCT', min_value=5.0, max_value=85.0)
+    MCV_fL = serializers.FloatField(source='MCV', min_value=30.0, max_value=170.0)
     MCH_pg = serializers.FloatField(source='MCH', min_value=10.0, max_value=60.0)
-    MCHC_g_dL = serializers.FloatField(source='MCHC', min_value=20.0, max_value=45.0)
+    MCHC_g_dL = serializers.FloatField(source='MCHC', min_value=20.0, max_value=50.0)
     RDW_percent = serializers.FloatField(source='RDW', min_value=5.0, max_value=40.0)
-    WBC_10_3_uL = serializers.FloatField(source='WBC', min_value=0.1, max_value=100.0)
+    WBC_10_3_uL = serializers.FloatField(source='WBC', min_value=0.1, max_value=200.0)
     Platelets_10_3_uL = serializers.FloatField(source='Platelets', min_value=1.0, max_value=2000.0)
     Neutrophils_percent = serializers.FloatField(source='Neutrophils', min_value=0.0, max_value=100.0, required=False, default=0.0)
     Lymphocytes_percent = serializers.FloatField(source='Lymphocytes', min_value=0.0, max_value=100.0, required=False, default=0.0)

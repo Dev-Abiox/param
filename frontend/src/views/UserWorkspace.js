@@ -145,7 +145,23 @@ const UserWorkspace = ({ user }) => {
     } catch (err) {
       console.error("Screening Error:", err);
       setResult(null);
-      setScreeningError("Screening failed. Please verify inputs and try again.");
+      const errData = err.response?.data;
+      if (errData?.error) {
+        setScreeningError(errData.error);
+      } else if (errData && typeof errData === 'object') {
+        // DRF field validation errors (e.g. { cbc: { HCT_percent: ["..."] } })
+        const msgs = [];
+        const extract = (obj, prefix) => {
+          Object.entries(obj).forEach(([k, v]) => {
+            if (Array.isArray(v)) msgs.push(`${prefix}${k}: ${v.join(', ')}`);
+            else if (typeof v === 'object') extract(v, `${k} → `);
+          });
+        };
+        extract(errData, '');
+        setScreeningError(msgs.length ? msgs.join('; ') : "Screening failed. Please verify inputs and try again.");
+      } else {
+        setScreeningError("Screening failed. Please verify inputs and try again.");
+      }
     } finally {
       setIsProcessing(false);
     }
