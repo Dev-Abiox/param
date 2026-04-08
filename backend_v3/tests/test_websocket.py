@@ -167,6 +167,8 @@ class TestWorkQueueConsumerRoles:
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
         consumer.accept = AsyncMock()
+        # Mock _check_user_active so the role check is reached (not the DB lookup)
+        consumer._check_user_active = AsyncMock(return_value=True)
 
         await consumer.connect()
         consumer.close.assert_called_with(code=4003)
@@ -190,6 +192,7 @@ class TestWorkQueueConsumerRoles:
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
         consumer.accept = AsyncMock()
+        consumer._check_user_active = AsyncMock(return_value=True)
 
         await consumer.connect()
         consumer.accept.assert_called_once()
@@ -211,6 +214,7 @@ class TestDoctorAlertConsumerRoles:
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
         consumer.accept = AsyncMock()
+        consumer._check_user_active = AsyncMock(return_value=True)
 
         await consumer.connect()
         consumer.close.assert_called_with(code=4003)
@@ -233,6 +237,7 @@ class TestDoctorAlertConsumerRoles:
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
         consumer.accept = AsyncMock()
+        consumer._check_user_active = AsyncMock(return_value=True)
 
         await consumer.connect()
         consumer.accept.assert_called_once()
@@ -253,6 +258,7 @@ class TestDoctorAlertConsumerRoles:
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
         consumer.accept = AsyncMock()
+        consumer._check_user_active = AsyncMock(return_value=True)
         consumer._get_doctor_id = AsyncMock(return_value=None)
 
         await consumer.connect()
