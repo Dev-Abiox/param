@@ -134,8 +134,15 @@ def public_tenant(db):
 @pytest.fixture
 @pytest.mark.django_db
 def test_tenant(db, public_tenant):
-    """Create a test tenant with its own schema."""
-    from django.core.management import call_command
+    """Create a test tenant with its own schema.
+
+    Guarantees tenant-specific tables (screenings, labs, doctors, etc.)
+    exist by explicitly running migrations after schema creation.
+    This is the canonical long-term approach — auto_create_schema can
+    silently fail in pytest-django's test DB setup, leaving empty schemas.
+    """
+    from django.db import connection
+    from django_tenants.utils import schema_context
     from apps.core.models import Organization, Domain
     tenant = Organization.objects.create(
         name='Test Org',
@@ -147,9 +154,21 @@ def test_tenant(db, public_tenant):
         tenant=tenant,
         is_primary=True,
     )
-    # Ensure tenant schema has all migrations applied (defence against
-    # auto_create_schema timing issues in test environments)
-    call_command('migrate_schemas', '--tenant', verbosity=0)
+
+    # Verify tables exist; if not, manually create them via migrate_schemas.
+    tables_ok = False
+    with schema_context('test_org'):
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'test_org' AND table_name = 'screenings')"
+        )
+        tables_ok = cursor.fetchone()[0]
+
+    if not tables_ok:
+        from django.core.management import call_command
+        call_command('migrate_schemas', '--schema=test_org', verbosity=0)
+
     return tenant
 
 

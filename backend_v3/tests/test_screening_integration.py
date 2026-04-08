@@ -21,13 +21,11 @@ class TestWorkQueueIntegration:
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
-        # Explicitly set the DB connection to the tenant schema so that
-        # screening tables are reachable (APIClient doesn't run the full
-        # Django middleware stack including JWTTenantMiddleware).
-        from django.db import connection
-        connection.set_tenant(test_tenant)
-
-        response = client.get('/api/screening/queue?status=pending')
+        # APIClient bypasses Django middleware, so the JWTTenantMiddleware
+        # never switches the schema. Use tenant_context to ensure the DB
+        # connection targets the tenant schema where screening tables live.
+        with tenant_context(test_tenant):
+            response = client.get('/api/screening/queue?status=pending')
         # May return 200 with empty list or items
         assert response.status_code == 200
         data = response.json()
@@ -46,7 +44,8 @@ class TestWorkQueueIntegration:
 
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/screening/queue?status=pending')
+        with tenant_context(test_tenant):
+            response = client.get('/api/screening/queue?status=pending')
 
         if response.status_code == 200:
             data = response.json()
@@ -57,11 +56,12 @@ class TestWorkQueueIntegration:
                 # patientId (non-PHI identifier) is acceptable
                 assert 'patientId' in item
 
-    def test_work_queue_invalid_status_returns_400(self, authenticated_lab_user):
+    def test_work_queue_invalid_status_returns_400(self, authenticated_lab_user, test_tenant):
         user, token = authenticated_lab_user
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/screening/queue?status=invalid')
+        with tenant_context(test_tenant):
+            response = client.get('/api/screening/queue?status=invalid')
         assert response.status_code == 400
 
     def test_doctor_cannot_access_work_queue(self, authenticated_doctor_user):
@@ -76,11 +76,12 @@ class TestWorkQueueIntegration:
 class TestCaseListIntegration:
     """Test GET /api/screening/cases."""
 
-    def test_lab_can_list_cases(self, authenticated_lab_user):
+    def test_lab_can_list_cases(self, authenticated_lab_user, test_tenant):
         user, token = authenticated_lab_user
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = client.get('/api/screening/cases')
+        with tenant_context(test_tenant):
+            response = client.get('/api/screening/cases')
         assert response.status_code == 200
 
     def test_unauthenticated_cannot_list_cases(self, public_tenant):
@@ -125,9 +126,10 @@ class TestDoctorIsolation:
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token_a}')
 
         # Doctor A tries to review Doctor B's screening
-        response = client.patch(
-            f'/api/screening/cases/{screening_b.id}/review',
-            {'clinical_note': 'Reviewed'},
-            format='json',
-        )
+        with tenant_context(test_tenant):
+            response = client.patch(
+                f'/api/screening/cases/{screening_b.id}/review',
+                {'clinical_note': 'Reviewed'},
+                format='json',
+            )
         assert response.status_code == 403
