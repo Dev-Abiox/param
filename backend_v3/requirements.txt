@@ -26,7 +26,7 @@ cryptography>=46.0.5,<47.0
 
 # ML Engine
 catboost>=1.2,<2.0
-scikit-learn>=1.5.0,<1.6  # PYSEC-2024-110 fixed in 1.5.0; pinned <1.6 for model compatibility
+scikit-learn>=1.4,<1.5
 pandas>=2.1,<3.0
 numpy>=1.26,<2.0
 joblib>=1.3,<2.0
