@@ -135,6 +135,7 @@ def public_tenant(db):
 @pytest.mark.django_db
 def test_tenant(db, public_tenant):
     """Create a test tenant with its own schema."""
+    from django.core.management import call_command
     from apps.core.models import Organization, Domain
     tenant = Organization.objects.create(
         name='Test Org',
@@ -146,6 +147,9 @@ def test_tenant(db, public_tenant):
         tenant=tenant,
         is_primary=True,
     )
+    # Ensure tenant schema has all migrations applied (defence against
+    # auto_create_schema timing issues in test environments)
+    call_command('migrate_schemas', '--tenant', verbosity=0)
     return tenant
 
 
