@@ -85,6 +85,8 @@ class MFATOTPThrottle(_FailClosedMixin, SimpleRateThrottle):
                     pending_token,
                     settings.JWT_SECRET_KEY,
                     algorithms=[settings.JWT_ALGORITHM],
+                    audience='clinomic',
+                    issuer='clinomic',
                     options={'verify_exp': True},
                 )
                 user_id = payload.get('sub', '')

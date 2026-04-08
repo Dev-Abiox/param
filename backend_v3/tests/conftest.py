@@ -132,37 +132,20 @@ def public_tenant(db):
 
 
 @pytest.fixture
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_tenant(db, public_tenant):
-    """Create a test tenant with its own schema.
-
-    Uses transaction=True so DDL commits are visible.
-    Disables auto_create_schema on save() and instead calls
-    tenant.create_schema() explicitly — this is the django-tenants
-    internal method that CREATE SCHEMA + runs migrate_schemas for the
-    tenant.  This approach is immune to pytest-django transaction
-    wrapping issues.
-    """
+    """Create a test tenant with its own schema."""
     from apps.core.models import Organization, Domain
-
-    tenant = Organization(
+    tenant = Organization.objects.create(
         name='Test Org',
         schema_name='test_org',
         is_active=True,
     )
-    # Disable auto schema creation on save — we call it manually below
-    tenant.auto_create_schema = False
-    tenant.save()
-
     Domain.objects.create(
         domain='test-org.localhost',
         tenant=tenant,
         is_primary=True,
     )
-
-    # Explicitly create schema + run tenant migrations
-    tenant.create_schema(check_if_exists=True, verbosity=0)
-
     return tenant
 
 

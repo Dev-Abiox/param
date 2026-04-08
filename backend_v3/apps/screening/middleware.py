@@ -76,6 +76,8 @@ class JWTWebSocketMiddleware(BaseMiddleware):
                 token,
                 settings.JWT_SECRET_KEY,
                 algorithms=[settings.JWT_ALGORITHM],
+                audience='clinomic',
+                issuer='clinomic',
             )
         except jwt.ExpiredSignatureError:
             await self._send_auth_error(send, 'Token expired')

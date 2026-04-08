@@ -39,6 +39,8 @@ def _extract_jwt_claims(request) -> dict:
             token,
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
+            audience='clinomic',
+            issuer='clinomic',
         )
         return {
             'org_id': payload.get('org_id') or None,
