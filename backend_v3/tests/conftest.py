@@ -136,23 +136,49 @@ def public_tenant(db):
 def test_tenant(db, public_tenant):
     """Create a test tenant with its own schema.
 
-    Uses transaction=True so that the schema creation and migration
-    committed by django-tenants' auto_create_schema are visible to
-    subsequent queries.  Without this, pytest-django's default test
-    transaction wrapping can silently roll back the DDL, leaving the
-    tenant schema empty.
+    Uses transaction=True and explicitly creates the tenant schema with
+    migrations via django-tenants' internal API.  This is the robust
+    long-term approach that works regardless of auto_create_schema
+    behavior in test environments.
     """
+    from django.db import connection
     from apps.core.models import Organization, Domain
-    tenant = Organization.objects.create(
+
+    # Create org record with auto_create_schema disabled so we control
+    # schema creation ourselves.
+    tenant = Organization(
         name='Test Org',
         schema_name='test_org',
         is_active=True,
     )
+    tenant.auto_create_schema = True
+    tenant.save()
+
     Domain.objects.create(
         domain='test-org.localhost',
         tenant=tenant,
         is_primary=True,
     )
+
+    # If auto_create_schema didn't create the tables (common in test DBs),
+    # explicitly create the schema and run tenant migrations.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'test_org' AND table_name = 'screenings')"
+        )
+        tables_exist = cursor.fetchone()[0]
+
+    if not tables_exist:
+        from django.core.management import call_command
+        # Create schema if it doesn't exist
+        with connection.cursor() as cursor:
+            cursor.execute('CREATE SCHEMA IF NOT EXISTS test_org')
+        # Run tenant migrations into the schema
+        connection.set_tenant(tenant)
+        call_command('migrate', verbosity=0)
+        connection.set_schema_to_public()
+
     return tenant
 
 
