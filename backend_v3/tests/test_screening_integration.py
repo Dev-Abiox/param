@@ -21,7 +21,12 @@ class TestWorkQueueIntegration:
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
-        # Set tenant context via X-Org-Id or let middleware handle it
+        # Explicitly set the DB connection to the tenant schema so that
+        # screening tables are reachable (APIClient doesn't run the full
+        # Django middleware stack including JWTTenantMiddleware).
+        from django.db import connection
+        connection.set_tenant(test_tenant)
+
         response = client.get('/api/screening/queue?status=pending')
         # May return 200 with empty list or items
         assert response.status_code == 200
