@@ -25,7 +25,17 @@ def middleware():
 
 def _make_jwt(payload: dict) -> str:
     """Create a signed JWT for testing."""
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    import time as _time
+    defaults = {
+        'iss': 'clinomic',
+        'aud': 'clinomic',
+        'iat': int(_time.time()),
+        'exp': int(_time.time()) + 3600,
+        'jti': str(uuid.uuid4()),
+        'token_type': 'access',
+    }
+    defaults.update(payload)
+    return jwt.encode(defaults, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
 class TestJWTTenantMiddleware:
