@@ -30,6 +30,9 @@ def _make_token(payload_overrides=None, secret=None):
         'org_id': str(uuid.uuid4()),
         'token_type': 'access',
         'mfa_verified': True,
+        'iss': 'clinomic',
+        'aud': 'clinomic',
+        'jti': str(uuid.uuid4()),
         'exp': now + timedelta(minutes=30),
         'iat': now,
     }
