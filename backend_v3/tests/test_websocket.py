@@ -285,6 +285,7 @@ class TestDoctorAlertConsumerRoles:
         consumer.channel_name = "test-channel"
         consumer.close = AsyncMock()
         consumer.accept = AsyncMock()
+        consumer._check_user_active = AsyncMock(return_value=True)
         consumer._get_doctor_id = AsyncMock(return_value=doctor_id)
 
         await consumer.connect()
