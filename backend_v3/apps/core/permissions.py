@@ -145,14 +145,17 @@ class IsMFAVerified(permissions.BasePermission):
         mfa_required_roles = getattr(settings, 'MFA_REQUIRED_ROLES', [])
         role_requires_mfa = request.user.role in mfa_required_roles
 
+        token_payload = getattr(request, 'token_payload', {})
+        mfa_verified_in_token = token_payload.get('mfa_verified', False)
+
         if mfa_settings is None or not mfa_settings.is_enabled:
-            if role_requires_mfa:
-                # Block: MFA-required role has not set up MFA yet
+            if role_requires_mfa and not mfa_verified_in_token:
+                # Block: MFA-required role has not set up MFA and token
+                # was not issued after MFA verification
                 self.message = 'MFA setup required. Please configure MFA in Settings before accessing this resource.'
                 return False
-            # Role does not require MFA — allow access
+            # Either role doesn't require MFA, or token was issued post-MFA
             return True
 
         # MFA is enabled — require mfa_verified claim in the token
-        token_payload = getattr(request, 'token_payload', {})
-        return token_payload.get('mfa_verified', False)
+        return mfa_verified_in_token
