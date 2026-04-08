@@ -28,6 +28,8 @@ def _access_payload(**overrides):
         'is_super_admin': False,
         'mfa_verified': True,
         'token_type': 'access',
+        'iss': 'clinomic',
+        'aud': 'clinomic',
         'jti': str(uuid.uuid4()),
         'iat': now,
         'exp': now + 3600,
