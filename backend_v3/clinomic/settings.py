@@ -66,6 +66,7 @@ MIDDLEWARE = [
     'django_prometheus.middleware.PrometheusBeforeMiddleware',  # must be first
     'django_tenants.middleware.main.TenantMainMiddleware',
     'apps.billing.middleware.JWTTenantMiddleware',   # JWT-based tenant override
+    'apps.billing.middleware.OrgRateLimitMiddleware', # 429 per-org rate limiting
     'apps.billing.middleware.PlanLimitMiddleware',   # 402 when quota exceeded
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -187,6 +188,7 @@ REST_FRAMEWORK = {
         'login': '5/minute',
         'screening': '50/minute',
         'password_reset': '3/hour',
+        'token_refresh': '10/minute',
         # mfa_verify and mfa_resend rates are defined directly on their throttle classes
         # (MFATOTPThrottle, MFAResendThrottle) with custom 5-minute windows.
     },
@@ -236,7 +238,7 @@ RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
 RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
 BASE_DOMAIN = os.environ.get('BASE_DOMAIN', 'clinomiclabs.com')
 JWT_ALGORITHM = 'HS256'
-JWT_ACCESS_TOKEN_LIFETIME = timedelta(minutes=int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', '60')))
+JWT_ACCESS_TOKEN_LIFETIME = timedelta(minutes=int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', '15')))
 JWT_REFRESH_TOKEN_LIFETIME = timedelta(days=int(os.environ.get('REFRESH_TOKEN_EXPIRE_DAYS', '30')))
 
 # MFA Settings
@@ -245,6 +247,7 @@ MFA_ISSUER_NAME = 'Clinomic'
 
 # PHI Encryption
 MASTER_ENCRYPTION_KEY = os.environ.get('MASTER_ENCRYPTION_KEY', '')
+PREVIOUS_ENCRYPTION_KEYS = os.environ.get('PREVIOUS_ENCRYPTION_KEYS', '')  # Comma-separated old Fernet keys for rotation
 
 # Audit Settings
 AUDIT_SIGNING_KEY = os.environ.get('AUDIT_SIGNING_KEY', '')
@@ -260,9 +263,16 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f'Clinomic <{EMAIL_HOST_USER}>' if EMAIL_HOST_USER else 'Clinomic <noreply@clinomiclabs.com>')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
+# Support contact info (used in email templates)
+SUPPORT_PHONE = os.environ.get('SUPPORT_PHONE', '+918460166672')
+SUPPORT_EMAIL_ADDRESS = os.environ.get('SUPPORT_EMAIL_ADDRESS', 'contact@arogyabiox.com')
+
 # ML Engine Settings
 ML_MODEL_DIR = BASE_DIR / 'ml' / 'models'
 ML_EXECUTOR_WORKERS = int(os.environ.get('ML_EXECUTOR_WORKERS', '4'))
+
+# Per-org rate limiting (requests per minute per organisation)
+ORG_RATE_LIMIT_PER_MINUTE = int(os.environ.get('ORG_RATE_LIMIT_PER_MINUTE', '120'))
 
 # Security Headers (production)
 if APP_ENV in ('production', 'prod'):

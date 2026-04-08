@@ -64,6 +64,12 @@ class WorkQueueConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
             await self.close(code=4001)
             return
 
+        # Re-validate user is still active (defence against deactivated accounts)
+        is_active = await self._check_user_active(user.id)
+        if not is_active:
+            await self.close(code=4001)
+            return
+
         role = getattr(user, 'role', '')
         if role != 'LAB':
             await self.close(code=4003)
@@ -78,6 +84,14 @@ class WorkQueueConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
         await self._start_heartbeat()
+
+    @database_sync_to_async
+    def _check_user_active(self, user_id):
+        from apps.core.models import User
+        try:
+            return User.objects.filter(id=user_id, is_active=True).exists()
+        except Exception:
+            return False
 
         logger.info(
             "ws_queue_connect",
@@ -157,6 +171,12 @@ class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
             await self.close(code=4001)
             return
 
+        # Re-validate user is still active
+        is_active = await self._check_user_active(user.id)
+        if not is_active:
+            await self.close(code=4001)
+            return
+
         role = getattr(user, 'role', '')
         if role not in ('DOCTOR', 'LAB'):
             await self.close(code=4003)
@@ -212,6 +232,14 @@ class DoctorAlertConsumer(_HeartbeatMixin, AsyncJsonWebsocketConsumer):
             'labelText': event['label_text'],
             'timestamp': event['timestamp'],
         })
+
+    @database_sync_to_async
+    def _check_user_active(self, user_id):
+        from apps.core.models import User
+        try:
+            return User.objects.filter(id=user_id, is_active=True).exists()
+        except Exception:
+            return False
 
     @database_sync_to_async
     def _get_doctor_id(self, email):

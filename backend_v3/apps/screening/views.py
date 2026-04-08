@@ -65,6 +65,14 @@ class PredictView(APIView):
     required_api_key_scope = 'screening:write'
     throttle_classes = [ScreeningRateThrottle]
 
+    @staticmethod
+    def _recommendation(risk_class: int) -> str:
+        if risk_class == 3:
+            return "Serum B12 measurement recommended. Clinical correlation advised."
+        elif risk_class == 2:
+            return "Consider serum B12 measurement if clinically indicated."
+        return "B12 deficiency unlikely based on CBC parameters."
+
     def post(self, request):
         serializer = ScreeningRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -120,6 +128,38 @@ class PredictView(APIView):
 
         # Get CBC data
         cbc = data['cbc']
+
+        # ── Idempotency check ────────────────────────────────────────────
+        # Prevent duplicate screenings for the same patient + CBC values
+        # within a 5-minute window. Returns the existing result if found.
+        idempotency_hash = hashlib.sha256(
+            f"{patient_id}:{json.dumps(cbc, sort_keys=True)}".encode()
+        ).hexdigest()
+        idempotency_cache_key = f"screening:idemp:{idempotency_hash}"
+
+        cached_screening_id = None
+        try:
+            cached_screening_id = cache.get(idempotency_cache_key)
+        except Exception:
+            pass  # cache miss is fine — just skip dedup
+
+        if cached_screening_id:
+            existing = Screening.objects.filter(id=cached_screening_id).select_related('patient').first()
+            if existing:
+                logger.info("idempotent_hit", screening_id=str(existing.id), request_hash=idempotency_hash)
+                return Response({
+                    'id': str(existing.id),
+                    'patientId': patient_id,
+                    'label': existing.risk_class,
+                    'labelText': existing.label_text,
+                    'probabilities': existing.probabilities,
+                    'indices': existing.indices,
+                    'recommendation': self._recommendation(existing.risk_class),
+                    'rulesFired': existing.rules_fired,
+                    'modelVersion': existing.model_version,
+                    'narrative': existing.narrative,
+                    'duplicate': True,
+                })
 
         # Run ML prediction (synchronous)
         try:
@@ -223,14 +263,7 @@ class PredictView(APIView):
             narrative=narrative_text,
         )
 
-        # Generate recommendation text
-        risk_class = result['riskClass']
-        if risk_class == 3:
-            recommendation = "Serum B12 measurement recommended. Clinical correlation advised."
-        elif risk_class == 2:
-            recommendation = "Consider serum B12 measurement if clinically indicated."
-        else:
-            recommendation = "B12 deficiency unlikely based on CBC parameters."
+        recommendation = self._recommendation(result['riskClass'])
 
         # Broadcast WebSocket notifications
         broadcast_new_screening(str(screening.id), result['riskClass'], 'pending')
@@ -267,18 +300,18 @@ class PredictView(APIView):
                     str(doctor.id) if doctor else None,
                 )
 
-        # Bust analytics caches so records/counts refresh immediately
+        # Bust analytics caches so dashboards refresh immediately
+        from apps.analytics.cache import invalidate_analytics_caches
+        invalidate_analytics_caches(
+            user_id=request.user.pk,
+            doctor_code=doctor.code if doctor else None,
+        )
+
+        # Store idempotency key (5-minute window) to prevent duplicate submissions
         try:
-            from django.core.cache import cache as _cache
-            from django.db import connection as _conn
-            _schema = getattr(_conn, 'schema_name', 'public')
-            _doctor_code = doctor.code if doctor else 'all'
-            _cache.delete(f'analytics:{_schema}:doctors:{_doctor_code}')
-            _cache.delete(f'analytics:{_schema}:doctors:all')
-            _cache.delete(f'analytics:{_schema}:labs:')
-            _cache.delete(f'analytics:{_schema}:summary:{request.user.id}')
+            cache.set(idempotency_cache_key, str(screening.id), timeout=300)
         except Exception:
-            pass  # cache bust is best-effort
+            pass  # idempotency cache is best-effort
 
         log_phi_access(request, patient_id, 'PHI_PREDICT', {
             'screening_id': str(screening.id),
@@ -819,7 +852,7 @@ class BulkImportView(APIView):
         if not uploaded.name.lower().endswith('.csv'):
             return Response({'error': 'Only CSV files are accepted.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Read CSV text (limit to 10 MB)
+        # Validate file size BEFORE reading content into memory (DoS prevention)
         MAX_BYTES = 10 * 1024 * 1024
         if uploaded.size > MAX_BYTES:
             return Response({'error': 'File too large (max 10 MB).'}, status=status.HTTP_400_BAD_REQUEST)
@@ -833,14 +866,19 @@ class BulkImportView(APIView):
             ALLOWED_MIMES = {'text/csv', 'text/plain', 'application/csv', 'application/octet-stream'}
             if mime not in ALLOWED_MIMES:
                 return Response(
-                    {'error': f'Invalid file type detected. Only CSV files are accepted.'},
+                    {'error': 'Invalid file type detected. Only CSV files are accepted.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         except ImportError:
-            # python-magic-bin not installed — fall through to extension check only
-            pass
+            # python-magic-bin not installed — log warning but allow extension-validated CSV through.
+            # Defence-in-depth: CSV column validation below catches non-CSV content.
+            logger.warning("python-magic not installed; CSV magic-byte validation skipped")
 
-        csv_text = uploaded.read().decode('utf-8-sig')  # handle BOM
+        # Read with a hard cap to prevent memory exhaustion even if size header is spoofed
+        raw_bytes = uploaded.read(MAX_BYTES + 1)
+        if len(raw_bytes) > MAX_BYTES:
+            return Response({'error': 'File too large (max 10 MB).'}, status=status.HTTP_400_BAD_REQUEST)
+        csv_text = raw_bytes.decode('utf-8-sig')  # handle BOM
 
         # Quick column validation before enqueuing
         import csv as csv_mod, io

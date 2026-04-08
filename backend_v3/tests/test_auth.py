@@ -83,6 +83,7 @@ class TestMeView:
             status.HTTP_403_FORBIDDEN,
         )
 
+    @patch.object(MeView, "throttle_classes", [])
     @patch.object(MeView, "permission_classes", [])
     def test_authenticated_returns_200(self):
         user = _make_user()
@@ -103,6 +104,7 @@ class TestMeView:
 class TestTokenRefreshView:
     """POST /api/auth/refresh — exchange cookie for new access token."""
 
+    @patch.object(TokenRefreshView, 'throttle_classes', [])
     def test_missing_cookie_returns_401(self):
         factory = APIRequestFactory()
         request = factory.post("/api/auth/refresh", {}, format="json")

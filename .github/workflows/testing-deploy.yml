@@ -80,6 +80,33 @@ jobs:
         cd backend_v3
         pytest --cov=apps --cov-config=.coveragerc --cov-report=term-missing --cov-fail-under=25 -x -q
 
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 18
+    - name: Install scanning tools
+      run: pip install bandit pip-audit
+    - name: Bandit SAST scan (Python)
+      run: |
+        cd backend_v3
+        bandit -r apps/ -c pyproject.toml --severity-level medium -f txt || true
+    - name: pip-audit (Python dependency vulnerabilities)
+      run: |
+        cd backend_v3
+        pip-audit -r requirements.txt --strict
+    - name: npm audit (JS dependency vulnerabilities)
+      run: |
+        cd frontend
+        npm ci --legacy-peer-deps
+        npm audit --audit-level=high || true
+
   test-frontend:
     runs-on: ubuntu-latest
 
@@ -105,7 +132,7 @@ jobs:
         CI=true npm test -- --watchAll=false
 
   build-test-images:
-    needs: [test-backend, test-frontend]
+    needs: [test-backend, test-frontend, security-scan]
     runs-on: ubuntu-latest
 
     permissions:

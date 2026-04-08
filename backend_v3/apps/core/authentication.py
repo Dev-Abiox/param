@@ -11,10 +11,39 @@ from datetime import datetime, timezone
 
 import jwt
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone as dj_timezone
 from rest_framework import authentication, exceptions
 
 from .models import RefreshToken, User
+
+# JWT audience and issuer — validated on every decode to prevent token confusion
+_JWT_ISSUER = 'clinomic'
+_JWT_AUDIENCE = 'clinomic'
+
+# Redis key prefix for revoked access tokens (JWT blacklist)
+_BLACKLIST_PREFIX = 'jwt_blacklist:'
+
+
+def blacklist_access_token(jti: str, ttl_seconds: int | None = None) -> None:
+    """Add an access token JTI to the blacklist (Redis-backed)."""
+    if not jti:
+        return
+    ttl = ttl_seconds or int(settings.JWT_ACCESS_TOKEN_LIFETIME.total_seconds())
+    try:
+        cache.set(f'{_BLACKLIST_PREFIX}{jti}', '1', timeout=ttl)
+    except Exception:
+        pass  # blacklist is best-effort
+
+
+def is_token_blacklisted(jti: str) -> bool:
+    """Check if an access token JTI has been revoked."""
+    if not jti:
+        return False
+    try:
+        return cache.get(f'{_BLACKLIST_PREFIX}{jti}') is not None
+    except Exception:
+        return False  # if Redis is down, allow the token
 
 
 class JWTAuthentication(authentication.BaseAuthentication):
@@ -37,6 +66,11 @@ class JWTAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed('Token has expired')
         except jwt.InvalidTokenError:
             raise exceptions.AuthenticationFailed('Invalid token')
+
+        # Check JWT blacklist (revoked access tokens)
+        jti = payload.get('jti')
+        if jti and is_token_blacklisted(jti):
+            raise exceptions.AuthenticationFailed('Token has been revoked')
 
         try:
             user = User.objects.get(id=payload['sub'])
@@ -65,6 +99,8 @@ def create_access_token(user: User, mfa_verified: bool = False) -> str:
         'is_super_admin': user.is_super_admin,
         'mfa_verified': mfa_verified,
         'token_type': 'access',
+        'iss': _JWT_ISSUER,
+        'aud': _JWT_AUDIENCE,
         'jti': str(uuid.uuid4()),
         'iat': int(now.timestamp()),
         'exp': int((now + settings.JWT_ACCESS_TOKEN_LIFETIME).timestamp()),
@@ -93,6 +129,8 @@ def create_refresh_token(user: User, mfa_verified: bool = False) -> tuple[str, R
         'sub': str(user.id),
         'token_type': 'refresh',
         'mfa_verified': mfa_verified,
+        'iss': _JWT_ISSUER,
+        'aud': _JWT_AUDIENCE,
         'jti': jti,
         'iat': int(now.timestamp()),
         'exp': int((now + settings.JWT_REFRESH_TOKEN_LIFETIME).timestamp()),
@@ -123,6 +161,8 @@ def create_mfa_pending_token(user: User) -> str:
         'username': user.username,
         'role': user.role,
         'token_type': 'mfa_pending',
+        'iss': _JWT_ISSUER,
+        'aud': _JWT_AUDIENCE,
         'jti': str(uuid.uuid4()),
         'iat': int(now.timestamp()),
         'exp': int((now + timedelta(minutes=5)).timestamp()),
@@ -147,7 +187,12 @@ def decode_token(token: str, token_type: str = 'access') -> dict:
     payload = jwt.decode(
         token,
         settings.JWT_SECRET_KEY,
-        algorithms=[settings.JWT_ALGORITHM]
+        algorithms=[settings.JWT_ALGORITHM],
+        issuer=_JWT_ISSUER,
+        audience=_JWT_AUDIENCE,
+        options={
+            'require': ['sub', 'exp', 'iat', 'jti', 'token_type'],
+        },
     )
 
     # Validate token type
@@ -259,7 +304,7 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
             api_key = (
                 APIKey.objects
                 .select_related('created_by', 'organization')
-                .get(key_hash=key_hash)
+                .get(key_hash=key_hash, organization__is_active=True)
             )
         except APIKey.DoesNotExist:
             raise exceptions.AuthenticationFailed('Invalid API key.')

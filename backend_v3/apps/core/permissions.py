@@ -2,6 +2,7 @@
 Role-based permissions for Clinomic API.
 """
 
+from django.conf import settings
 from rest_framework import permissions
 
 from .models import MFASettings, Role
@@ -119,9 +120,11 @@ class IsMFAVerified(permissions.BasePermission):
     """
     Require MFA verification for sensitive operations.
 
-    If the user has not enabled MFA yet, access is always granted — the
-    frontend is responsible for redirecting to MFA setup.  Once MFA is
-    enabled, the JWT must contain ``mfa_verified=True``.
+    For roles in MFA_REQUIRED_ROLES (LAB, DOCTOR), MFA must be both
+    set up AND verified.  If MFA is not yet configured, the user is
+    blocked with a 403 directing them to set up MFA first.
+
+    SUPER_ADMIN users and roles not in MFA_REQUIRED_ROLES are exempt.
     """
     message = 'MFA verification required.'
 
@@ -129,14 +132,25 @@ class IsMFAVerified(permissions.BasePermission):
         if not request.user.is_authenticated:
             return False
 
-        # If user hasn't set up MFA yet, allow access unconditionally.
-        # The frontend handles redirecting to /settings for MFA setup.
+        # SUPER_ADMIN / superuser bypass MFA requirement
+        if request.user.is_superuser or request.user.role == Role.SUPER_ADMIN:
+            return True
+
         try:
             mfa_settings = request.user.mfa_settings
         except MFASettings.DoesNotExist:
             mfa_settings = None
 
+        # Check if this role requires MFA
+        mfa_required_roles = getattr(settings, 'MFA_REQUIRED_ROLES', [])
+        role_requires_mfa = request.user.role in mfa_required_roles
+
         if mfa_settings is None or not mfa_settings.is_enabled:
+            if role_requires_mfa:
+                # Block: MFA-required role has not set up MFA yet
+                self.message = 'MFA setup required. Please configure MFA in Settings before accessing this resource.'
+                return False
+            # Role does not require MFA — allow access
             return True
 
         # MFA is enabled — require mfa_verified claim in the token

@@ -55,7 +55,7 @@ def _set_refresh_cookie(response, token: str) -> None:
         max_age=max_age,
         httponly=True,
         secure=not settings.DEBUG,   # False only in local dev
-        samesite='Lax',
+        samesite='Strict',
         path='/api/auth/',
     )
 
@@ -91,7 +91,7 @@ def _set_device_cookie(response, token: str) -> None:
         max_age=_DEVICE_MAX_AGE,
         httponly=True,
         secure=not settings.DEBUG,
-        samesite='Lax',
+        samesite='Strict',
         path='/api/auth/',
     )
 
@@ -116,6 +116,7 @@ from .throttling import (
     MFAResendThrottle,
     MFATOTPThrottle,
     PasswordResetRateThrottle,
+    RefreshTokenThrottle,
 )
 
 
@@ -345,7 +346,7 @@ class TokenRefreshView(APIView):
     No body required — the refresh token is read from the cookie set at login.
     """
     permission_classes = [AllowAny]
-    throttle_classes = []  # exempt — protected by cookie validation + token rotation
+    throttle_classes = [RefreshTokenThrottle]
 
     def post(self, request):
         token = request.COOKIES.get(_REFRESH_COOKIE)

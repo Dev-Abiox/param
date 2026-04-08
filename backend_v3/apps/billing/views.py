@@ -158,7 +158,10 @@ class WebhookView(APIView):
             .get('entity', {})
         )
         razorpay_sub_id = sub_entity.get('id', '')
-        event_id = data.get('id') or f'{event_type}:{razorpay_sub_id}'
+        event_id = data.get('id')
+        if not event_id:
+            logger.warning('billing.webhook_missing_event_id', event_type=event_type)
+            return Response({'error': 'missing event id'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Idempotency — skip if already processed
         if PaymentEvent.objects.filter(razorpay_event_id=event_id).exists():
@@ -226,10 +229,14 @@ class WebhookView(APIView):
                     pe.processed = True
                     pe.save(update_fields=['processed'])
 
-                # Cache bust outside the transaction (after commit)
+                # Cache bust after transaction commits — use on_commit to avoid
+                # race conditions where a concurrent request reads stale cache
+                # between commit and cache delete.
                 if event_type in ('subscription.activated', 'subscription.charged'):
+                    org_id = sub.organization_id
+                    from django.db import transaction as db_tx
                     from django.core.cache import cache
-                    cache.delete(f'plan_limit_over:{sub.organization_id}')
+                    db_tx.on_commit(lambda: cache.delete(f'plan_limit_over:{org_id}'))
 
                 logger.info('billing.webhook_processed', event_type=event_type, sub_id=razorpay_sub_id)
             except Exception as exc:

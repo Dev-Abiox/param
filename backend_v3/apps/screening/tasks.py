@@ -102,8 +102,12 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
                 raise ValueError("patient_id is empty")
 
             # Resolve lab and doctor
-            lab = Lab.objects.filter(code=row.get('lab_id', '') or lab_code).first() \
-                  or Lab.objects.filter(is_active=True).first()
+            resolved_lab_code = (row.get('lab_id', '') or lab_code).strip()
+            if not resolved_lab_code:
+                raise ValueError("lab_id missing in CSV row and not provided via query param")
+            lab = Lab.objects.filter(code=resolved_lab_code).first()
+            if not lab:
+                raise ValueError(f"Lab '{resolved_lab_code}' not found")
             doctor = None
             if row.get('doctor_id', '').strip():
                 doctor = Doctor.objects.filter(code=row['doctor_id'].strip()).first()

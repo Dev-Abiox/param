@@ -22,6 +22,7 @@ class ResilientAnonRateThrottle(AnonRateThrottle):
             return super().allow_request(request, view)
         except Exception:
             logger.error("throttle_cache_error: AnonRateThrottle denied (fail-closed)")
+            self.history = []
             return False
 
 
@@ -31,6 +32,7 @@ class ResilientUserRateThrottle(UserRateThrottle):
             return super().allow_request(request, view)
         except Exception:
             logger.error("throttle_cache_error: UserRateThrottle denied (fail-closed)")
+            self.history = []  # Prevent AttributeError in DRF's wait()
             return False
 
 
@@ -46,6 +48,7 @@ class _FailClosedMixin:
             return super().allow_request(request, view)
         except Exception:
             logger.error("throttle_cache_error: %s denied (fail-closed)", self.__class__.__name__)
+            self.history = []  # Prevent AttributeError in DRF's wait()
             return False
 
 
@@ -103,6 +106,18 @@ class MFAResendThrottle(_FailClosedMixin, SimpleRateThrottle):
     def parse_rate(self, rate):
         num, _period = super().parse_rate(rate)
         return (num, self.TIMER_SECONDS)
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            'scope': self.scope,
+            'ident': self.get_ident(request),
+        }
+
+
+class RefreshTokenThrottle(_FailClosedMixin, SimpleRateThrottle):
+    """10 refresh attempts per minute per IP to prevent token brute-force."""
+    scope = 'token_refresh'
+    rate = '10/min'
 
     def get_cache_key(self, request, view):
         return self.cache_format % {

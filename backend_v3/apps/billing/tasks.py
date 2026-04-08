@@ -513,8 +513,8 @@ def send_credentials_email(user_id: str, org_name: str) -> None:
         f'{setup_url}\n\n'
         f'This link will expire in 3 days.\n\n'
         f'After setting your password, you can log in at: {settings.FRONTEND_URL}\n\n'
-        f'For any questions, contact your administrator +918460166672 '
-        f'or email contact@arogyabiox.com\n\n'
+        f'For any questions, contact your administrator {settings.SUPPORT_PHONE} '
+        f'or email {settings.SUPPORT_EMAIL_ADDRESS}\n\n'
         f'— The Clinomic Team'
     )
 
@@ -714,6 +714,24 @@ def send_high_risk_alert(
 
 # ── Webhook Delivery ────────────────────────────────────────────────────────────
 
+# Circuit breaker: if 5 webhook deliveries fail within 2 minutes,
+# stop trying for 60 seconds to let the external endpoint recover.
+_webhook_circuit = None
+
+
+def _get_webhook_circuit():
+    global _webhook_circuit
+    if _webhook_circuit is None:
+        from apps.billing.circuit_breaker import CircuitBreaker
+        _webhook_circuit = CircuitBreaker(
+            'webhook_delivery',
+            failure_threshold=5,
+            recovery_timeout=60,
+            window=120,
+        )
+    return _webhook_circuit
+
+
 @shared_task(
     name='billing.deliver_webhook',
     bind=True,
@@ -754,6 +772,20 @@ def deliver_webhook(
     import requests
     from django.utils import timezone
     from apps.billing.models import WebhookEndpoint
+    from apps.billing.circuit_breaker import CircuitOpenError
+
+    # Circuit breaker: skip delivery if too many recent failures
+    cb = _get_webhook_circuit()
+    try:
+        cb.before_call()
+    except CircuitOpenError:
+        logger.warning(
+            'billing.webhook_circuit_open',
+            endpoint_id=webhook_endpoint_id,
+            event=event_name,
+        )
+        # Re-queue with a delay so the task isn't lost
+        raise self.retry(countdown=cb.recovery_timeout, max_retries=self.max_retries)
 
     try:
         endpoint = WebhookEndpoint.objects.get(id=webhook_endpoint_id, is_active=True)
@@ -764,21 +796,34 @@ def deliver_webhook(
         )
         return
 
-    # SSRF guard at delivery time (defence-in-depth — URL validated at registration too)
+    # SSRF guard: resolve DNS once, validate all IPs, then pin the first
+    # safe IP for delivery to prevent DNS rebinding (TOCTOU) attacks.
     try:
         parsed = urlparse(endpoint.url)
         if parsed.scheme != 'https':
             logger.error('billing.webhook_url_not_https', endpoint_id=webhook_endpoint_id)
             return
         resolved = socket.getaddrinfo(parsed.hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        safe_ip = None
         for _fam, _type, _proto, _canon, sockaddr in resolved:
             ip = ipaddress.ip_address(sockaddr[0])
             if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
                 logger.error('billing.webhook_ssrf_blocked', endpoint_id=webhook_endpoint_id, url=endpoint.url)
                 return
+            if safe_ip is None:
+                safe_ip = str(ip)
+        if not safe_ip:
+            logger.error('billing.webhook_no_safe_ip', endpoint_id=webhook_endpoint_id)
+            return
     except (socket.gaierror, ValueError, OSError):
         logger.error('billing.webhook_url_resolve_failed', endpoint_id=webhook_endpoint_id)
         return
+
+    # Build delivery URL using the pinned IP (prevents DNS rebinding)
+    port = parsed.port or 443
+    delivery_url = f'https://{safe_ip}:{port}{parsed.path}'
+    if parsed.query:
+        delivery_url += f'?{parsed.query}'
 
     body = json.dumps({
         'event': event_name,
@@ -797,6 +842,7 @@ def deliver_webhook(
         'Content-Type': 'application/json',
         'X-Clinomic-Signature': f'sha256={signature}',
         'X-Clinomic-Event': event_name,
+        'Host': parsed.hostname,  # Preserve original Host for TLS SNI and virtual hosting
     }
 
     attempt = self.request.retries + 1
@@ -810,12 +856,14 @@ def deliver_webhook(
 
     try:
         response = requests.post(
-            endpoint.url,
+            delivery_url,
             data=body,
             headers=headers,
             timeout=(5, 10),
+            verify=True,  # TLS cert must match original hostname via SNI
         )
         response.raise_for_status()
+        cb.on_success()
         logger.info(
             'billing.webhook_delivered',
             endpoint_id=webhook_endpoint_id,
@@ -824,6 +872,7 @@ def deliver_webhook(
             status_code=response.status_code,
         )
     except requests.RequestException as exc:
+        cb.on_failure()
         logger.warning(
             'billing.webhook_delivery_failed',
             endpoint_id=webhook_endpoint_id,
@@ -931,8 +980,8 @@ def send_lab_created_email(
         f'{setup_url}\n\n'
         f'This link will expire in 3 days.\n\n'
         f'After setting your password, you can log in at: {settings.FRONTEND_URL}\n\n'
-        f'For any questions, contact your administrator +918460166672 '
-        f'or email contact@arogyabiox.com\n\n'
+        f'For any questions, contact your administrator {settings.SUPPORT_PHONE} '
+        f'or email {settings.SUPPORT_EMAIL_ADDRESS}\n\n'
         f'— The Clinomic Team'
     )
 

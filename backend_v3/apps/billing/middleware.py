@@ -156,6 +156,53 @@ class JWTTenantMiddleware:
         )
 
 
+class OrgRateLimitMiddleware:
+    """
+    Per-organisation rate limiting for API endpoints.
+
+    Prevents a single org from monopolising shared resources by enforcing
+    a per-minute request cap on screening endpoints.  Uses a sliding-window
+    counter in Redis with a 60-second TTL.
+
+    Limits are configurable via ORG_RATE_LIMIT_PER_MINUTE in settings
+    (default: 120 requests/minute per org).
+    """
+
+    RATE_LIMITED_PREFIXES = (
+        '/api/screening/',
+        '/api/v1/screening/',
+        '/api/analytics/',
+        '/api/v1/analytics/',
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.limit = getattr(settings, 'ORG_RATE_LIMIT_PER_MINUTE', 120)
+
+    def __call__(self, request):
+        if not any(request.path.startswith(p) for p in self.RATE_LIMITED_PREFIXES):
+            return self.get_response(request)
+
+        org = getattr(request, 'tenant', None)
+        if not org or getattr(org, 'schema_name', 'public') == 'public':
+            return self.get_response(request)
+
+        cache_key = f'org_ratelimit:{org.id}'
+        try:
+            current = cache.get(cache_key, 0)
+            if current >= self.limit:
+                logger.warning('org_rate_limit_exceeded: org=%s count=%s', org.id, current)
+                return JsonResponse(
+                    {'error': 'Rate limit exceeded. Please slow down requests.'},
+                    status=429,
+                )
+            cache.set(cache_key, current + 1, timeout=60)
+        except Exception:
+            pass  # Redis down — allow the request through
+
+        return self.get_response(request)
+
+
 class PlanLimitMiddleware:
     """
     Enforce monthly screening quotas.

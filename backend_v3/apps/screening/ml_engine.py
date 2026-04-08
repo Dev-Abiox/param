@@ -8,6 +8,8 @@ import asyncio
 import hashlib
 import json
 import logging
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
@@ -19,6 +21,9 @@ from django.conf import settings
 from apps.core.exceptions import MLModelNotReadyError
 
 logger = logging.getLogger(__name__)
+
+# How often (seconds) to check for updated model files on disk.
+_RELOAD_CHECK_INTERVAL = int(getattr(settings, 'ML_RELOAD_CHECK_INTERVAL', 30))
 
 
 class B12ClinicalEngine:
@@ -38,6 +43,8 @@ class B12ClinicalEngine:
         self._load_error = None
         self._model_version = "unknown"
         self._model_artifact_hash = ""
+        self._lock = threading.Lock()
+        self._last_reload_check = 0.0
 
         self._load_models()
 
@@ -94,6 +101,58 @@ class B12ClinicalEngine:
         """Check if the ML engine is ready for predictions."""
         return self._ready and self.stage1 is not None and self.stage2 is not None
 
+    def maybe_reload(self) -> bool:
+        """
+        Check if model files have changed on disk and reload if needed.
+
+        Called before each prediction (throttled to once every
+        _RELOAD_CHECK_INTERVAL seconds).  The reload is atomic — the old
+        models remain active until the new ones are fully loaded.
+
+        Returns True if models were reloaded.
+        """
+        # Guard against instances created via __new__ without __init__
+        if not hasattr(self, '_last_reload_check'):
+            return False
+
+        now = time.time()
+        if now - self._last_reload_check < _RELOAD_CHECK_INTERVAL:
+            return False
+        self._last_reload_check = now
+
+        try:
+            current_hash = self._compute_artifact_hash()
+        except Exception:
+            return False
+
+        if current_hash == self._model_artifact_hash:
+            return False
+
+        logger.info(
+            "ML model file change detected (hash %s → %s), reloading...",
+            self._model_artifact_hash[:8], current_hash[:8],
+        )
+
+        with self._lock:
+            # Double-check after acquiring the lock
+            if self._compute_artifact_hash() == self._model_artifact_hash:
+                return False
+
+            old_stage1, old_stage2, old_thresholds = self.stage1, self.stage2, self.thresholds
+            try:
+                self._load_models()
+                logger.info(
+                    "ML models reloaded successfully (version: %s, hash: %s)",
+                    self._model_version, self._model_artifact_hash[:8],
+                )
+                return True
+            except Exception as e:
+                # Rollback — keep the old models running
+                self.stage1, self.stage2, self.thresholds = old_stage1, old_stage2, old_thresholds
+                self._ready = old_stage1 is not None
+                logger.error("ML model reload failed, keeping previous models: %s", e)
+                return False
+
     def get_status(self) -> dict:
         """Get ML engine status for health checks."""
         return {
@@ -104,6 +163,11 @@ class B12ClinicalEngine:
             "version": self._model_version,
             "artifact_hash": self._model_artifact_hash,
             "error": self._load_error,
+            "hot_reload": {
+                "enabled": True,
+                "check_interval_seconds": _RELOAD_CHECK_INTERVAL,
+                "last_check": getattr(self, '_last_reload_check', 0),
+            },
         }
 
     def add_indices(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +181,33 @@ class B12ClinicalEngine:
             (row.get("Platelets") or 0) < 150
         )
         return row
+
+    def compute_shap_values(self, df: pd.DataFrame) -> dict[str, float] | None:
+        """
+        Compute SHAP feature importance values for the Stage 1 model prediction.
+
+        Uses CatBoost's native get_feature_importance(type='ShapValues') which
+        is fast and doesn't require the shap library at runtime.
+
+        Returns a dict of {feature_name: shap_value} or None if computation fails.
+        """
+        try:
+            from catboost import Pool
+            pool = Pool(df)
+            # CatBoost shap: last column is the base value, drop it
+            shap_matrix = self.stage1.get_feature_importance(
+                data=pool,
+                type='ShapValues',
+            )
+            shap_row = shap_matrix[0][:-1]  # exclude base value
+            feature_names = df.columns.tolist()
+            return {
+                name: round(float(val), 4)
+                for name, val in zip(feature_names, shap_row)
+            }
+        except Exception as e:
+            logger.warning("SHAP computation failed (non-fatal): %s", e)
+            return None
 
     def apply_rules(self, row: dict[str, Any]) -> tuple[float, list[str]]:
         """Apply clinical rules for score adjustment."""
@@ -150,6 +241,44 @@ class B12ClinicalEngine:
 
         return score, rules
 
+    def _build_indices(self, cbc_dict: dict[str, Any], df: pd.DataFrame) -> dict[str, Any]:
+        """Build the indices dict including clinical indices and SHAP values."""
+        indices: dict[str, Any] = {
+            "mentzer": round(
+                (cbc_dict.get("MCV", 0) / cbc_dict.get("RBC", 1))
+                if (cbc_dict.get("RBC", 0) or 0) > 0 else 0,
+                2,
+            ),
+            "greenKing": round(
+                (
+                    ((pow(cbc_dict.get("MCV", 0), 2) * cbc_dict.get("RDW", 0)) / (100 * cbc_dict.get("Hb", 1)))
+                    if (cbc_dict.get("Hb", 0) or 0) > 0
+                    else 0
+                ),
+                2,
+            ),
+            "nlr": round(
+                (
+                    ((cbc_dict.get("Neutrophils") or 0) / (cbc_dict.get("Lymphocytes") or 1))
+                    if (cbc_dict.get("Lymphocytes") or 0) > 0
+                    else 0
+                ),
+                2,
+            ),
+            "pancytopenia": int(
+                (cbc_dict.get("Hb", 0) or 0) < 12
+                and (cbc_dict.get("WBC", 0) or 0) < 4
+                and (cbc_dict.get("Platelets", 0) or 0) < 150
+            ),
+        }
+
+        # Compute SHAP feature importances (best-effort, non-blocking)
+        shap_values = self.compute_shap_values(df)
+        if shap_values:
+            indices["shap_values"] = shap_values
+
+        return indices
+
     def predict(self, cbc_dict: dict[str, Any]) -> dict[str, Any]:
         """
         Perform B12 deficiency prediction.
@@ -163,6 +292,9 @@ class B12ClinicalEngine:
         Raises:
             MLModelNotReadyError: If models are not loaded
         """
+        # Check for updated model files (throttled, non-blocking)
+        self.maybe_reload()
+
         # CRITICAL: Fail closed if models are not ready
         if not self.is_ready:
             raise MLModelNotReadyError(
@@ -232,34 +364,7 @@ class B12ClinicalEngine:
             "rulesFired": rules,
             "modelVersion": self._model_version,
             "modelArtifactHash": self._model_artifact_hash,
-            "indices": {
-                "mentzer": round(
-                    (cbc_dict.get("MCV", 0) / cbc_dict.get("RBC", 1))
-                    if (cbc_dict.get("RBC", 0) or 0) > 0 else 0,
-                    2,
-                ),
-                "greenKing": round(
-                    (
-                        ((pow(cbc_dict.get("MCV", 0), 2) * cbc_dict.get("RDW", 0)) / (100 * cbc_dict.get("Hb", 1)))
-                        if (cbc_dict.get("Hb", 0) or 0) > 0
-                        else 0
-                    ),
-                    2,
-                ),
-                "nlr": round(
-                    (
-                        ((cbc_dict.get("Neutrophils") or 0) / (cbc_dict.get("Lymphocytes") or 1))
-                        if (cbc_dict.get("Lymphocytes") or 0) > 0
-                        else 0
-                    ),
-                    2,
-                ),
-                "pancytopenia": int(
-                    (cbc_dict.get("Hb", 0) or 0) < 12
-                    and (cbc_dict.get("WBC", 0) or 0) < 4
-                    and (cbc_dict.get("Platelets", 0) or 0) < 150
-                ),
-            },
+            "indices": self._build_indices(cbc_dict, df),
         }
 
 

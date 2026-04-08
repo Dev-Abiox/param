@@ -5,6 +5,7 @@ Provides Email OTP-based MFA with backup codes.
 """
 
 import hashlib
+import hmac
 import random
 import secrets
 from datetime import datetime, timezone
@@ -152,13 +153,17 @@ class MFAManager:
         if MFAManager.verify_email_otp(user, code):
             return True
 
-        # Try backup codes
+        # Try backup codes (constant-time comparison to prevent timing attacks)
         code_hash = hashlib.sha256(code.encode()).hexdigest()
-        for backup in mfa_settings.backup_codes:
-            if backup['hash'] == code_hash and not backup['used']:
-                backup['used'] = True
-                mfa_settings.save()
-                return True
+        matched_idx = None
+        for idx, backup in enumerate(mfa_settings.backup_codes):
+            if hmac.compare_digest(backup['hash'], code_hash) and not backup['used']:
+                matched_idx = idx
+
+        if matched_idx is not None:
+            mfa_settings.backup_codes[matched_idx]['used'] = True
+            mfa_settings.save()
+            return True
 
         return False
 
@@ -229,7 +234,7 @@ class MFAManager:
             return False
 
         code_hash = hashlib.sha256(code.encode()).hexdigest()
-        if code_hash == stored_hash:
+        if hmac.compare_digest(code_hash, stored_hash):
             cache.delete(cache_key)
             return True
         return False

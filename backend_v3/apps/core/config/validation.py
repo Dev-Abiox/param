@@ -62,7 +62,7 @@ def validate_required_secrets(
 
     _assert_secret("SECRET_KEY", secret_key)
     _assert_secret("MASTER_ENCRYPTION_KEY", master_key)
-    _assert_secret("AUDIT_SIGNING_KEY", audit_key)
+    _assert_secret("AUDIT_SIGNING_KEY", audit_key)  # Fatal — unsigned audit logs violate HIPAA
 
     # JWT_SECRET_KEY must be set and must differ from DJANGO_SECRET_KEY
     _assert_secret("JWT_SECRET_KEY", jwt_secret_key)

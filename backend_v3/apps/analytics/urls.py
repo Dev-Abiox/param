@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .exports import ExportCSVView, ExportScreeningPDFView
 from .views import (
     CaseStatsView,
     DoctorStatsView,
@@ -40,4 +41,11 @@ urlpatterns = [
 
     # Cross-lab deficiency rate comparison
     path("population/labs/compare", LabComparisonView.as_view(), name="analytics-lab-comparison"),
+
+    # ── Data Exports ───────────────────────────────────────────────────────────
+    # CSV export of screening data (filtered)
+    path("export/csv", ExportCSVView.as_view(), name="analytics-export-csv"),
+
+    # PDF report for a single screening
+    path("export/pdf/<uuid:screening_id>", ExportScreeningPDFView.as_view(), name="analytics-export-pdf"),
 ]
