@@ -162,7 +162,7 @@ class Command(BaseCommand):
         return org
 
     def create_subscription(self, org):
-        """Create a demo TenantSubscription on the Professional plan (idempotent)."""
+        """Create a demo TenantSubscription on the Growth plan (idempotent)."""
         try:
             from apps.billing.models import SubscriptionPlan, TenantSubscription
         except ImportError:
@@ -170,9 +170,9 @@ class Command(BaseCommand):
             return
 
         try:
-            plan = SubscriptionPlan.objects.get(name='professional')
+            plan = SubscriptionPlan.objects.get(name='growth')
         except SubscriptionPlan.DoesNotExist:
-            self.stdout.write(self.style.WARNING("  'professional' plan not found; skipping subscription seed."))
+            self.stdout.write(self.style.WARNING("  'growth' plan not found; skipping subscription seed."))
             return
 
         now = timezone.now()

@@ -97,7 +97,8 @@ const PlatformOrgList = () => {
         >
           <option value="">All Plans</option>
           <option value="starter">Starter</option>
-          <option value="professional">Professional</option>
+          <option value="growth">Growth</option>
+          <option value="chain">Chain</option>
           <option value="enterprise">Enterprise</option>
         </select>
         <select

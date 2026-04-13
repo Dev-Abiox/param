@@ -23,8 +23,12 @@ class SubscriptionPlan(models.Model):
     Seeded by the initial data migration — do not create manually.
     """
     STARTER = 'starter'
-    PROFESSIONAL = 'professional'
+    GROWTH = 'growth'
+    CHAIN = 'chain'
     ENTERPRISE = 'enterprise'
+    # Deprecated — kept for backwards compatibility with old references.
+    # Use GROWTH instead.  Removed in a future migration.
+    PROFESSIONAL = 'growth'
 
     name = models.CharField(max_length=50, unique=True)
     display_name = models.CharField(max_length=100)

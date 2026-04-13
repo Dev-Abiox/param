@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, RefreshCw, UserPlus, Trash2, Send } from "lucide-react";
 import { PlatformService } from "@/services/PlatformService";
 
-const PLANS = ["starter", "professional", "enterprise"];
+const PLANS = ["starter", "growth", "chain", "enterprise"];
 
 const STATUS_COLORS = {
   ACTIVE:    "bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400",
