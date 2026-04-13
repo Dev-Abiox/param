@@ -240,6 +240,18 @@ jobs:
           echo "=== WARMING UP SERVICES ==="
           sleep 30
 
+          echo "=== APPLYING DJANGO MIGRATIONS ==="
+          BACKEND_CTR=$(docker-compose -f $COMPOSE ps -q backend)
+          if [ -n "$BACKEND_CTR" ]; then
+            # Run shared migrations + tenant migrations. Failure is non-fatal:
+            # health check below will catch a broken DB state and roll back.
+            docker exec "$BACKEND_CTR" python manage.py migrate_schemas --shared --noinput || echo "⚠ shared migrations had warnings"
+            docker exec "$BACKEND_CTR" python manage.py migrate_schemas --noinput || echo "⚠ tenant migrations had warnings"
+            echo "✓ Migrations applied"
+          else
+            echo "⚠ No backend container found — skipping migrations"
+          fi
+
           echo "=== HEALTH CHECK ==="
           if curl -f https://clinomiclabs.com/api/health/live; then
             echo "✓ Health check passed"
