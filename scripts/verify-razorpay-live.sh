@@ -166,9 +166,11 @@ else
 fi
 
 # ── 8. Verify webhook endpoint is reachable ────────────────────────────────
+# NB: actual webhook URL is /api/billing/webhook/ (no /razorpay suffix)
 WEBHOOK_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-    https://clinomiclabs.com/api/billing/webhook/razorpay \
+    https://clinomiclabs.com/api/billing/webhook/ \
     -H "Content-Type: application/json" \
+    -H "X-Razorpay-Signature: invalid" \
     -d '{"event":"test"}' 2>/dev/null)
 
 case "$WEBHOOK_HTTP" in
