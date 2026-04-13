@@ -86,5 +86,11 @@ agenthub/agents/youtube/db
 # Mobile development
 android-sdk/
 frontend/node_modules/.cache/
-deploy_key  
-deploy_key.pub 
+deploy_key
+deploy_key.pub
+
+# Local-only experimental projects (not part of the production app)
+/package.json
+/package-lock.json
+/video-recorder/
+
