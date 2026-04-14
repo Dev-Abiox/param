@@ -125,6 +125,18 @@ class User(AbstractBaseUser, PermissionsMixin):
             models.Index(fields=['email']),
             models.Index(fields=['role', 'is_active']),
         ]
+        constraints = [
+            # Partial-unique email: enforce uniqueness only when email is
+            # actually set. Empty/NULL slots are allowed to repeat because
+            # a user profile may legitimately have no email on file (e.g.
+            # a lab-tech account provisioned without one). Postgres honours
+            # partial indexes so this compiles to a real UNIQUE constraint.
+            models.UniqueConstraint(
+                fields=['email'],
+                condition=~models.Q(email__isnull=True) & ~models.Q(email=''),
+                name='unique_user_email_when_set',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.username} ({self.role})"
