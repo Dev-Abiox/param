@@ -1,4 +1,5 @@
 import React from 'react';
+import * as Sentry from '@sentry/react';
 
 // Persists across the auto-reload via sessionStorage. Allows ONE silent retry
 // (a transient error like a chunk-load failure usually clears) and then
@@ -38,6 +39,12 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo);
+    // Forward to Sentry if it's been initialised (gated on DSN). Safe to
+    // call unconditionally — when Sentry.init() wasn't run, captureException
+    // is a no-op client that drops the event.
+    try {
+      Sentry.captureException(error, { contexts: { react: { componentStack: errorInfo?.componentStack } } });
+    } catch { /* never let the error reporter break the error boundary */ }
   }
 
   componentDidMount() {
