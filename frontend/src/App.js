@@ -154,14 +154,23 @@ const App = () => {
         return result;
       }
 
-      setUser(result);
-      const redirected = await checkOnboardingRedirect(result);
+      // Login response is {id, name, role} only — fetch the full profile
+      // so lab_code/doctor_code land in state BEFORE the workspace mounts.
+      // Without this the LAB user briefly sees "No lab configured" until
+      // a manual reload triggers the session-restore path.
+      let fullUser = result;
+      try {
+        fullUser = await AuthService.getMe();
+      } catch { /* fall back to partial data from the login response */ }
+
+      setUser(fullUser);
+      const redirected = await checkOnboardingRedirect(fullUser);
       if (!redirected) {
         const from = location.state?.from?.pathname;
-        const defaultRoute = getDefaultRoute(result.role);
+        const defaultRoute = getDefaultRoute(fullUser.role);
         navigate(from || defaultRoute, { replace: true });
       }
-      return result;
+      return fullUser;
     } catch (err) {
       const msg = err?.response?.data?.error;
       setError(msg || "Invalid credentials. Please check your username/email and password.");

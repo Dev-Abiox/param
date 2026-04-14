@@ -14,8 +14,13 @@ const PDFJS_WORKER_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsL
 
 (async () => {
   try {
+    // Must also validate the Content-Type: the SPA catch-all route returns
+    // 200 + text/html for any missing path, so head.ok alone would happily
+    // point workerSrc at an index.html masquerading as a module script.
     const head = await fetch(PDFJS_WORKER_LOCAL, { method: "HEAD" });
-    pdfjsLib.GlobalWorkerOptions.workerSrc = head.ok ? PDFJS_WORKER_LOCAL : PDFJS_WORKER_CDN;
+    const ct = head.headers.get("content-type") || "";
+    const isJs = head.ok && /javascript/i.test(ct);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = isJs ? PDFJS_WORKER_LOCAL : PDFJS_WORKER_CDN;
   } catch {
     pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN;
   }
