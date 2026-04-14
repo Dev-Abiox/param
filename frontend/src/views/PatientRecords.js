@@ -27,19 +27,26 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    // Cancellation flag — if the deps change (page/doctor) before this fetch
+    // resolves, ignore its result so the previous page's data doesn't
+    // overwrite the new page's data on slow networks.
+    let cancelled = false;
     const fetchRecords = async () => {
       setLoading(true);
       try {
         const data = await LisService.getPatientRecords(doctorId, undefined, page, PAGE_SIZE);
+        if (cancelled) return;
         setRecords(data.results ?? data);
         setTotalCount(data.count ?? (data.results ?? data).length);
       } catch (e) {
+        if (cancelled) return;
         console.error("Failed to load records", e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchRecords();
+    return () => { cancelled = true; };
   }, [doctorId, page, refreshKey]);
 
   // Re-fetch when the tab/window regains focus (catches new screenings)

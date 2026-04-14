@@ -180,8 +180,9 @@ const UserWorkspace = ({ user }) => {
     const existingConsentId = await checkExistingConsent();
 
     if (existingConsentId) {
-      // Run with existing consent
-      runScreeningWithConsent(existingConsentId);
+      // Run with existing consent — awaited so the parent promise resolves
+      // only after the prediction completes (loading state stays accurate).
+      await runScreeningWithConsent(existingConsentId);
     } else {
       // Show consent capture
       setShowConsentCapture(true);

@@ -1,7 +1,25 @@
 import * as pdfjsLib from "pdfjs-dist";
 import Tesseract from "tesseract.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// Worker source — prefer self-hosted at /pdf.worker.min.mjs in frontend/public/
+// (drop the file there from node_modules/pdfjs-dist/build/pdf.worker.min.mjs).
+// Falls back to cdnjs (Cloudflare-backed, more reliable than unpkg) if the
+// self-hosted file is absent. Both are pinned to pdfjsLib.version so we never
+// pick up a surprise major-version change at runtime.
+//
+// TODO(supply-chain): copy the worker to public/ via a postinstall script and
+// remove the CDN fallback. Tracking issue: phase 7 cleanup.
+const PDFJS_WORKER_LOCAL = "/pdf.worker.min.mjs";
+const PDFJS_WORKER_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+(async () => {
+  try {
+    const head = await fetch(PDFJS_WORKER_LOCAL, { method: "HEAD" });
+    pdfjsLib.GlobalWorkerOptions.workerSrc = head.ok ? PDFJS_WORKER_LOCAL : PDFJS_WORKER_CDN;
+  } catch {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN;
+  }
+})();
 
 /**
  * Extract CBC values and patient info from a lab report PDF.

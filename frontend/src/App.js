@@ -79,14 +79,24 @@ const App = () => {
   // On app load: attempt a silent token refresh using the httpOnly cookie.
   // If the cookie is present and valid, we get a new access token and then
   // fetch the user profile — no localStorage involved.
+  // Distinguishes "no cookie" (silent — expected) from "server error 5xx"
+  // (banner — actionable for the user).
+  const [restoreError, setRestoreError] = useState(null);
   useEffect(() => {
     const checkSession = async () => {
       try {
         await AuthService.refresh();
         const userData = await AuthService.getMe();
         setUser(userData);
-      } catch {
-        // Cookie absent or expired — stay on the login screen
+      } catch (err) {
+        const status = err?.response?.status;
+        if (status && status >= 500) {
+          // Server is broken — surface a banner so the user knows it's not
+          // their cookie, not their network, not their fault.
+          setRestoreError("Authentication service is temporarily unavailable. Please retry in a moment.");
+        }
+        // 401 / network-absent / no-cookie cases stay silent — that's the
+        // normal "logged out" path.
       } finally {
         setIsLoading(false);
       }
@@ -271,6 +281,11 @@ const App = () => {
     return (
       <ErrorBoundary>
       <Suspense fallback={routeFallback}>
+      {restoreError && (
+        <div className="bg-red-50 border-b border-red-200 text-red-800 px-4 py-2 text-sm text-center">
+          {restoreError}
+        </div>
+      )}
       <Routes>
         <Route
           path="/login"
@@ -279,7 +294,7 @@ const App = () => {
               onLogin={handleLogin}
               onMFARequired={handleMFASuccess}
               isLoading={loginInProgress}
-              error={error}
+              error={error || restoreError}
             />
           }
         />

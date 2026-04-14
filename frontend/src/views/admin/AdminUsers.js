@@ -12,6 +12,11 @@ const ROLE_COLORS = {
 };
 
 const AdminUsers = ({ user: currentUser }) => {
+  // LAB role users own their organisation and create DOCTOR users by default.
+  // SUPER_ADMIN platform owners create LAB users by default.
+  const isLabOwner = currentUser?.role === "LAB";
+  const defaultNewRole = isLabOwner ? "DOCTOR" : "LAB";
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,7 +28,7 @@ const AdminUsers = ({ user: currentUser }) => {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [actionError, setActionError] = useState(null);
 
-  const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: "DOCTOR" });
+  const [form, setForm] = useState({ username: "", email: "", name: "", password: "", role: defaultNewRole });
 
   const load = async () => {
     setLoading(true);
@@ -47,7 +52,7 @@ const AdminUsers = ({ user: currentUser }) => {
     try {
       await AdminService.createUser(form);
       setShowCreate(false);
-      setForm({ username: "", email: "", name: "", password: "", role: isLabOwner ? "DOCTOR" : "LAB" });
+      setForm({ username: "", email: "", name: "", password: "", role: defaultNewRole });
       load();
     } catch (err) {
       setCreateError(err?.response?.data?.error || "Failed to create user.");
