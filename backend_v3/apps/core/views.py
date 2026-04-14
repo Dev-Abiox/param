@@ -28,6 +28,7 @@ from .authentication import (
     revoke_refresh_token,
 )
 from .crypto import get_crypto_status
+from .metrics import AUTH_LOGIN_OUTCOMES
 from .mfa import MFAManager
 from .models import MFAMethod, Role, User
 from .permissions import IsAdmin, IsMFAVerified, IsOrgManager
@@ -136,6 +137,14 @@ from .throttling import (
 )
 
 
+def _login_metric(outcome: str) -> None:
+    """Best-effort metric increment — must never break a login."""
+    try:
+        AUTH_LOGIN_OUTCOMES.labels(outcome=outcome).inc()
+    except Exception:
+        pass
+
+
 class LoginView(APIView):
     """
     User login endpoint.
@@ -162,12 +171,14 @@ class LoginView(APIView):
             except User.DoesNotExist:
                 pass
         if not user:
+            _login_metric('bad_credentials')
             return Response(
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
         if not user.is_active:
+            _login_metric('account_inactive')
             return Response(
                 {'error': 'Account is disabled'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -175,6 +186,7 @@ class LoginView(APIView):
 
         # Block login when the parent organization is deactivated
         if user.organization and not user.organization.is_active:
+            _login_metric('account_inactive')
             return Response(
                 {'error': 'Organization account is disabled'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -193,6 +205,7 @@ class LoginView(APIView):
             from apps.screening.models import Lab
             lab_qs = Lab.objects.all()
             if lab_qs.exists() and not lab_qs.filter(is_active=True).exists():
+                _login_metric('account_inactive')
                 return Response(
                     {'error': 'Lab account is inactive. Contact your administrator.'},
                     status=status.HTTP_401_UNAUTHORIZED
@@ -204,6 +217,7 @@ class LoginView(APIView):
             from apps.screening.models import Doctor
             doctor_qs = Doctor.objects.filter(email=user.email)
             if doctor_qs.exists() and not doctor_qs.filter(is_active=True).exists():
+                _login_metric('account_inactive')
                 return Response(
                     {'error': 'Doctor account is inactive. Contact your administrator.'},
                     status=status.HTTP_401_UNAUTHORIZED
@@ -227,6 +241,7 @@ class LoginView(APIView):
                 'role': user.role,
             })
             _set_refresh_cookie(resp, refresh_token)
+            _login_metric('mfa_setup_required')
             return resp
 
         if mfa_status['enabled']:
@@ -246,6 +261,7 @@ class LoginView(APIView):
                     'role': user.role,
                 })
                 _set_refresh_cookie(response, refresh_token)
+                _login_metric('trusted_device_skip')
                 return response
 
             if not mfa_code:
@@ -265,10 +281,12 @@ class LoginView(APIView):
                     'masked_email': _mask_email(otp_email),
                 }
 
+                _login_metric('mfa_required')
                 return Response(resp_data)
 
             # Verify MFA code
             if not MFAManager.verify_code(user, mfa_code):
+                _login_metric('bad_credentials')
                 return Response(
                     {'error': 'Invalid MFA code'},
                     status=status.HTTP_401_UNAUTHORIZED
@@ -288,6 +306,7 @@ class LoginView(APIView):
             'role': user.role,
         })
         _set_refresh_cookie(response, refresh_token)
+        _login_metric('success')
         return response
 
 

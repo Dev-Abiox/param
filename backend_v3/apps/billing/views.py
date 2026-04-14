@@ -25,6 +25,8 @@ import structlog
 from django.conf import settings
 from django.db import DatabaseError, transaction
 from django.utils import timezone
+
+from apps.core.metrics import BILLING_WEBHOOK_EVENTS, BILLING_WEBHOOK_LATENCY
 from django_tenants.utils import schema_context
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -356,16 +358,50 @@ class WebhookView(APIView):
             return False, None  # still return 200 to stop Razorpay retries
 
     def post(self, request):
+        # Instrumentation: record the full webhook round-trip time and
+        # group outcomes by event type. We need the event type before we
+        # can label the latency, so we only record latency AFTER parsing
+        # the body (nothing useful before that point).
+        import time as _time
+        _t0 = _time.monotonic()
+        _event_type_for_metric = 'unknown'
+
+        def _inc(outcome):
+            try:
+                BILLING_WEBHOOK_EVENTS.labels(
+                    event_type=_event_type_for_metric, outcome=outcome
+                ).inc()
+            except Exception:
+                pass  # metric failure must never break a webhook
+
+        def _observe_latency():
+            try:
+                BILLING_WEBHOOK_LATENCY.labels(
+                    event_type=_event_type_for_metric
+                ).observe(_time.monotonic() - _t0)
+            except Exception:
+                pass
+
         ok, err = self._verify_source(request)
         if not ok:
+            _inc('forbidden_ip')
+            _observe_latency()
             return err
 
         ok, err = self._verify_signature(request)
         if not ok:
+            # err is either 503 (unconfigured) or 401 (bad sig); distinguish.
+            _inc(
+                'unconfigured'
+                if err.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+                else 'invalid_signature'
+            )
+            _observe_latency()
             return err
 
         data = request.data
         event_type = data.get('event', '')
+        _event_type_for_metric = event_type or 'unknown'
         sub_entity = (
             data.get('payload', {})
             .get('subscription', {})
@@ -375,9 +411,13 @@ class WebhookView(APIView):
         event_id = data.get('id')
         if not event_id:
             logger.warning('billing.webhook_missing_event_id', event_type=event_type)
+            _inc('error')
+            _observe_latency()
             return Response({'error': 'missing event id'}, status=status.HTTP_400_BAD_REQUEST)
 
         if PaymentEvent.objects.filter(razorpay_event_id=event_id).exists():
+            _inc('duplicate')
+            _observe_latency()
             return Response({'status': 'already_processed'})
 
         sub = (
@@ -399,8 +439,19 @@ class WebhookView(APIView):
                 sub, event_type, sub_entity, razorpay_sub_id, pe
             )
             if early is not None:
+                # _apply_state_transition returns a 503 only on lock
+                # contention; any other early return means a caught
+                # exception inside the transaction.
+                _inc(
+                    'lock_contended'
+                    if early.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+                    else 'error'
+                )
+                _observe_latency()
                 return early
 
+        _inc('accepted')
+        _observe_latency()
         return Response({'status': 'ok'})
 
 

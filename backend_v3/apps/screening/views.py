@@ -21,6 +21,7 @@ from rest_framework.views import APIView
 from apps.core.audit import log_phi_access
 from apps.core.crypto import encrypt_field
 from apps.core.exceptions import MLModelNotReadyError
+from apps.core.metrics import SCREENING_PREDICT_LATENCY, SCREENING_PREDICT_OUTCOMES
 from apps.core.models import Role
 from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified, IsOrgManager
 
@@ -347,56 +348,87 @@ class PredictView(APIView):
         })
 
     def post(self, request):
-        serializer = ScreeningRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        # Total wall-clock time for the predict endpoint, labelled by
+        # outcome. Wrapped in a try/finally so we always record a sample.
+        import time as _time
+        _t0 = _time.monotonic()
+        _outcome = 'error'
+        try:
+            serializer = ScreeningRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
 
-        patient_id = data['patientId']
-        if not patient_id.strip():
-            return Response(
-                {'error': 'patientId is required'},
-                status=status.HTTP_400_BAD_REQUEST
+            patient_id = data['patientId']
+            if not patient_id.strip():
+                return Response(
+                    {'error': 'patientId is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            _, consent_err = self._validate_consent(data.get('consentId'), patient_id)
+            if consent_err is not None:
+                return consent_err
+
+            cbc = data['cbc']
+            idempotency_cache_key, _ = self._idempotency_key(patient_id, cbc)
+
+            cached_response = self._lookup_idempotent(idempotency_cache_key, patient_id)
+            if cached_response is not None:
+                _outcome = 'idempotent'
+                return cached_response
+
+            result, pred_err = self._run_prediction(cbc)
+            if pred_err is not None:
+                # _run_prediction returned a 503 for MLModelNotReadyError,
+                # otherwise 500. Keep the two outcomes distinct so ops can
+                # tell "deploy regression" from "real crash".
+                _outcome = (
+                    'ml_not_ready'
+                    if pred_err.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+                    else 'error'
+                )
+                return pred_err
+
+            narrative_text = self._generate_narrative(result, cbc, patient_id)
+
+            screening, doctor, _lab, persist_err = self._persist_screening(
+                request, data, cbc, result, narrative_text, patient_id
+            )
+            if persist_err is not None:
+                return persist_err
+
+            self._dispatch_side_effects(
+                request, screening, result, doctor, patient_id, idempotency_cache_key
             )
 
-        _, consent_err = self._validate_consent(data.get('consentId'), patient_id)
-        if consent_err is not None:
-            return consent_err
+            # Drift signal: predicted risk class distribution.
+            try:
+                SCREENING_PREDICT_OUTCOMES.labels(
+                    risk_class=str(result['riskClass'])
+                ).inc()
+            except Exception:
+                pass  # metric failure must never break a prediction
 
-        cbc = data['cbc']
-        idempotency_cache_key, _ = self._idempotency_key(patient_id, cbc)
-
-        cached_response = self._lookup_idempotent(idempotency_cache_key, patient_id)
-        if cached_response is not None:
-            return cached_response
-
-        result, pred_err = self._run_prediction(cbc)
-        if pred_err is not None:
-            return pred_err
-
-        narrative_text = self._generate_narrative(result, cbc, patient_id)
-
-        screening, doctor, _lab, persist_err = self._persist_screening(
-            request, data, cbc, result, narrative_text, patient_id
-        )
-        if persist_err is not None:
-            return persist_err
-
-        self._dispatch_side_effects(
-            request, screening, result, doctor, patient_id, idempotency_cache_key
-        )
-
-        return Response({
-            'id': str(screening.id),
-            'patientId': patient_id,
-            'label': result['riskClass'],
-            'labelText': result['labelText'],
-            'probabilities': result['probabilities'],
-            'indices': result['indices'],
-            'recommendation': self._recommendation(result['riskClass']),
-            'rulesFired': result['rulesFired'],
-            'modelVersion': result['modelVersion'],
-            'narrative': narrative_text,
-        })
+            _outcome = 'ok'
+            return Response({
+                'id': str(screening.id),
+                'patientId': patient_id,
+                'label': result['riskClass'],
+                'labelText': result['labelText'],
+                'probabilities': result['probabilities'],
+                'indices': result['indices'],
+                'recommendation': self._recommendation(result['riskClass']),
+                'rulesFired': result['rulesFired'],
+                'modelVersion': result['modelVersion'],
+                'narrative': narrative_text,
+            })
+        finally:
+            try:
+                SCREENING_PREDICT_LATENCY.labels(outcome=_outcome).observe(
+                    _time.monotonic() - _t0
+                )
+            except Exception:
+                pass  # metric failure must never break a prediction
 
 
 class _LabListPagination(PageNumberPagination):
