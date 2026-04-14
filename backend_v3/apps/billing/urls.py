@@ -13,6 +13,7 @@ from .views import (
     APIKeyDetailView,
     APIKeyListView,
     OnboardingStatusView,
+    PaymentVerifyView,
     WebhookDetailView,
     WebhookListView,
     WebhookView,
@@ -29,6 +30,7 @@ urlpatterns = [
     path('admin/usage/', AdminUsageView.as_view(), name='billing-admin-usage'),
     path('admin/billing/', AdminBillingView.as_view(), name='billing-admin-billing'),
     path('admin/upgrade/', AdminBillingUpgradeView.as_view(), name='billing-admin-upgrade'),
+    path('admin/verify-payment/', PaymentVerifyView.as_view(), name='billing-admin-verify-payment'),
 
     # Admin portal — API key management
     path('admin/api-keys/', APIKeyListView.as_view(), name='billing-admin-api-keys'),

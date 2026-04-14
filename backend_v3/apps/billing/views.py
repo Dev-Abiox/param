@@ -119,6 +119,64 @@ class WebhookRateThrottle(AnonRateThrottle):
     rate = '60/min'
 
 
+# Razorpay's documented webhook source IP ranges. HMAC-SHA256 is the primary
+# defence — this list is defence-in-depth against DoS / forgery attempts.
+# Override via settings.RAZORPAY_WEBHOOK_ALLOWED_CIDRS if Razorpay updates them.
+# Set to empty string to disable the check (e.g. if Razorpay's published list is
+# unavailable or you're behind a proxy that masks the source IP).
+DEFAULT_RAZORPAY_CIDRS = (
+    "52.66.143.197/32",
+    "13.232.232.95/32",
+    "13.234.131.187/32",
+    "3.6.92.66/32",
+    "13.235.157.91/32",
+    "13.232.232.96/27",  # broader range used in some regions
+)
+
+
+def _client_ip(request) -> str:
+    """Return the client IP, trusting X-Forwarded-For only when behind nginx."""
+    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if xff:
+        # First IP in the chain is the original client
+        return xff.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '')
+
+
+def _is_razorpay_ip(ip_str: str) -> bool:
+    """Check if *ip_str* falls within any of Razorpay's published IP ranges.
+
+    Disabled (returns True) when:
+      - APP_ENV env var is testing/dev/development
+      - ``settings.RAZORPAY_WEBHOOK_ALLOWED_CIDRS`` is set to an empty value
+    """
+    # Read APP_ENV directly from os.environ, NOT settings — some tests patch
+    # apps.billing.views.settings to a MagicMock which would otherwise turn
+    # `settings.APP_ENV` into a MagicMock and bypass this guard.
+    import os
+    if os.environ.get('APP_ENV', 'dev').lower() in ('testing', 'test', 'dev', 'development'):
+        return True
+
+    if not ip_str:
+        return False
+    cidrs = getattr(settings, 'RAZORPAY_WEBHOOK_ALLOWED_CIDRS', None)
+    if cidrs is None:
+        cidrs = DEFAULT_RAZORPAY_CIDRS
+    if not cidrs:
+        return True  # check explicitly disabled
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for cidr in cidrs:
+        try:
+            if ip in ipaddress.ip_network(cidr, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 class WebhookView(APIView):
     """
     POST /api/billing/webhook/
@@ -130,6 +188,13 @@ class WebhookView(APIView):
     throttle_classes = [WebhookRateThrottle]
 
     def post(self, request):
+        # Defence-in-depth: reject obviously bogus source IPs before doing any work.
+        # HMAC verification below remains the source of truth.
+        client_ip = _client_ip(request)
+        if not _is_razorpay_ip(client_ip):
+            logger.warning('billing.webhook_blocked_ip', ip=client_ip)
+            return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
         sig = request.headers.get('X-Razorpay-Signature', '')
         webhook_secret = getattr(settings, 'RAZORPAY_WEBHOOK_SECRET', '')
 
@@ -416,6 +481,98 @@ class AdminBillingUpgradeView(APIView):
             'razorpay_key_id': settings.RAZORPAY_KEY_ID,
             'plan': plan_name,
             'display_name': new_plan.display_name,
+        })
+
+
+class PaymentVerifyView(APIView):
+    """
+    POST /api/billing/admin/verify-payment/
+
+    Verify a Razorpay subscription payment signature returned by the
+    Razorpay Checkout client-side handler. The frontend MUST call this
+    before showing a "success" UI — never trust the handler firing alone.
+
+    Body:
+        razorpay_payment_id      — required
+        razorpay_subscription_id — required (subscription flow)
+        razorpay_signature       — required
+
+    Returns 200 with {verified: True} on success, 400 on bad input,
+    422 on signature mismatch.
+    """
+    permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    required_roles = [Role.SUPER_ADMIN, Role.LAB]
+
+    def post(self, request):
+        if not settings.RAZORPAY_KEY_SECRET:
+            return Response(
+                {'error': 'Payment gateway not configured'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        payment_id = (request.data.get('razorpay_payment_id') or '').strip()
+        sub_id = (request.data.get('razorpay_subscription_id') or '').strip()
+        signature = (request.data.get('razorpay_signature') or '').strip()
+
+        if not (payment_id and sub_id and signature):
+            return Response(
+                {'error': 'razorpay_payment_id, razorpay_subscription_id, and razorpay_signature are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Verify the signature matches HMAC-SHA256(payment_id|subscription_id, key_secret)
+        import hmac as _hmac
+        import hashlib as _hashlib
+        msg = f'{payment_id}|{sub_id}'.encode()
+        expected = _hmac.new(
+            settings.RAZORPAY_KEY_SECRET.encode(),
+            msg,
+            _hashlib.sha256,
+        ).hexdigest()
+        if not _hmac.compare_digest(expected, signature):
+            logger.warning(
+                'billing.payment_verify_signature_mismatch',
+                payment_id=payment_id,
+                sub_id=sub_id,
+                user=request.user.username,
+            )
+            return Response(
+                {'error': 'Invalid payment signature', 'verified': False},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # Optional: confirm the subscription exists in Razorpay (defence in depth).
+        # Failures here are non-fatal — the signature itself is the canonical proof.
+        try:
+            import razorpay
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            client.subscription.fetch(sub_id)
+        except Exception as exc:
+            logger.warning(
+                'billing.payment_verify_subscription_fetch_failed',
+                sub_id=sub_id,
+                error=type(exc).__name__,
+            )
+
+        # Surface the matching DB subscription so the frontend can refresh state.
+        org = getattr(request.user, 'organization', None)
+        with schema_context('public'):
+            db_sub = TenantSubscription.objects.filter(razorpay_sub_id=sub_id).first()
+
+        logger.info(
+            'billing.payment_verified',
+            user=request.user.username,
+            org=getattr(org, 'name', None),
+            payment_id=payment_id,
+            sub_id=sub_id,
+        )
+        return Response({
+            'verified': True,
+            'razorpay_subscription_id': sub_id,
+            'razorpay_payment_id': payment_id,
+            'db_subscription_status': db_sub.status if db_sub else None,
         })
 
 

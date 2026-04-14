@@ -459,6 +459,17 @@ export const BillingService = {
     const res = await API.post("/v1/admin/billing/upgrade/", { plan: planName });
     return res.data;
   },
+  // Verify the (payment_id, subscription_id, signature) tuple returned by
+  // Razorpay Checkout's handler. Must be called BEFORE showing a success UI —
+  // never trust the handler firing alone.
+  verifyPayment: async ({ razorpay_payment_id, razorpay_subscription_id, razorpay_signature }) => {
+    const res = await API.post("/v1/billing/admin/verify-payment/", {
+      razorpay_payment_id,
+      razorpay_subscription_id,
+      razorpay_signature,
+    });
+    return res.data;
+  },
   getOnboardingStatus: async () => {
     const res = await API.get("/v1/billing/onboarding/");
     return res.data;

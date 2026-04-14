@@ -2,6 +2,14 @@ import React, { useState, useEffect } from "react";
 import { CreditCard, CheckCircle, ArrowUpCircle, TrendingUp, AlertTriangle, Zap } from "lucide-react";
 import { BillingService } from "@/services/api";
 
+// Razorpay Checkout script — pinned URL with a load timeout. SRI integrity
+// is intentionally NOT used here because Razorpay does not publish an SRI
+// digest for checkout.js (the file is rotated periodically). The pinned
+// version + load timeout + handler verification (server-side) provide the
+// safety net.
+const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.js";
+const RAZORPAY_LOAD_TIMEOUT_MS = 12000;
+
 /* ─── helpers ─────────────────────────────────────────── */
 const pct = (used, limit) => {
   if (!limit || limit === -1) return 0;
@@ -27,13 +35,54 @@ const STATUS_PILL = {
 };
 
 const loadRazorpay = () => {
+  // If already loaded (e.g. user reopened the modal), short-circuit.
+  if (typeof window !== "undefined" && window.Razorpay) return Promise.resolve(true);
+
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+
     const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
+    script.src = RAZORPAY_CHECKOUT_URL;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.onload = () => finish(true);
+    script.onerror = () => finish(false);
+
+    const timer = setTimeout(() => {
+      // Network stall — bail out so the user isn't stuck on a spinner.
+      finish(false);
+      try { document.body.removeChild(script); } catch (_) {}
+    }, RAZORPAY_LOAD_TIMEOUT_MS);
+
     document.body.appendChild(script);
   });
+};
+
+// Reject any key that isn't live mode when the app itself was built for production.
+// Tied to NODE_ENV (set by CRA at build time) — never trusts a runtime variable
+// the server could change.
+const isProductionBuild = () =>
+  typeof process !== "undefined" &&
+  process.env &&
+  process.env.NODE_ENV === "production";
+
+const assertLiveKeyInProduction = (keyId) => {
+  if (!keyId) {
+    throw new Error("Payment gateway key missing. Contact support.");
+  }
+  if (isProductionBuild() && !keyId.startsWith("rzp_live_")) {
+    // Hard refuse — never open a test-mode checkout from a prod build.
+    throw new Error(
+      "Refusing to open checkout: production build received a non-live Razorpay key. " +
+      "This indicates a misconfiguration on the server."
+    );
+  }
 };
 
 /* ─── component ───────────────────────────────────────── */
@@ -74,7 +123,7 @@ const AdminBilling = () => {
   const handleUpgrade = async () => {
     if (!selectedPlan || selectedPlan === planData?.subscription?.plan?.name) return;
     setUpgradeLoading(true);
-    
+
     try {
       const isLoaded = await loadRazorpay();
       if (!isLoaded) {
@@ -82,21 +131,56 @@ const AdminBilling = () => {
         setUpgradeLoading(false);
         return;
       }
-      
+
       const result = await BillingService.initiateUpgrade(selectedPlan);
       if (!result.razorpay_key_id) {
         showToast("error", "Payment gateway is not configured. Please contact support.");
         setUpgradeLoading(false);
         return;
       }
+
+      // Hard-fail before opening the modal if the build is prod but the key is test.
+      try {
+        assertLiveKeyInProduction(result.razorpay_key_id);
+      } catch (e) {
+        showToast("error", e.message);
+        setUpgradeLoading(false);
+        return;
+      }
+
       const options = {
         key: result.razorpay_key_id,
         subscription_id: result.subscription_id,
         name: "Clinomic",
         description: `Upgrade to ${result.display_name}`,
-        handler: () => {
-          showToast("success", `Payment successful! Upgrading to ${result.display_name}.`);
-          setTimeout(() => load(), 2000);
+        // Razorpay invokes this handler with the payment_id, subscription_id,
+        // and signature ONLY after a successful charge. Never trust this
+        // alone — verify server-side before announcing success.
+        handler: async (response) => {
+          try {
+            const verification = await BillingService.verifyPayment({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_subscription_id: response.razorpay_subscription_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            if (verification?.verified) {
+              showToast("success", `Payment verified. Upgrading to ${result.display_name}.`);
+              // Give the webhook ~2s to land before refreshing
+              setTimeout(() => load(), 2000);
+            } else {
+              showToast(
+                "error",
+                "Payment was charged but verification failed. Please contact support — do not retry."
+              );
+            }
+          } catch (verifyErr) {
+            showToast(
+              "error",
+              "Payment was charged but verification failed. Please contact support — do not retry."
+            );
+          } finally {
+            setUpgradeLoading(false);
+          }
         },
         modal: {
           ondismiss: () => {

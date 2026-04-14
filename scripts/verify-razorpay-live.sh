@@ -12,7 +12,11 @@
 # Or one-shot from your laptop:
 #   ssh deploy@<server> 'bash -s' < scripts/verify-razorpay-live.sh
 
-set -u  # error on unset vars but DO NOT exit on errors — we want to run all checks
+# strict: error on unset vars + pipe failures. We deliberately do NOT use `set -e`
+# because we want every check to run even if one fails — explicit `|| true` and
+# the FAIL counter handle per-check tolerance.
+set -u
+set -o pipefail
 
 GREEN="\033[0;32m"
 RED="\033[0;31m"
