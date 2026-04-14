@@ -87,7 +87,15 @@ jobs:
       - name: pip-audit (Python dependency vulnerabilities)
         run: |
           cd backend_v3
-          pip-audit -r requirements.txt --ignore-vuln PYSEC-2025-49 --ignore-vuln CVE-2024-6345 --ignore-vuln PYSEC-2024-110
+          # CVE ignores:
+          #   PYSEC-2025-49 / CVE-2024-6345 — setuptools (pinned for razorpay SDK pkg_resources)
+          #   PYSEC-2024-110                — scikit-learn (pinned for CatBoost model compatibility)
+          #   CVE-2025-71176                — pytest (dev-only dependency, not reachable at runtime)
+          pip-audit -r requirements.txt \
+            --ignore-vuln PYSEC-2025-49 \
+            --ignore-vuln CVE-2024-6345 \
+            --ignore-vuln PYSEC-2024-110 \
+            --ignore-vuln CVE-2025-71176
       - name: npm audit (JS dependency vulnerabilities)
         run: |
           cd frontend
