@@ -59,11 +59,28 @@ class ScreeningRateThrottle(UserRateThrottle):
             return False
 
 
+SCREENING_IDEMPOTENCY_TTL = 300  # 5 minutes — dedup window for identical (patient, CBC)
+
+
 class PredictView(APIView):
     """
     B12 screening prediction endpoint.
 
     POST /api/screening/predict
+
+    The request lifecycle is:
+        1. validate payload + patientId
+        2. validate consent (if provided) — returns 422 with a stable
+           error code so the frontend can distinguish consent issues
+           from auth errors
+        3. look up an idempotent hit in cache — if found, return the
+           existing screening
+        4. run the ML engine + narrative generator
+        5. resolve lab / doctor / patient, persist the screening
+        6. fire side effects (websocket, webhook, high-risk alert,
+           analytics cache bust, idempotency key, PHI audit log)
+
+    Each stage is a private helper so the orchestrator stays readable.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole, HasAPIKeyScope]
     required_roles = [Role.LAB, Role.DOCTOR]
@@ -78,118 +95,126 @@ class PredictView(APIView):
             return "Consider serum B12 measurement if clinically indicated."
         return "B12 deficiency unlikely based on CBC parameters."
 
-    def post(self, request):
-        serializer = ScreeningRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        patient_id = data['patientId']
-        if not patient_id.strip():
-            return Response(
-                {'error': 'patientId is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Validate consent (if provided) before running the model.
-        # NB: these are PROCESSING errors (consent is missing/expired/etc.),
-        # not authorisation errors — return 422 with a stable error code so
-        # the frontend can distinguish "no perms" from "consent issue".
-        consent_id = data.get('consentId')
-        if consent_id:
-            now_utc = datetime.now(timezone.utc)
-            try:
-                consent_obj = Consent.objects.get(id=consent_id)
-            except (Consent.DoesNotExist, ValueError):
-                return Response(
-                    {'error': 'Consent record not found', 'code': 'consent_not_found'},
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                )
-
-            # Verify consent belongs to this patient
-            if consent_obj.patient.patient_id != patient_id:
-                return Response(
-                    {'error': 'Consent does not match the specified patient', 'code': 'consent_patient_mismatch'},
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                )
-
-            # Auto-expire if the timestamp has passed
-            if consent_obj.expires_at and consent_obj.expires_at < now_utc:
-                if consent_obj.status == 'active':
-                    consent_obj.status = 'expired'
-                    consent_obj.save(update_fields=['status', 'updated_at'])
-                return Response(
-                    {'error': 'Patient consent has expired. Please obtain renewed consent before screening.',
-                     'code': 'consent_expired'},
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                )
-
-            if consent_obj.status == 'revoked':
-                return Response(
-                    {'error': 'Patient consent has been revoked', 'code': 'consent_revoked'},
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                )
-
-            if consent_obj.status != 'active':
-                return Response(
-                    {'error': 'No valid patient consent on file', 'code': 'consent_inactive'},
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                )
-
-        # Get CBC data
-        cbc = data['cbc']
-
-        # ── Idempotency check ────────────────────────────────────────────
-        # Prevent duplicate screenings for the same patient + CBC values
-        # within a 5-minute window. Returns the existing result if found.
-        idempotency_hash = hashlib.sha256(
+    @staticmethod
+    def _idempotency_key(patient_id: str, cbc: dict) -> tuple[str, str]:
+        """Return (full_cache_key, sha256_hex) for a (patient, CBC) pair."""
+        h = hashlib.sha256(
             f"{patient_id}:{json.dumps(cbc, sort_keys=True)}".encode()
         ).hexdigest()
-        idempotency_cache_key = f"screening:idemp:{idempotency_hash}"
+        return f"screening:idemp:{h}", h
 
+    def _validate_consent(self, consent_id, patient_id):
+        """
+        Return (consent_obj_or_None, error_response_or_None).
+
+        A non-None error_response means the caller should short-circuit
+        with that 422 immediately. These are PROCESSING errors — not
+        authorisation errors — so the frontend can render a "renew
+        consent" prompt instead of a "permission denied" banner.
+        """
+        if not consent_id:
+            return None, None
+
+        now_utc = datetime.now(timezone.utc)
+        try:
+            consent_obj = Consent.objects.get(id=consent_id)
+        except (Consent.DoesNotExist, ValueError):
+            return None, Response(
+                {'error': 'Consent record not found', 'code': 'consent_not_found'},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if consent_obj.patient.patient_id != patient_id:
+            return None, Response(
+                {'error': 'Consent does not match the specified patient',
+                 'code': 'consent_patient_mismatch'},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if consent_obj.expires_at and consent_obj.expires_at < now_utc:
+            if consent_obj.status == 'active':
+                consent_obj.status = 'expired'
+                consent_obj.save(update_fields=['status', 'updated_at'])
+            return None, Response(
+                {'error': 'Patient consent has expired. Please obtain renewed consent before screening.',
+                 'code': 'consent_expired'},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if consent_obj.status == 'revoked':
+            return None, Response(
+                {'error': 'Patient consent has been revoked', 'code': 'consent_revoked'},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if consent_obj.status != 'active':
+            return None, Response(
+                {'error': 'No valid patient consent on file', 'code': 'consent_inactive'},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return consent_obj, None
+
+    def _lookup_idempotent(self, cache_key, patient_id):
+        """
+        Return a Response if an identical prior screening exists in the
+        TTL window, or None to continue with a fresh prediction.
+        """
         cached_screening_id = None
         try:
-            cached_screening_id = cache.get(idempotency_cache_key)
+            cached_screening_id = cache.get(cache_key)
         except Exception:
             pass  # cache miss is fine — just skip dedup
 
-        if cached_screening_id:
-            existing = Screening.objects.filter(id=cached_screening_id).select_related('patient').first()
-            if existing:
-                logger.info("idempotent_hit", screening_id=str(existing.id), request_hash=idempotency_hash)
-                return Response({
-                    'id': str(existing.id),
-                    'patientId': patient_id,
-                    'label': existing.risk_class,
-                    'labelText': existing.label_text,
-                    'probabilities': existing.probabilities,
-                    'indices': existing.indices,
-                    'recommendation': self._recommendation(existing.risk_class),
-                    'rulesFired': existing.rules_fired,
-                    'modelVersion': existing.model_version,
-                    'narrative': existing.narrative,
-                    'duplicate': True,
-                })
+        if not cached_screening_id:
+            return None
 
-        # Run ML prediction (synchronous)
+        existing = Screening.objects.filter(id=cached_screening_id).select_related('patient').first()
+        if not existing:
+            return None
+
+        logger.info("idempotent_hit", screening_id=str(existing.id), cache_key=cache_key)
+        return Response({
+            'id': str(existing.id),
+            'patientId': patient_id,
+            'label': existing.risk_class,
+            'labelText': existing.label_text,
+            'probabilities': existing.probabilities,
+            'indices': existing.indices,
+            'recommendation': self._recommendation(existing.risk_class),
+            'rulesFired': existing.rules_fired,
+            'modelVersion': existing.model_version,
+            'narrative': existing.narrative,
+            'duplicate': True,
+        })
+
+    def _run_prediction(self, cbc):
+        """
+        Return (result_dict, error_response_or_None).
+
+        Fast-failure for "model not loaded" is a 503 so clients back off
+        for a reload; any other exception becomes a 500.
+        """
         try:
             engine = get_ml_engine()
-            result = engine.predict(cbc)
+            return engine.predict(cbc), None
         except MLModelNotReadyError as e:
             logger.error(f"ML model not ready for prediction: {e}")
-            return Response(
+            return None, Response(
                 {'error': 'ML screening service unavailable. Models not loaded.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Model prediction failed")
-            return Response(
+            return None, Response(
                 {'error': 'Prediction failed. Please try again or contact support.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Generate clinical narrative
+    @staticmethod
+    def _generate_narrative(result, cbc, patient_id):
         narrative_engine = NarrativeEngine()
-        narrative_text = narrative_engine.generate(
+        return narrative_engine.generate(
             risk_class=result['riskClass'],
             label_text=result['labelText'],
             probabilities=result['probabilities'],
@@ -201,24 +226,25 @@ class PredictView(APIView):
             patient_id=patient_id,
         )
 
-        now = datetime.now(timezone.utc)
+    def _persist_screening(self, request, data, cbc, result, narrative_text, patient_id):
+        """
+        Resolve lab / doctor / patient, write the Screening row.
 
-        # Get or create lab - REQUIRED (no silent fallback!)
+        Return (screening, doctor, lab, error_response_or_None).
+        """
         lab = None
         if data.get('labId'):
             lab = Lab.objects.filter(code=data['labId']).first()
         if not lab:
-            return Response(
+            return None, None, None, Response(
                 {'error': 'labId is required or no matching lab found'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get or create doctor
         doctor = None
         if data.get('doctorId'):
             doctor = Doctor.objects.filter(code=data['doctorId']).first()
 
-        # Get or create patient with encrypted PHI fields, scoped to lab
         try:
             patient, _ = Patient.objects.update_or_create(
                 patient_id=patient_id,
@@ -230,27 +256,24 @@ class PredictView(APIView):
                     'referring_doctor': doctor,
                 }
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("Patient create/update failed for %s", patient_id)
-            return Response(
+            return None, None, None, Response(
                 {'error': 'Failed to save patient record. Please contact support.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Compute hashes for reproducibility (deterministic key order)
         request_hash = hashlib.sha256(
             f"{patient_id}:{json.dumps(cbc, sort_keys=True)}".encode()
         ).hexdigest()
         response_hash = hashlib.sha256(
             json.dumps(result, sort_keys=True).encode()
         ).hexdigest()
-
         screening_id = uuid.uuid4()
         screening_hash = hashlib.sha256(
             f"{screening_id}:{request_hash}:{response_hash}".encode()
         ).hexdigest()
 
-        # Create screening record
         screening = Screening.objects.create(
             id=screening_id,
             patient=patient,
@@ -271,10 +294,10 @@ class PredictView(APIView):
             consent_id=data.get('consentId'),
             narrative=narrative_text,
         )
+        return screening, doctor, lab, None
 
-        recommendation = self._recommendation(result['riskClass'])
-
-        # Broadcast WebSocket notifications
+    def _dispatch_side_effects(self, request, screening, result, doctor, patient_id, cache_key):
+        """Non-blocking post-save work: websocket, webhook, analytics cache bust, idempotency stash, PHI audit."""
         broadcast_new_screening(str(screening.id), result['riskClass'], 'pending')
         if result['riskClass'] == 3:
             broadcast_high_risk_alert(
@@ -284,13 +307,11 @@ class PredictView(APIView):
                 doctor_id=str(doctor.id) if doctor else None,
             )
 
-        # Fire usage increment, HTTP webhooks, and high-risk alert (non-blocking)
         org = getattr(request, 'tenant', None)
         org_id = str(org.id) if org else None
         if org_id:
             from apps.billing.tasks import increment_usage, trigger_webhook, send_high_risk_alert
             increment_usage.delay(org_id, str(screening.id))
-            # C1: fire HTTP webhook for every completed screening
             try:
                 trigger_webhook(org, 'screening.completed', {
                     'screening_id': str(screening.id),
@@ -301,7 +322,6 @@ class PredictView(APIView):
                 })
             except Exception:
                 logger.exception("trigger_webhook failed for screening %s", screening.id)
-            # C2: send email alert for high-risk (class 3) screenings
             if result['riskClass'] == 3:
                 send_high_risk_alert.delay(
                     str(screening.id),
@@ -309,16 +329,14 @@ class PredictView(APIView):
                     str(doctor.id) if doctor else None,
                 )
 
-        # Bust analytics caches so dashboards refresh immediately
         from apps.analytics.cache import invalidate_analytics_caches
         invalidate_analytics_caches(
             user_id=request.user.pk,
             doctor_code=doctor.code if doctor else None,
         )
 
-        # Store idempotency key (5-minute window) to prevent duplicate submissions
         try:
-            cache.set(idempotency_cache_key, str(screening.id), timeout=300)
+            cache.set(cache_key, str(screening.id), timeout=SCREENING_IDEMPOTENCY_TTL)
         except Exception:
             pass  # idempotency cache is best-effort
 
@@ -328,6 +346,45 @@ class PredictView(APIView):
             'model_version': result['modelVersion'],
         })
 
+    def post(self, request):
+        serializer = ScreeningRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        patient_id = data['patientId']
+        if not patient_id.strip():
+            return Response(
+                {'error': 'patientId is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        _, consent_err = self._validate_consent(data.get('consentId'), patient_id)
+        if consent_err is not None:
+            return consent_err
+
+        cbc = data['cbc']
+        idempotency_cache_key, _ = self._idempotency_key(patient_id, cbc)
+
+        cached_response = self._lookup_idempotent(idempotency_cache_key, patient_id)
+        if cached_response is not None:
+            return cached_response
+
+        result, pred_err = self._run_prediction(cbc)
+        if pred_err is not None:
+            return pred_err
+
+        narrative_text = self._generate_narrative(result, cbc, patient_id)
+
+        screening, doctor, _lab, persist_err = self._persist_screening(
+            request, data, cbc, result, narrative_text, patient_id
+        )
+        if persist_err is not None:
+            return persist_err
+
+        self._dispatch_side_effects(
+            request, screening, result, doctor, patient_id, idempotency_cache_key
+        )
+
         return Response({
             'id': str(screening.id),
             'patientId': patient_id,
@@ -335,7 +392,7 @@ class PredictView(APIView):
             'labelText': result['labelText'],
             'probabilities': result['probabilities'],
             'indices': result['indices'],
-            'recommendation': recommendation,
+            'recommendation': self._recommendation(result['riskClass']),
             'rulesFired': result['rulesFired'],
             'modelVersion': result['modelVersion'],
             'narrative': narrative_text,
