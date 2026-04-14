@@ -21,7 +21,6 @@ we don't need a full tenant DB — we mock the ORM chains.
 from datetime import datetime, timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 from rest_framework import status
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -150,52 +149,73 @@ class TestReviewScreeningView:
 
 # ── LabListView pagination ─────────────────────────────────────────────────────
 
-def _fake_labs(count, start_id=1):
-    labs = []
-    for i in range(count):
-        lab = MagicMock()
-        lab.id = start_id + i
-        lab.code = f'LAB-{start_id + i:03d}'
-        lab.name = f'Lab {start_id + i}'
-        lab.tier = 'BASIC'
-        lab.doctors_count = 2
-        lab.cases_count = 5
-        labs.append(lab)
-    return labs
+def _fake_lab_dicts(count, start_id=1):
+    """Pre-serialized lab dicts — we mock LabSerializer to return these so
+    the pagination envelope shape is what's actually under test, not the
+    ModelSerializer's DB-field introspection on mock objects."""
+    return [
+        {
+            'id': start_id + i,
+            'code': f'LAB-{start_id + i:03d}',
+            'name': f'Lab {start_id + i}',
+            'tier': 'BASIC',
+            'doctors_count': 2,
+            'cases_count': 5,
+        }
+        for i in range(count)
+    ]
 
 
 class TestLabListView:
+    """
+    These tests exercise the pagination envelope. Django's Paginator
+    accepts a plain list and computes count via len() + slicing natively,
+    so we pass one through the mocked filter().annotate().order_by()
+    chain and patch LabSerializer so it doesn't try to read DB fields
+    off mock objects.
+    """
 
     @patch.object(LabListView, 'throttle_classes', [])
+    @patch('apps.screening.views.LabSerializer')
     @patch('apps.screening.views.Lab.objects.filter')
-    def test_returns_paginated_envelope(self, mock_filter):
-        labs = _fake_labs(25)
-        qs = MagicMock()
-        qs.count.return_value = 25
-        qs.__getitem__.side_effect = lambda k: labs[k] if isinstance(k, slice) else labs[k]
-        qs.__iter__.return_value = iter(labs)
-        mock_filter.return_value.annotate.return_value.order_by.return_value = qs
+    def test_returns_paginated_envelope(self, mock_filter, MockSerializer):
+        labs = _fake_lab_dicts(25)
+        chain = MagicMock()
+        chain.annotate.return_value.order_by.return_value = labs
+        mock_filter.return_value = chain
+
+        # Serializer is instantiated as LabSerializer(page, many=True);
+        # make .data return whatever page slice the paginator hands us.
+        def fake_serializer(page, many=True):
+            instance = MagicMock()
+            instance.data = list(page)
+            return instance
+        MockSerializer.side_effect = fake_serializer
 
         request = _make_request('get', '/api/screening/labs')
         response = LabListView.as_view()(request)
 
         assert response.status_code == status.HTTP_200_OK
         body = response.data
-        # DRF PageNumberPagination envelope.
         assert 'count' in body
         assert 'results' in body
         assert body['count'] == 25
         assert len(body['results']) == 25  # fits on a single default page
 
     @patch.object(LabListView, 'throttle_classes', [])
+    @patch('apps.screening.views.LabSerializer')
     @patch('apps.screening.views.Lab.objects.filter')
-    def test_page_size_query_param_caps_at_max(self, mock_filter):
-        labs = _fake_labs(500)
-        qs = MagicMock()
-        qs.count.return_value = 500
-        qs.__getitem__.side_effect = lambda k: labs[k] if isinstance(k, slice) else labs[k]
-        qs.__iter__.return_value = iter(labs)
-        mock_filter.return_value.annotate.return_value.order_by.return_value = qs
+    def test_page_size_query_param_caps_at_max(self, mock_filter, MockSerializer):
+        labs = _fake_lab_dicts(500)
+        chain = MagicMock()
+        chain.annotate.return_value.order_by.return_value = labs
+        mock_filter.return_value = chain
+
+        def fake_serializer(page, many=True):
+            instance = MagicMock()
+            instance.data = list(page)
+            return instance
+        MockSerializer.side_effect = fake_serializer
 
         # Asking for 10,000 should be clamped to max_page_size=200.
         request = _make_request(
@@ -204,4 +224,5 @@ class TestLabListView:
         response = LabListView.as_view()(request)
 
         assert response.status_code == status.HTTP_200_OK
+        assert response.data['count'] == 500
         assert len(response.data['results']) == 200
