@@ -188,9 +188,16 @@ jobs:
           ssh $SERVER 'docker run --rm -v /opt/clinomic-b12-platform:/host alpine sh -c "chown -R 472:472 /host/monitoring/grafana && chmod -R 755 /host/monitoring"'
       - name: Deploy to Production
         run: |
-          ssh deploy@${{ secrets.HOST_IP }} << 'EOF'
+          # Pass the git SHA as a positional arg so the remote script can
+          # pin images to this specific build (instead of the mutable :latest).
+          ssh deploy@${{ secrets.HOST_IP }} bash -s "${{ github.sha }}" << 'EOF'
 
           set -e
+
+          DEPLOY_SHA="$1"
+          export BACKEND_TAG="$DEPLOY_SHA"
+          export FRONTEND_TAG="$DEPLOY_SHA"
+          echo "=== Deploying SHA: $DEPLOY_SHA ==="
 
           BACKEND_IMAGE="ghcr.io/dev-abiox/param"
           FRONTEND_IMAGE="ghcr.io/dev-abiox/param-frontend"
@@ -226,15 +233,25 @@ jobs:
 
           echo "=== SAVING CURRENT IMAGES FOR ROLLBACK ==="
           cd $BASE
-          PREV_BACKEND=$(docker inspect --format='{{.Id}}' $BACKEND_IMAGE:latest 2>/dev/null || echo "")
-          PREV_FRONTEND=$(docker inspect --format='{{.Id}}' $FRONTEND_IMAGE:latest 2>/dev/null || echo "")
-          [ -n "$PREV_BACKEND" ] && docker tag $BACKEND_IMAGE:latest $BACKEND_IMAGE:previous || true
-          [ -n "$PREV_FRONTEND" ] && docker tag $FRONTEND_IMAGE:latest $FRONTEND_IMAGE:previous || true
+          # Remember what tag was live BEFORE this deploy, so rollback can
+          # re-pin the compose file to it exactly (not rely on a moving :latest).
+          PREV_BACKEND_TAG=$(docker inspect --format='{{index .Config.Image}}' $(docker-compose -f $COMPOSE ps -q backend 2>/dev/null || echo "") 2>/dev/null | awk -F: '{print $NF}' || echo "latest")
+          PREV_FRONTEND_TAG=$(docker inspect --format='{{index .Config.Image}}' $(docker-compose -f $COMPOSE ps -q frontend 2>/dev/null || echo "") 2>/dev/null | awk -F: '{print $NF}' || echo "latest")
+          [ -z "$PREV_BACKEND_TAG" ] && PREV_BACKEND_TAG="latest"
+          [ -z "$PREV_FRONTEND_TAG" ] && PREV_FRONTEND_TAG="latest"
+          echo "Previous backend tag: $PREV_BACKEND_TAG"
+          echo "Previous frontend tag: $PREV_FRONTEND_TAG"
 
-          echo "=== PULLING NEW IMAGES ==="
-          docker-compose -f $COMPOSE pull
+          echo "=== PULLING NEW IMAGES (SHA $DEPLOY_SHA) ==="
+          # Explicitly pull by SHA to avoid races with :latest being mutated
+          docker pull $BACKEND_IMAGE:$DEPLOY_SHA
+          docker pull $FRONTEND_IMAGE:$DEPLOY_SHA
+          # Also update :latest to match so local `docker compose pull` still works
+          docker tag $BACKEND_IMAGE:$DEPLOY_SHA $BACKEND_IMAGE:latest
+          docker tag $FRONTEND_IMAGE:$DEPLOY_SHA $FRONTEND_IMAGE:latest
 
           echo "=== RECREATING CONTAINERS ==="
+          # BACKEND_TAG/FRONTEND_TAG are already exported above to DEPLOY_SHA
           docker-compose -f $COMPOSE up -d --force-recreate
 
           echo "=== WARMING UP SERVICES ==="
@@ -256,9 +273,9 @@ jobs:
           if curl -f https://clinomiclabs.com/api/health/live; then
             echo "✓ Health check passed"
           else
-            echo "✗ Health check failed — ROLLING BACK to previous images"
-            [ -n "$PREV_BACKEND" ] && docker tag $BACKEND_IMAGE:previous $BACKEND_IMAGE:latest || true
-            [ -n "$PREV_FRONTEND" ] && docker tag $FRONTEND_IMAGE:previous $FRONTEND_IMAGE:latest || true
+            echo "✗ Health check failed — ROLLING BACK to $PREV_BACKEND_TAG / $PREV_FRONTEND_TAG"
+            export BACKEND_TAG="$PREV_BACKEND_TAG"
+            export FRONTEND_TAG="$PREV_FRONTEND_TAG"
             docker-compose -f $COMPOSE up -d --force-recreate
             echo "Rollback complete."
             exit 1

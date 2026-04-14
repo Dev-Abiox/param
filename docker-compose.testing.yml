@@ -43,9 +43,12 @@ services:
       - CACHE_REDIS_URL=redis://redis_testing:6379/1
       - CHANNELS_REDIS_URL=redis://redis_testing:6379/2
       - CELERY_BROKER_URL=redis://redis_testing:6379/0
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-REDACTED_ROTATED_2026_04_15}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-REDACTED_ROTATED_2026_04_15}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
+      # Razorpay credentials MUST be injected via environment (server .env or CI secrets).
+      # Hardcoded defaults were removed on 2026-04-14 (Phase 0 remediation) — the
+      # previous values leaked in git history and must be rotated in the dashboard.
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:?RAZORPAY_KEY_ID must be set}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:?RAZORPAY_KEY_SECRET must be set}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:?RAZORPAY_WEBHOOK_SECRET must be set}
       - EMAIL_HOST=${EMAIL_HOST:-mail.arogyabiox.com}
       - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
       - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
@@ -129,9 +132,12 @@ services:
       - REDIS_URL=redis://redis_testing:6379/0
       - CACHE_REDIS_URL=redis://redis_testing:6379/1
       - CELERY_BROKER_URL=redis://redis_testing:6379/0
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-REDACTED_ROTATED_2026_04_15}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-REDACTED_ROTATED_2026_04_15}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
+      # Razorpay credentials MUST be injected via environment (server .env or CI secrets).
+      # Hardcoded defaults were removed on 2026-04-14 (Phase 0 remediation) — the
+      # previous values leaked in git history and must be rotated in the dashboard.
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:?RAZORPAY_KEY_ID must be set}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:?RAZORPAY_KEY_SECRET must be set}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:?RAZORPAY_WEBHOOK_SECRET must be set}
     depends_on:
       db_testing:
         condition: service_healthy

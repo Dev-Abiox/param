@@ -58,6 +58,13 @@ def validate_required_secrets(
         _warn_if_insecure("SECRET_KEY", secret_key)
         _warn_if_insecure("MASTER_ENCRYPTION_KEY", master_key)
         _warn_if_insecure("AUDIT_SIGNING_KEY", audit_key)
+        _warn_if_insecure("JWT_SECRET_KEY", jwt_secret_key)
+        if jwt_secret_key and jwt_secret_key == secret_key:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[Security] JWT_SECRET_KEY equals DJANGO_SECRET_KEY — acceptable only "
+                "in local dev. Use distinct secrets before staging/production."
+            )
         return
 
     _assert_secret("SECRET_KEY", secret_key)

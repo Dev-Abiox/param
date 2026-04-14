@@ -64,7 +64,7 @@ services:
           memory: 64M
 
   backend:
-    image: ghcr.io/dev-abiox/param:latest
+    image: ghcr.io/dev-abiox/param:${BACKEND_TAG:-latest}
     restart: always
     environment:
       - DEBUG=False
@@ -138,7 +138,7 @@ services:
           memory: 512M
 
   frontend:
-    image: ghcr.io/dev-abiox/param-frontend:latest
+    image: ghcr.io/dev-abiox/param-frontend:${FRONTEND_TAG:-latest}
     restart: always
     environment:
       - REACT_APP_BACKEND_URL=http://backend:8000
@@ -218,7 +218,7 @@ services:
           memory: 256M
 
   celery_worker:
-    image: ghcr.io/dev-abiox/param:latest
+    image: ghcr.io/dev-abiox/param:${BACKEND_TAG:-latest}
     restart: always
     command: >
       celery -A clinomic worker
@@ -277,7 +277,7 @@ services:
           memory: 256M
 
   celery_beat:
-    image: ghcr.io/dev-abiox/param:latest
+    image: ghcr.io/dev-abiox/param:${BACKEND_TAG:-latest}
     restart: always
     command: celery -A clinomic beat --loglevel=info
     healthcheck:

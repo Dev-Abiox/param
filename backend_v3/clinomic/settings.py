@@ -230,7 +230,11 @@ SPECTACULAR_SETTINGS = {
 }
 
 # JWT Settings
-JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', SECRET_KEY)
+# Must be an independent secret — falling back to SECRET_KEY means that
+# compromising Django's session key also compromises JWT signing. Dev mode
+# tolerates an empty string (validated later); prod requires it explicitly
+# via validate_required_secrets() which rejects empty/insecure values.
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', '')
 
 # Razorpay billing
 RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
