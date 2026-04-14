@@ -197,32 +197,95 @@ def _is_razorpay_ip(ip_str: str) -> bool:
     return False
 
 
+# All handlers take a uniform (sub, sub_entity, now) signature so the
+# dispatch table can call them without special-casing. Unused positional
+# args are prefixed `_` to document "intentionally ignored".
+
+def _handle_subscription_activated(sub, sub_entity, _now):
+    sub.transition_to(TenantSubscription.Status.ACTIVE)
+    rz_plan_id = sub_entity.get('plan_id', '')
+    if rz_plan_id:
+        new_plan = SubscriptionPlan.objects.filter(
+            razorpay_plan_id=rz_plan_id, is_active=True
+        ).first()
+        if new_plan and new_plan.pk != sub.plan_id:
+            sub.plan = new_plan
+    sub.save(update_fields=['status', 'plan', 'updated_at'])
+
+
+def _handle_subscription_charged(sub, _sub_entity, now):
+    sub.current_period_count = 0
+    sub.current_period_start = now
+    sub.current_period_end = now + timedelta(days=BILLING_PERIOD_DAYS)
+    sub.save(update_fields=[
+        'current_period_count',
+        'current_period_start',
+        'current_period_end',
+        'updated_at',
+    ])
+
+
+def _handle_subscription_cancelled(sub, _sub_entity, now):
+    sub.transition_to(TenantSubscription.Status.CANCELLED)
+    sub.cancelled_at = now
+    sub.save(update_fields=['status', 'cancelled_at', 'updated_at'])
+
+
+def _handle_payment_failed(sub, _sub_entity, _now):
+    sub.transition_to(TenantSubscription.Status.PAST_DUE)
+    sub.save(update_fields=['status', 'updated_at'])
+
+
+# Event-type → handler. Any event not in this map is still recorded in
+# PaymentEvent but triggers no state transition. This makes adding a
+# new webhook event a one-line change.
+_WEBHOOK_HANDLERS = {
+    'subscription.activated': _handle_subscription_activated,
+    'subscription.charged':   _handle_subscription_charged,
+    'subscription.cancelled': _handle_subscription_cancelled,
+    'payment.failed':         _handle_payment_failed,
+}
+
+# Events that must invalidate cached plan-limit decisions post-commit.
+_CACHE_BUST_EVENTS = {'subscription.activated', 'subscription.charged'}
+
+
 class WebhookView(APIView):
     """
     POST /api/billing/webhook/
     Receives Razorpay subscription webhook events, verifies the HMAC-SHA256
     signature, and updates TenantSubscription state accordingly.
     All raw events are stored in PaymentEvent for idempotency + audit.
+
+    The body of post() is a flat pipeline:
+        1. source-IP allowlist (defence in depth — HMAC is canonical)
+        2. HMAC signature verification
+        3. event-id idempotency check
+        4. raw-event persistence
+        5. locked state transition via _WEBHOOK_HANDLERS dispatch
+        6. on_commit cache bust for plan-limit decisions
     """
     permission_classes = [AllowAny]
     throttle_classes = [WebhookRateThrottle]
 
-    def post(self, request):
-        # Defence-in-depth: reject obviously bogus source IPs before doing any work.
-        # HMAC verification below remains the source of truth.
+    def _verify_source(self, request):
+        """Return (ok, response_if_blocked)."""
         client_ip = _client_ip(request)
         if not _is_razorpay_ip(client_ip):
             logger.warning('billing.webhook_blocked_ip', ip=client_ip)
-            return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+            return False, Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        return True, None
 
+    def _verify_signature(self, request):
+        """Return (ok, response_if_blocked). Reads the secret from settings."""
         sig = request.headers.get('X-Razorpay-Signature', '')
         webhook_secret = getattr(settings, 'RAZORPAY_WEBHOOK_SECRET', '')
-
-        # Fail closed: reject all webhooks when secret is not configured
         if not webhook_secret:
             logger.error('billing.webhook_secret_not_configured')
-            return Response({'error': 'webhook not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
+            return False, Response(
+                {'error': 'webhook not configured'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         try:
             client = _razorpay_client()
             client.utility.verify_webhook_signature(
@@ -230,7 +293,76 @@ class WebhookView(APIView):
             )
         except Exception as exc:
             logger.warning('billing.webhook_invalid_signature', error=type(exc).__name__)
-            return Response({'error': 'invalid signature'}, status=status.HTTP_401_UNAUTHORIZED)
+            return False, Response(
+                {'error': 'invalid signature'}, status=status.HTTP_401_UNAUTHORIZED
+            )
+        return True, None
+
+    def _apply_state_transition(self, sub, event_type, sub_entity, razorpay_sub_id, pe):
+        """
+        Take the row lock, run the handler for event_type, mark the
+        PaymentEvent processed. Returns (ok, response_if_short_circuit).
+        """
+        now = timezone.now()
+        try:
+            with transaction.atomic():
+                # Lock the subscription row to prevent concurrent webhook races.
+                # nowait=True: if another worker is already processing a webhook
+                # for the same subscription, fail fast instead of blocking the
+                # request thread — we return 503 below so Razorpay retries.
+                try:
+                    sub = (
+                        TenantSubscription.objects
+                        .select_for_update(nowait=True)
+                        .select_related('organization')
+                        .get(pk=sub.pk)
+                    )
+                except DatabaseError:
+                    logger.warning(
+                        'billing.webhook_lock_contended',
+                        event_type=event_type,
+                        sub_id=razorpay_sub_id,
+                    )
+                    return False, Response(
+                        {'status': 'retry'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
+
+                handler = _WEBHOOK_HANDLERS.get(event_type)
+                if handler is not None:
+                    handler(sub, sub_entity, now)
+
+                pe.processed = True
+                pe.save(update_fields=['processed'])
+
+            if event_type in _CACHE_BUST_EVENTS:
+                org_id = sub.organization_id
+                from django.db import transaction as db_tx
+                from django.core.cache import cache
+                db_tx.on_commit(lambda: cache.delete(f'plan_limit_over:{org_id}'))
+
+            logger.info(
+                'billing.webhook_processed',
+                event_type=event_type,
+                sub_id=razorpay_sub_id,
+            )
+            return True, None
+        except Exception as exc:
+            # Sanitize error — never store raw exception details (may contain DB paths, etc.)
+            safe_error = f'{type(exc).__name__}: {event_type}'
+            pe.error = safe_error
+            pe.save(update_fields=['error'])
+            logger.error('billing.webhook_error', event_type=event_type, error=str(exc))
+            return False, None  # still return 200 to stop Razorpay retries
+
+    def post(self, request):
+        ok, err = self._verify_source(request)
+        if not ok:
+            return err
+
+        ok, err = self._verify_signature(request)
+        if not ok:
+            return err
 
         data = request.data
         event_type = data.get('event', '')
@@ -245,11 +377,9 @@ class WebhookView(APIView):
             logger.warning('billing.webhook_missing_event_id', event_type=event_type)
             return Response({'error': 'missing event id'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Idempotency — skip if already processed
         if PaymentEvent.objects.filter(razorpay_event_id=event_id).exists():
             return Response({'status': 'already_processed'})
 
-        # Find matching subscription
         sub = (
             TenantSubscription.objects
             .filter(razorpay_sub_id=razorpay_sub_id)
@@ -257,7 +387,6 @@ class WebhookView(APIView):
             .first()
         )
 
-        # Store the raw event
         pe = PaymentEvent.objects.create(
             organization=sub.organization if sub else None,
             razorpay_event_id=event_id,
@@ -266,81 +395,11 @@ class WebhookView(APIView):
         )
 
         if sub:
-            now = timezone.now()
-            try:
-                with transaction.atomic():
-                    # Lock the subscription row to prevent concurrent webhook races.
-                    # nowait=True: if another worker is already processing a webhook
-                    # for the same subscription, fail fast instead of blocking the
-                    # request thread — we'll return 503 below so Razorpay retries.
-                    try:
-                        sub = (
-                            TenantSubscription.objects
-                            .select_for_update(nowait=True)
-                            .select_related('organization')
-                            .get(pk=sub.pk)
-                        )
-                    except DatabaseError as lock_exc:
-                        logger.warning(
-                            'billing.webhook_lock_contended',
-                            event_type=event_type,
-                            sub_id=razorpay_sub_id,
-                        )
-                        return Response(
-                            {'status': 'retry'},
-                            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        )
-
-                    if event_type == 'subscription.activated':
-                        sub.transition_to(TenantSubscription.Status.ACTIVE)
-                        rz_plan_id = sub_entity.get('plan_id', '')
-                        if rz_plan_id:
-                            new_plan = SubscriptionPlan.objects.filter(
-                                razorpay_plan_id=rz_plan_id, is_active=True
-                            ).first()
-                            if new_plan and new_plan.pk != sub.plan_id:
-                                sub.plan = new_plan
-                        sub.save(update_fields=['status', 'plan', 'updated_at'])
-
-                    elif event_type == 'subscription.charged':
-                        sub.current_period_count = 0
-                        sub.current_period_start = now
-                        sub.current_period_end = now + timedelta(days=BILLING_PERIOD_DAYS)
-                        sub.save(update_fields=[
-                            'current_period_count',
-                            'current_period_start',
-                            'current_period_end',
-                            'updated_at',
-                        ])
-
-                    elif event_type == 'subscription.cancelled':
-                        sub.transition_to(TenantSubscription.Status.CANCELLED)
-                        sub.cancelled_at = now
-                        sub.save(update_fields=['status', 'cancelled_at', 'updated_at'])
-
-                    elif event_type == 'payment.failed':
-                        sub.transition_to(TenantSubscription.Status.PAST_DUE)
-                        sub.save(update_fields=['status', 'updated_at'])
-
-                    pe.processed = True
-                    pe.save(update_fields=['processed'])
-
-                # Cache bust after transaction commits — use on_commit to avoid
-                # race conditions where a concurrent request reads stale cache
-                # between commit and cache delete.
-                if event_type in ('subscription.activated', 'subscription.charged'):
-                    org_id = sub.organization_id
-                    from django.db import transaction as db_tx
-                    from django.core.cache import cache
-                    db_tx.on_commit(lambda: cache.delete(f'plan_limit_over:{org_id}'))
-
-                logger.info('billing.webhook_processed', event_type=event_type, sub_id=razorpay_sub_id)
-            except Exception as exc:
-                # Sanitize error — never store raw exception details (may contain DB paths, etc.)
-                safe_error = f'{type(exc).__name__}: {event_type}'
-                pe.error = safe_error
-                pe.save(update_fields=['error'])
-                logger.error('billing.webhook_error', event_type=event_type, error=str(exc))
+            _, early = self._apply_state_transition(
+                sub, event_type, sub_entity, razorpay_sub_id, pe
+            )
+            if early is not None:
+                return early
 
         return Response({'status': 'ok'})
 
