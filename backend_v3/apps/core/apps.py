@@ -7,5 +7,8 @@ class CoreConfig(AppConfig):
     verbose_name = 'Core'
 
     def ready(self):
-        # Import signals if any
-        pass
+        # Wire up post_schema_sync so new tenant schemas get CRUD grants
+        # for the least-privilege app role automatically. No-op when
+        # POSTGRES_APP_USER is unset (single-role legacy mode).
+        from . import signals
+        signals.connect_signals()
