@@ -85,7 +85,10 @@ class PredictView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate consent (if provided) before running the model
+        # Validate consent (if provided) before running the model.
+        # NB: these are PROCESSING errors (consent is missing/expired/etc.),
+        # not authorisation errors — return 422 with a stable error code so
+        # the frontend can distinguish "no perms" from "consent issue".
         consent_id = data.get('consentId')
         if consent_id:
             now_utc = datetime.now(timezone.utc)
@@ -93,15 +96,15 @@ class PredictView(APIView):
                 consent_obj = Consent.objects.get(id=consent_id)
             except (Consent.DoesNotExist, ValueError):
                 return Response(
-                    {'error': 'Consent record not found'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': 'Consent record not found', 'code': 'consent_not_found'},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 
             # Verify consent belongs to this patient
             if consent_obj.patient.patient_id != patient_id:
                 return Response(
-                    {'error': 'Consent does not match the specified patient'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': 'Consent does not match the specified patient', 'code': 'consent_patient_mismatch'},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 
             # Auto-expire if the timestamp has passed
@@ -110,20 +113,21 @@ class PredictView(APIView):
                     consent_obj.status = 'expired'
                     consent_obj.save(update_fields=['status', 'updated_at'])
                 return Response(
-                    {'error': 'Patient consent has expired. Please obtain renewed consent before screening.'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': 'Patient consent has expired. Please obtain renewed consent before screening.',
+                     'code': 'consent_expired'},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 
             if consent_obj.status == 'revoked':
                 return Response(
-                    {'error': 'Patient consent has been revoked'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': 'Patient consent has been revoked', 'code': 'consent_revoked'},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 
             if consent_obj.status != 'active':
                 return Response(
-                    {'error': 'No valid patient consent on file'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': 'No valid patient consent on file', 'code': 'consent_inactive'},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
 
         # Get CBC data

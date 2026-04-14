@@ -53,25 +53,38 @@ API.interceptors.response.use(
   (res) => res,
   async (error) => {
     const originalRequest = error.config;
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      try {
-        if (!_refreshPromise) {
-          _refreshPromise = AuthService.refresh().finally(() => {
-            _refreshPromise = null;
-          });
-        }
-        const newToken = await _refreshPromise;
-        originalRequest.headers = originalRequest.headers || {};
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
-        return API(originalRequest);
-      } catch (e) {
-        clearAccessToken();
-        // Notify the app that the session has fully expired
-        window.dispatchEvent(new Event("session-expired"));
-      }
+    // Skip if no original config, already retried, or this IS the refresh call itself.
+    if (
+      !originalRequest ||
+      originalRequest._retry ||
+      error.response?.status !== 401
+    ) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+    originalRequest._retry = true;
+
+    try {
+      if (!_refreshPromise) {
+        _refreshPromise = AuthService.refresh().finally(() => {
+          // Always clear the in-flight promise so subsequent 401s can retry.
+          _refreshPromise = null;
+        });
+      }
+      const newToken = await _refreshPromise;
+      if (!newToken) {
+        // Refresh resolved but with no token — treat as terminal failure
+        throw new Error('refresh returned no token');
+      }
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+      return API(originalRequest);
+    } catch (e) {
+      clearAccessToken();
+      // Notify the app that the session has fully expired so it can redirect to login.
+      window.dispatchEvent(new Event("session-expired"));
+      // Surface the original 401 to the caller (not the refresh error).
+      return Promise.reject(error);
+    }
   }
 );
 
