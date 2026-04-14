@@ -258,7 +258,14 @@ AUDIT_SIGNING_KEY = os.environ.get('AUDIT_SIGNING_KEY', '')
 AUDITLOG_INCLUDE_ALL_MODELS = True
 
 # Email (SMTP for password reset)
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if APP_ENV in ('production', 'prod', 'staging', 'testing') else 'django.core.mail.backends.console.EmailBackend'
+# Default to real SMTP. Console backend only for explicit local dev/test —
+# an unknown APP_ENV value now falls through to SMTP instead of silently
+# eating password-reset and MFA emails.
+EMAIL_BACKEND = (
+    'django.core.mail.backends.console.EmailBackend'
+    if APP_ENV in ('dev', 'development', 'test', 'ci')
+    else 'django.core.mail.backends.smtp.EmailBackend'
+)
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')

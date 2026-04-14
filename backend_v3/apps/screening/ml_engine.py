@@ -370,26 +370,34 @@ class B12ClinicalEngine:
 
 # Singleton instance
 _engine: Optional[B12ClinicalEngine] = None
+_engine_lock = threading.Lock()
 _executor: Optional[ThreadPoolExecutor] = None
+_executor_lock = threading.Lock()
 
 
 def get_ml_engine() -> B12ClinicalEngine:
-    """Get or initialize the ML engine singleton."""
+    """Get or initialize the ML engine singleton (double-checked locking)."""
     global _engine
-    if _engine is None:
-        model_dir = settings.ML_MODEL_DIR
-        _engine = B12ClinicalEngine(model_dir)
+    if _engine is not None:
+        return _engine
+    with _engine_lock:
+        if _engine is None:
+            model_dir = settings.ML_MODEL_DIR
+            _engine = B12ClinicalEngine(model_dir)
     return _engine
 
 
 def get_ml_executor() -> ThreadPoolExecutor:
     """Get or initialize the thread pool executor for ML inference."""
     global _executor
-    if _executor is None:
-        _executor = ThreadPoolExecutor(
-            max_workers=settings.ML_EXECUTOR_WORKERS,
-            thread_name_prefix="ml_worker"
-        )
+    if _executor is not None:
+        return _executor
+    with _executor_lock:
+        if _executor is None:
+            _executor = ThreadPoolExecutor(
+                max_workers=settings.ML_EXECUTOR_WORKERS,
+                thread_name_prefix="ml_worker"
+            )
     return _executor
 
 

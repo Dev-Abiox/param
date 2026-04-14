@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 import structlog
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 from django_tenants.utils import schema_context
 from rest_framework import status
@@ -253,13 +253,27 @@ class WebhookView(APIView):
             now = timezone.now()
             try:
                 with transaction.atomic():
-                    # Lock the subscription row to prevent concurrent webhook races
-                    sub = (
-                        TenantSubscription.objects
-                        .select_for_update()
-                        .select_related('organization')
-                        .get(pk=sub.pk)
-                    )
+                    # Lock the subscription row to prevent concurrent webhook races.
+                    # nowait=True: if another worker is already processing a webhook
+                    # for the same subscription, fail fast instead of blocking the
+                    # request thread — we'll return 503 below so Razorpay retries.
+                    try:
+                        sub = (
+                            TenantSubscription.objects
+                            .select_for_update(nowait=True)
+                            .select_related('organization')
+                            .get(pk=sub.pk)
+                        )
+                    except DatabaseError as lock_exc:
+                        logger.warning(
+                            'billing.webhook_lock_contended',
+                            event_type=event_type,
+                            sub_id=razorpay_sub_id,
+                        )
+                        return Response(
+                            {'status': 'retry'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        )
 
                     if event_type == 'subscription.activated':
                         sub.transition_to(TenantSubscription.Status.ACTIVE)

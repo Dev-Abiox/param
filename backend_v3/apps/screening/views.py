@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Case, When, IntegerField
 from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -341,11 +342,17 @@ class PredictView(APIView):
         })
 
 
+class _LabListPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 200
+
+
 class LabListView(APIView):
     """
     List all labs.
 
-    GET /api/screening/labs
+    GET /api/screening/labs?page=1&page_size=50
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
     required_roles = [Role.LAB, Role.SUPER_ADMIN]
@@ -354,9 +361,11 @@ class LabListView(APIView):
         labs = Lab.objects.filter(is_active=True).annotate(
             doctors_count=Count('doctors', distinct=True),
             cases_count=Count('screenings', distinct=True),
-        )
-        serializer = LabSerializer(labs, many=True)
-        return Response(serializer.data)
+        ).order_by('id')
+        paginator = _LabListPagination()
+        page = paginator.paginate_queryset(labs, request, view=self)
+        serializer = LabSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class DoctorListView(APIView):
