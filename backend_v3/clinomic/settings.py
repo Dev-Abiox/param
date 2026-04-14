@@ -19,8 +19,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Security Settings
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 APP_ENV = os.environ.get('APP_ENV', 'dev')
+# Fail-safe DEBUG parse: only the literal 'true' / '1' / 'yes' turn it on,
+# and prod/staging force it off no matter what the env says, so a stray
+# `DEBUG=tRuE` or leftover `DEBUG=1` in the prod env can't expose the
+# Django error page or Werkzeug reloader in production.
+_debug_env = os.environ.get('DEBUG', 'False').strip().lower()
+DEBUG = _debug_env in ('true', '1', 'yes') and APP_ENV not in ('production', 'prod', 'staging')
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 

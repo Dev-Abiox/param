@@ -97,18 +97,29 @@ def _set_device_cookie(response, token: str) -> None:
 
 
 def _check_trusted_device(user, request) -> bool:
-    """Return True if the request carries a valid trusted-device cookie."""
+    """Return True if the request carries a valid trusted-device cookie.
+
+    Bind the cookie to the source IP: if the token was issued from IP X,
+    only honour it when the same IP presents it later. A stolen cookie
+    replayed from a different network will drop back through normal MFA.
+    """
     from .models import TrustedDevice
     from django.utils import timezone
     raw_token = request.COOKIES.get(_DEVICE_COOKIE)
     if not raw_token:
         return False
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    return TrustedDevice.objects.filter(
+    device = TrustedDevice.objects.filter(
         user=user,
         token_hash=token_hash,
         expires_at__gt=timezone.now(),
-    ).exists()
+    ).first()
+    if device is None:
+        return False
+    current_ip = request.META.get('REMOTE_ADDR')
+    if device.ip_address and current_ip and device.ip_address != current_ip:
+        return False
+    return True
 
 
 from .throttling import (
