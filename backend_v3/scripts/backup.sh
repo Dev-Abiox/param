@@ -11,7 +11,7 @@
 #   BACKUP_RETENTION_DAYS - Days to keep backups (default: 7)
 #   S3_BUCKET - Optional S3 bucket for remote backup storage
 
-set -e
+set -euo pipefail
 
 # Configuration
 BACKUP_DIR=${1:-./backups}

@@ -52,8 +52,9 @@ ENV PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=clinomic.settings \
     APP_ENV=prod
 
-# Collect static files
-RUN python manage.py collectstatic --noinput || true
+# Static files are collected by the runtime compose command (which has
+# access to real settings/secrets), not at build time — build-time
+# collectstatic would require fake secrets to pass prod validation.
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
