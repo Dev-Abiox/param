@@ -58,6 +58,7 @@ VALID_PAYLOAD = {
 
 class TestPredictIdempotency:
 
+    @patch.object(PredictView, "throttle_classes", [])
     @patch("apps.screening.views.cache")
     @patch("apps.screening.views.NarrativeEngine")
     @patch("apps.screening.views.Screening.objects.create")
@@ -113,6 +114,7 @@ class TestPredictIdempotency:
         assert args[1] == str(screening_mock.id)
         assert kwargs.get("timeout") == 300
 
+    @patch.object(PredictView, "throttle_classes", [])
     @patch("apps.screening.views.cache")
     @patch("apps.screening.views.Screening.objects.filter")
     def test_duplicate_submission_returns_cached_result(
@@ -140,6 +142,7 @@ class TestPredictIdempotency:
         assert response.data["duplicate"] is True
         assert response.data["id"] == str(existing_screening.id)
 
+    @patch.object(PredictView, "throttle_classes", [])
     @patch("apps.screening.views.cache")
     def test_cache_failure_does_not_block_prediction(self, mock_cache):
         """If Redis is down, the idempotency check should be skipped gracefully."""

@@ -191,16 +191,27 @@ class OrgRateLimitMiddleware:
 
         cache_key = f'org_ratelimit:{org.id}'
         try:
-            current = cache.get(cache_key, 0)
-            if current >= self.limit:
+            # Atomic increment — prevents race conditions where two concurrent
+            # requests both read N and both write N+1, allowing 2x the limit.
+            try:
+                current = cache.incr(cache_key)
+            except ValueError:
+                # Key doesn't exist yet — initialise it. There's a tiny race
+                # window between add() and incr() but it can only over-count
+                # by 1 per minute, which is acceptable.
+                cache.add(cache_key, 0, timeout=60)
+                current = cache.incr(cache_key)
+
+            if current > self.limit:
                 logger.warning('org_rate_limit_exceeded: org=%s count=%s', org.id, current)
                 return JsonResponse(
                     {'error': 'Rate limit exceeded. Please slow down requests.'},
                     status=429,
                 )
-            cache.set(cache_key, current + 1, timeout=60)
         except Exception:
-            pass  # Redis down — allow the request through
+            pass  # Redis down — allow the request through (PlanLimitMiddleware
+                  # is the source of truth for hard quota enforcement; this
+                  # middleware is a soft DoS guard only.)
 
         return self.get_response(request)
 

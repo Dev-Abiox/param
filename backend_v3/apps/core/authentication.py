@@ -36,14 +36,25 @@ def blacklist_access_token(jti: str, ttl_seconds: int | None = None) -> None:
         pass  # blacklist is best-effort
 
 
+class BlacklistUnavailable(Exception):
+    """Raised when the JWT blacklist cannot be consulted (Redis down)."""
+
+
 def is_token_blacklisted(jti: str) -> bool:
-    """Check if an access token JTI has been revoked."""
+    """Check if an access token JTI has been revoked.
+
+    Fail-closed semantics: when the cache backend is unreachable we cannot
+    confirm whether the token was revoked, so we raise BlacklistUnavailable
+    and let the auth class decide how to surface that (currently 503).
+    The previous fail-open behaviour silently allowed revoked tokens during
+    Redis outages, which defeats the purpose of having a blacklist.
+    """
     if not jti:
         return False
     try:
         return cache.get(f'{_BLACKLIST_PREFIX}{jti}') is not None
-    except Exception:
-        return False  # if Redis is down, allow the token
+    except Exception as exc:
+        raise BlacklistUnavailable(str(exc))
 
 
 class JWTAuthentication(authentication.BaseAuthentication):
@@ -67,10 +78,24 @@ class JWTAuthentication(authentication.BaseAuthentication):
         except jwt.InvalidTokenError:
             raise exceptions.AuthenticationFailed('Invalid token')
 
-        # Check JWT blacklist (revoked access tokens)
+        # Check JWT blacklist (revoked access tokens). Fail closed: if the
+        # blacklist is unreachable we cannot confirm revocation status, so
+        # we surface a 503 and let the client retry — never silently allow
+        # a potentially-revoked token through.
         jti = payload.get('jti')
-        if jti and is_token_blacklisted(jti):
-            raise exceptions.AuthenticationFailed('Token has been revoked')
+        if jti:
+            try:
+                if is_token_blacklisted(jti):
+                    raise exceptions.AuthenticationFailed('Token has been revoked')
+            except BlacklistUnavailable:
+                # 503 maps to NotAuthenticated/throttled at the framework level —
+                # use APIException with status 503 so DRF emits the right code.
+                from rest_framework.exceptions import APIException
+                class _BlacklistDown(APIException):
+                    status_code = 503
+                    default_detail = 'Auth blacklist unavailable. Please retry shortly.'
+                    default_code = 'blacklist_unavailable'
+                raise _BlacklistDown()
 
         try:
             user = User.objects.get(id=payload['sub'])

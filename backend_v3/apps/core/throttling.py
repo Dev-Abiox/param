@@ -128,6 +128,29 @@ class RefreshTokenThrottle(_FailClosedMixin, SimpleRateThrottle):
         }
 
 
+class AdminEndpointThrottle(_FailClosedMixin, SimpleRateThrottle):
+    """Strict per-user throttle for sensitive admin endpoints.
+
+    60 requests per minute is enough for normal admin UI use but blocks
+    automated brute-force / scraping. Fail-closed via _FailClosedMixin.
+    """
+    scope = 'admin_endpoint'
+    rate = '60/min'
+
+    def get_cache_key(self, request, view):
+        # Key on user ID when authenticated, IP otherwise — admin views
+        # require auth so user.pk is normally present.
+        ident = (
+            str(request.user.pk)
+            if request.user and request.user.is_authenticated
+            else self.get_ident(request)
+        )
+        return self.cache_format % {
+            'scope': self.scope,
+            'ident': ident,
+        }
+
+
 class PasswordResetRateThrottle(_FailClosedMixin, SimpleRateThrottle):
     """Rate limit password reset requests (both initiation and consumption)."""
     scope = 'password_reset'

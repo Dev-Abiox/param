@@ -39,10 +39,10 @@ services:
       - FRONTEND_URL=https://testing.clinomiclabs.com
       - CORS_ORIGINS=https://testing.clinomiclabs.com
       - CSRF_TRUSTED_ORIGINS=https://testing.clinomiclabs.com
-      - REDIS_URL=redis://redis_testing:6379/0
-      - CACHE_REDIS_URL=redis://redis_testing:6379/1
-      - CHANNELS_REDIS_URL=redis://redis_testing:6379/2
-      - CELERY_BROKER_URL=redis://redis_testing:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/1
+      - CHANNELS_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/2
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/0
       # Razorpay credentials MUST be injected via environment (server .env or CI secrets).
       # Hardcoded defaults were removed on 2026-04-14 (Phase 0 remediation) — the
       # previous values leaked in git history and must be rotated in the dashboard.
@@ -98,9 +98,12 @@ services:
   redis_testing:
     image: redis:7-alpine
     restart: always
-    command: redis-server --loglevel warning
+    # Match prod posture — require auth via REDIS_PASSWORD env var.
+    command: redis-server --loglevel warning --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    environment:
+      - REDISCLI_AUTH=${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -129,9 +132,9 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
-      - REDIS_URL=redis://redis_testing:6379/0
-      - CACHE_REDIS_URL=redis://redis_testing:6379/1
-      - CELERY_BROKER_URL=redis://redis_testing:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis_testing:6379/0
       # Razorpay credentials MUST be injected via environment (server .env or CI secrets).
       # Hardcoded defaults were removed on 2026-04-14 (Phase 0 remediation) — the
       # previous values leaked in git history and must be rotated in the dashboard.

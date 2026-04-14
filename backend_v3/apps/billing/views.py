@@ -34,6 +34,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import Role
 from apps.core.permissions import HasRole, IsMFAVerified
+from apps.core.throttling import AdminEndpointThrottle
 
 from .models import APIKey, PaymentEvent, SubscriptionPlan, TenantSubscription, UsageRecord, WebhookEndpoint, VALID_SCOPES
 from .serializers import (
@@ -322,6 +323,7 @@ class AdminUsageView(APIView):
     Returns current usage stats and 6-month history for the admin's org.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
@@ -369,6 +371,7 @@ class AdminBillingView(APIView):
     Returns the current plan + all available plans for the upgrade picker.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
@@ -405,6 +408,7 @@ class AdminBillingUpgradeView(APIView):
     the Razorpay `subscription.activated` webhook arrives.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def post(self, request):
@@ -501,6 +505,7 @@ class PaymentVerifyView(APIView):
     422 on signature mismatch.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def post(self, request):
@@ -596,6 +601,7 @@ class APIKeyListView(APIView):
         }
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def get(self, request):
@@ -709,6 +715,7 @@ class APIKeyDetailView(APIView):
         The key is not physically removed so audit logs remain intact.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN, Role.LAB]
 
     def delete(self, request, pk):
@@ -768,6 +775,7 @@ class WebhookListView(APIView):
         shown.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN]
 
     _valid_events = frozenset(WebhookEndpoint.SUPPORTED_EVENTS)
@@ -866,6 +874,7 @@ class WebhookDetailView(APIView):
         Future deliveries to this URL will immediately stop.
     """
     permission_classes = [IsAuthenticated, IsMFAVerified, HasRole]
+    throttle_classes = [AdminEndpointThrottle]
     required_roles = [Role.SUPER_ADMIN]
 
     def delete(self, request, pk):

@@ -69,12 +69,14 @@ class TestPredictView:
         },
     }
 
+    @patch.object(PredictView, "throttle_classes", [])
     def test_missing_patient_id_returns_400(self):
         payload = {**self.VALID_PAYLOAD, "patientId": ""}
         request = _make_request("post", "/api/screening/predict", payload)
         response = PredictView.as_view()(request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @patch.object(PredictView, "throttle_classes", [])
     @patch("apps.screening.views.NarrativeEngine")
     @patch("apps.screening.views.Screening.objects.create")
     @patch("apps.screening.views.Patient.objects.update_or_create")

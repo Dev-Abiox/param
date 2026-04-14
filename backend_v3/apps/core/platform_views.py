@@ -46,10 +46,12 @@ from apps.billing.serializers import (
 
 from .models import Domain, Organization, Role, User
 from .permissions import IsMFAVerified, IsPlatformSuperAdmin
+from .throttling import AdminEndpointThrottle
 
 logger = structlog.get_logger(__name__)
 
 _PLATFORM_PERMS = [IsAuthenticated, IsMFAVerified, IsPlatformSuperAdmin]
+_PLATFORM_THROTTLES = [AdminEndpointThrottle]
 
 
 class PublicSchemaMixin:
@@ -92,6 +94,7 @@ class PlatformStatsView(PublicSchemaMixin, APIView):
     Platform-wide metrics for the super admin dashboard.
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def get(self, request):
         # All subscriptions in public schema
@@ -146,6 +149,7 @@ class PlatformOrgListView(PublicSchemaMixin, APIView):
     Query params: ?page=1&page_size=20&search=<name>&plan=<name>&status=<status>
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def get(self, request):
         page      = max(1, int(request.query_params.get('page', 1)))
@@ -235,6 +239,7 @@ class PlatformCreateOrgView(PublicSchemaMixin, APIView):
     Sends a lab-created email with temporary password.
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def post(self, request):
         org_name   = (request.data.get('org_name') or '').strip()
@@ -392,6 +397,7 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
     PATCH body: { "action": "suspend" | "reactivate" }
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def _get_org(self, schema_name):
         try:
@@ -548,6 +554,7 @@ class PlatformOrgPlanView(PublicSchemaMixin, APIView):
     Super admin direct plan change — no Razorpay required.
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def post(self, request, schema_name):
         try:
@@ -615,6 +622,7 @@ class PlatformOrgUsageView(PublicSchemaMixin, APIView):
     Last 12 months of usage history for one org.
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def get(self, request, schema_name):
         try:
@@ -655,6 +663,7 @@ class PlatformOrgUsersView(PublicSchemaMixin, APIView):
     POST /api/v1/platform/orgs/<schema_name>/users/   — Create user in org
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def _get_org(self, schema_name):
         try:
@@ -753,6 +762,7 @@ class PlatformResendCredentialsView(PublicSchemaMixin, APIView):
     Re-generate a password-setup link and email it to the user.
     """
     permission_classes = _PLATFORM_PERMS
+    throttle_classes = _PLATFORM_THROTTLES
 
     def _get_org(self, schema_name):
         try:

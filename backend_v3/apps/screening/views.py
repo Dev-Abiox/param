@@ -50,8 +50,12 @@ class ScreeningRateThrottle(UserRateThrottle):
         try:
             return super().allow_request(request, view)
         except Exception:
-            logger.warning("throttle_cache_error: ScreeningRateThrottle bypassed")
-            return True
+            # Fail closed — never silently allow unlimited screening predictions
+            # when the throttle backend is down. Setting self.history=[] prevents
+            # the AttributeError DRF would otherwise hit in wait().
+            logger.error("throttle_cache_error: ScreeningRateThrottle denied (fail-closed)")
+            self.history = []
+            return False
 
 
 class PredictView(APIView):
