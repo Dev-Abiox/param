@@ -47,7 +47,26 @@ from .serializers import (
 logger = structlog.get_logger(__name__)
 
 
+# Monthly billing period used to advance current_period_end on
+# `subscription.charged`. Named constant so the webhook handler and any
+# future billing helpers can't drift from each other.
+BILLING_PERIOD_DAYS = 30
+
+
 # ── helpers ────────────────────────────────────────────────────────────────────
+
+def _razorpay_client():
+    """Return a Razorpay SDK client built from the configured credentials.
+
+    Centralised so the three call sites (webhook signature verify, subscription
+    create on upgrade, payment-verify subscription fetch) can't drift on which
+    settings keys they read or how they construct the client.
+    """
+    import razorpay
+    return razorpay.Client(
+        auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+    )
+
 
 def _validate_webhook_url(url: str) -> str | None:
     """Validate a webhook URL is HTTPS and not targeting private/internal networks.
@@ -205,10 +224,7 @@ class WebhookView(APIView):
             return Response({'error': 'webhook not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         try:
-            import razorpay
-            client = razorpay.Client(
-                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-            )
+            client = _razorpay_client()
             client.utility.verify_webhook_signature(
                 request.body.decode('utf-8'), sig, webhook_secret
             )
@@ -289,7 +305,7 @@ class WebhookView(APIView):
                     elif event_type == 'subscription.charged':
                         sub.current_period_count = 0
                         sub.current_period_start = now
-                        sub.current_period_end = now + timedelta(days=30)
+                        sub.current_period_end = now + timedelta(days=BILLING_PERIOD_DAYS)
                         sub.save(update_fields=[
                             'current_period_count',
                             'current_period_start',
@@ -461,11 +477,8 @@ class AdminBillingUpgradeView(APIView):
                 return Response({'error': 'Already on this plan.'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Create a Razorpay subscription for the new plan
-            import razorpay
             try:
-                client = razorpay.Client(
-                    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-                )
+                client = _razorpay_client()
                 rz_sub = client.subscription.create({
                     'plan_id': new_plan.razorpay_plan_id,
                     'total_count': 12,  # 12 billing cycles
@@ -563,10 +576,7 @@ class PaymentVerifyView(APIView):
         # Optional: confirm the subscription exists in Razorpay (defence in depth).
         # Failures here are non-fatal — the signature itself is the canonical proof.
         try:
-            import razorpay
-            client = razorpay.Client(
-                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-            )
+            client = _razorpay_client()
             client.subscription.fetch(sub_id)
         except Exception as exc:
             logger.warning(

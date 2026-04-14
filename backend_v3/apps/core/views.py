@@ -65,7 +65,12 @@ def _delete_refresh_cookie(response) -> None:
 
 
 _DEVICE_COOKIE = 'trusted_device'
-_DEVICE_MAX_AGE = 30 * 24 * 3600  # 30 days
+# Deliberately tracked as an independent constant — this is the "remember
+# this browser, skip MFA" TTL and has nothing to do with the 30-day billing
+# period elsewhere in the codebase, even though they currently happen to
+# share a value. Change one without having to reason about the other.
+DEVICE_TRUST_TTL_DAYS = 30
+_DEVICE_MAX_AGE = DEVICE_TRUST_TTL_DAYS * 24 * 3600
 
 
 def _create_trusted_device(user, request):
@@ -79,7 +84,7 @@ def _create_trusted_device(user, request):
         token_hash=token_hash,
         user_agent=(request.META.get('HTTP_USER_AGENT', '') or '')[:500],
         ip_address=request.META.get('REMOTE_ADDR'),
-        expires_at=timezone.now() + timedelta(days=30),
+        expires_at=timezone.now() + timedelta(days=DEVICE_TRUST_TTL_DAYS),
     )
     return raw_token
 
