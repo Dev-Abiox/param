@@ -185,14 +185,18 @@ jobs:
           ssh $SERVER "mkdir -p /opt/clinomic-b12-platform/ml/models"
           # Remove old root-owned monitoring dir via docker, then recreate as deploy user
           ssh $SERVER 'docker run --rm -v /opt/clinomic-b12-platform:/host alpine rm -rf /host/monitoring'
-          ssh $SERVER "mkdir -p /opt/clinomic-b12-platform/monitoring/grafana/provisioning/datasources /opt/clinomic-b12-platform/monitoring/grafana/provisioning/dashboards /opt/clinomic-b12-platform/monitoring/prometheus /opt/clinomic-b12-platform/monitoring/alertmanager"
+          ssh $SERVER "mkdir -p /opt/clinomic-b12-platform/monitoring/grafana /opt/clinomic-b12-platform/monitoring/prometheus /opt/clinomic-b12-platform/monitoring/alertmanager"
           scp docker-compose.prod.yml $SERVER:/opt/clinomic-b12-platform/docker-compose.prod.yml
           scp nginx.prod.conf $SERVER:/opt/clinomic-b12-platform/nginx.prod.conf
           scp nginx.testing.conf $SERVER:/opt/clinomic-b12-platform/nginx.testing.conf
           scp -r backend_v3/ml/models/ $SERVER:/opt/clinomic-b12-platform/ml/
           scp monitoring/prometheus.yml $SERVER:/opt/clinomic-b12-platform/monitoring/prometheus.yml
           scp monitoring/prometheus/alerts.yml $SERVER:/opt/clinomic-b12-platform/monitoring/prometheus/alerts.yml
-          scp -r monitoring/grafana/provisioning/ $SERVER:/opt/clinomic-b12-platform/monitoring/grafana/provisioning/
+          # Source has NO trailing slash: scp will create the "provisioning" dir
+          # inside the destination parent. A trailing slash on the source was
+          # nesting the files at provisioning/provisioning/... which broke
+          # Grafana dashboard provisioning.
+          scp -r monitoring/grafana/provisioning $SERVER:/opt/clinomic-b12-platform/monitoring/grafana/
           scp monitoring/alertmanager/alertmanager.tmpl.yml $SERVER:/opt/clinomic-b12-platform/monitoring/alertmanager/alertmanager.tmpl.yml
           # Fix Grafana ownership (UID 472) and set secure permissions
           ssh $SERVER 'docker run --rm -v /opt/clinomic-b12-platform:/host alpine sh -c "chown -R 472:472 /host/monitoring/grafana && chmod -R 755 /host/monitoring"'
