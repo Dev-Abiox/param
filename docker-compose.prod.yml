@@ -283,14 +283,16 @@ services:
   celery_email_worker:
     # Dedicated consumer for the `email` queue. Split off from the shared
     # celery_worker so a slow SMTP call can't block webhook/alert tasks that
-    # sit on default/webhooks/alerts. High concurrency is cheap because email
-    # tasks are I/O-bound (waiting on SendGrid/SMTP handshake), not CPU-bound.
+    # sit on default/webhooks/alerts. Concurrency tuned for the actual idle
+    # memory footprint: each Celery worker process boots the full Django +
+    # CatBoost stack (~60 MB baseline) and concurrency=4 leaves headroom in
+    # the 512M cap. Email tasks are I/O-bound so 4 handles comfortable burst.
     image: ghcr.io/dev-abiox/param:${BACKEND_TAG:-latest}
     restart: always
     command: >
       celery -A clinomic worker
       --loglevel=info
-      --concurrency=8
+      --concurrency=4
       -Q email
       --hostname=email@%h
     healthcheck:
