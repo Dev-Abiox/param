@@ -11,6 +11,7 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [detailScreeningId, setDetailScreeningId] = useState(null);
@@ -49,6 +50,14 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
+  // Debounce the search input — the filter pass is O(n) over records,
+  // so we wait 200ms of idle typing before re-running it. Prevents UI
+  // stutter on large record sets.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 200);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
   const handleDownload = async (record) => {
     setDownloadingId(record.id);
     try {
@@ -78,11 +87,15 @@ const PatientRecords = ({ doctorId, doctorName, onBack, userRole }) => {
     setPage(1);
   };
 
-  const filteredRecords = records.filter((r) =>
-    String(r.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(r.patientId || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(r.labId || "").toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredRecords = React.useMemo(() => {
+    const q = debouncedSearch.toLowerCase();
+    if (!q) return records;
+    return records.filter((r) =>
+      String(r.name || "").toLowerCase().includes(q) ||
+      String(r.patientId || "").toLowerCase().includes(q) ||
+      String(r.labId || "").toLowerCase().includes(q)
+    );
+  }, [records, debouncedSearch]);
 
   const getStatusBadge = (status) => {
     switch (status) {

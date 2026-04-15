@@ -186,7 +186,12 @@ const PlatformCreateOrg = () => {
                 <div>
                   <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{plan.display_name}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {formatLimit(plan.monthly_limit)} · Coming Soon
+                    {formatLimit(plan.monthly_limit)} ·{" "}
+                    {plan.price_monthly == null
+                      ? "—"
+                      : Number(plan.price_monthly) === 0
+                        ? "Custom"
+                        : `₹${Number(plan.price_monthly).toLocaleString("en-IN")}/mo`}
                   </p>
                 </div>
               </label>

@@ -197,14 +197,17 @@ const ScreeningDetailDrawer = ({
               </section>
             )}
 
-            {(trendLoading || (trend && trend.length > 1)) && (
-              <section>
-                <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Patient CBC Trend</p>
-                {trendLoading ? (
-                  <div className="flex items-center justify-center h-32">
-                    <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
-                  </div>
-                ) : (
+            <section>
+              <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Patient CBC Trend</p>
+              {trendLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
+                </div>
+              ) : !trend || trend.length < 2 ? (
+                <p className="text-xs text-slate-400 dark:text-slate-500 italic px-1 py-2">
+                  Not enough history to chart a trend — this is the patient's first screening or only one prior record exists.
+                </p>
+              ) : (
                   <ResponsiveContainer width="100%" height={180}>
                     <LineChart data={trend} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} />
@@ -216,10 +219,9 @@ const ScreeningDetailDrawer = ({
                       <Line type="monotone" dataKey="Hgb"  stroke="#10b981" dot={false} strokeWidth={1.5} />
                       <Line type="monotone" dataKey="RBC"  stroke="#f59e0b" dot={false} strokeWidth={1.5} />
                     </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </section>
-            )}
+                </ResponsiveContainer>
+              )}
+            </section>
 
             <section>
               <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Clinical Review</p>

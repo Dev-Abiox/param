@@ -76,8 +76,18 @@ const WorkQueue = () => {
   const handleReviewed = async (updated) => {
     try {
       await LisService.updateScreeningStatus(updated.id, "in_progress");
+      // Optimistically drop the row from the current (pending) tab and
+      // decrement the pending badge so the reviewer sees instant progress.
+      setQueueData((prev) => ({
+        ...prev,
+        items: (prev.items || []).filter((it) => it.id !== updated.id),
+        counts: {
+          ...(prev.counts || {}),
+          pending: Math.max(0, (prev.counts?.pending ?? 1) - 1),
+          in_progress: (prev.counts?.in_progress ?? 0) + 1,
+        },
+      }));
       setReviewScreeningId(null);
-      await load(activeTab);
     } catch (e) {
       console.error("Status transition after review failed", e);
     }
@@ -162,7 +172,16 @@ const WorkQueue = () => {
         ) : items.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500">
             <CheckCircle2 className="h-10 w-10 text-slate-200 dark:text-slate-700" />
-            <p className="text-sm font-medium">No {activeTab.replace("_", " ")} screenings</p>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+              {activeTab === "pending" && "No pending screenings"}
+              {activeTab === "in_progress" && "Nothing in progress"}
+              {activeTab === "completed" && "No completed screenings yet"}
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs text-center">
+              {activeTab === "pending" && "New results will appear here automatically as labs upload CBCs."}
+              {activeTab === "in_progress" && "Open the Pending tab and click Start Review to begin working a case."}
+              {activeTab === "completed" && "Reviewed and closed cases will be listed here for your records."}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
