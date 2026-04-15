@@ -119,3 +119,13 @@ AUTH_LOGIN_OUTCOMES = _counter(
     #   rate_limited          — blocked by throttle
     labelnames=('outcome',),
 )
+
+
+# ── Plan limit fail-open ──────────────────────────────────────────────────────
+# PlanLimitMiddleware fails open on cache/DB errors so a Redis blip doesn't
+# 402 every paying customer. This counter makes the fail-open visible: if it
+# increments, something upstream is wrong — alert on it.
+BILLING_PLAN_LIMIT_FAIL_OPEN = _counter(
+    'clinomic_billing_plan_limit_fail_open_total',
+    'PlanLimitMiddleware fell through to fail-open on cache/DB error.',
+)

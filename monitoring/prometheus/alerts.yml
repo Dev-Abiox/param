@@ -1,0 +1,88 @@
+groups:
+  - name: clinomic.screening
+    interval: 30s
+    rules:
+      - alert: HighPredictLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(clinomic_screening_predict_seconds_bucket[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: screening
+        annotations:
+          summary: "Predict p95 latency above 1s"
+          description: >
+            POST /api/screening/predict p95 latency has been above 1 second for 10 minutes.
+            Either the ML model is slow, the DB is slow, or the backend container is
+            memory-pressured. Check docker stats on the backend container and Grafana
+            "screening latency" panel.
+
+      - alert: PredictErrorSpike
+        expr: |
+          sum(rate(clinomic_screening_predict_outcomes_total{outcome!~"ok|idempotent"}[5m]))
+          /
+          clamp_min(sum(rate(clinomic_screening_predict_outcomes_total[5m])), 0.001)
+          > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          component: screening
+        annotations:
+          summary: "Predict error rate >10%"
+          description: >
+            More than 10% of /api/screening/predict calls are returning non-ok
+            outcomes (ml_not_ready, error, etc.) for 5 minutes. Check backend
+            logs for ML model load errors, DB connection issues, or ingress
+            validation failures.
+
+  - name: clinomic.auth
+    interval: 30s
+    rules:
+      - alert: LoginFailureSpike
+        expr: |
+          sum(rate(clinomic_auth_login_outcomes_total{outcome="bad_credentials"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "Sustained login failure rate"
+          description: >
+            More than 1 failed login per second sustained for 10 minutes. Likely
+            credential stuffing or a broken client. Check /api/auth/login source
+            IPs via access logs.
+
+  - name: clinomic.billing
+    interval: 30s
+    rules:
+      - alert: BillingWebhookFailures
+        expr: |
+          sum(rate(clinomic_billing_webhook_events_total{outcome="error"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: billing
+        annotations:
+          summary: "Razorpay webhook processing failures"
+          description: >
+            The Razorpay webhook handler has been returning errors for 5 minutes.
+            Subscription state in our DB is drifting from Razorpay's. Check
+            backend logs for the webhook handler stack trace and verify the
+            HMAC secret, plan ID mapping, and DB connectivity.
+
+      - alert: PlanLimitFailOpen
+        expr: |
+          increase(clinomic_billing_plan_limit_fail_open_total[5m]) > 0
+        labels:
+          severity: warning
+          component: billing
+        annotations:
+          summary: "PlanLimitMiddleware failing open (cache/DB blip)"
+          description: >
+            PlanLimitMiddleware has fallen through to fail-open behavior,
+            meaning a cache or DB exception was hit during quota checking.
+            Paying customers are currently NOT being quota-enforced. Check
+            Redis and Postgres health immediately.

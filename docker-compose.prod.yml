@@ -21,10 +21,10 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 2G
         reservations:
           cpus: '0.25'
-          memory: 512M
+          memory: 1G
 
   pgbouncer:
     image: edoburu/pgbouncer:v1.25.1-p0
@@ -136,10 +136,10 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 1G
+          memory: 2G
         reservations:
           cpus: '0.5'
-          memory: 512M
+          memory: 768M
 
   frontend:
     image: ghcr.io/dev-abiox/param-frontend:${FRONTEND_TAG:-latest}
@@ -228,7 +228,7 @@ services:
       celery -A clinomic worker
       --loglevel=info
       --concurrency=2
-      -Q default,webhooks,alerts,email
+      -Q default,webhooks,alerts
     healthcheck:
       test: ["CMD-SHELL", "celery -A clinomic inspect ping --timeout 10 | grep -q OK"]
       interval: 30s
@@ -280,6 +280,61 @@ services:
           cpus: '0.25'
           memory: 256M
 
+  celery_email_worker:
+    # Dedicated consumer for the `email` queue. Split off from the shared
+    # celery_worker so a slow SMTP call can't block webhook/alert tasks that
+    # sit on default/webhooks/alerts. High concurrency is cheap because email
+    # tasks are I/O-bound (waiting on SendGrid/SMTP handshake), not CPU-bound.
+    image: ghcr.io/dev-abiox/param:${BACKEND_TAG:-latest}
+    restart: always
+    command: >
+      celery -A clinomic worker
+      --loglevel=info
+      --concurrency=8
+      -Q email
+      --hostname=email@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A clinomic inspect ping --timeout 10 -d email@$$(hostname) | grep -q OK"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    environment:
+      - DEBUG=False
+      - APP_ENV=production
+      - POSTGRES_HOST=pgbouncer
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-clinomic}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - AUDIT_SIGNING_KEY=${AUDIT_SIGNING_KEY}
+      - FRONTEND_URL=${FRONTEND_URL:-https://clinomiclabs.com}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CACHE_REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - EMAIL_HOST=${EMAIL_HOST:-mail.arogyabiox.com}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - clinomic_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
   celery_beat:
     image: ghcr.io/dev-abiox/param:${BACKEND_TAG:-latest}
     restart: always
@@ -327,6 +382,7 @@ services:
     restart: always
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

@@ -143,8 +143,16 @@ class TestPlanLimitMiddleware:
 
 class TestIsBlocked:
 
-    def test_db_error_fails_closed(self, rf):
-        """DB errors should fail closed (return blocked) and NOT cache."""
+    def test_db_error_fails_open(self, rf):
+        """
+        DB errors must fail OPEN (allow the request through) and NOT cache.
+
+        The historical behavior was fail-closed, which meant one Redis/DB blip
+        would 402 every paying customer. The new contract: let the request
+        through, emit a warning + bump BILLING_PLAN_LIMIT_FAIL_OPEN so the
+        incident is visible in Prometheus. The billing.increment_usage task
+        reconciles actual quota afterwards.
+        """
         from apps.billing.middleware import PlanLimitMiddleware
         from apps.billing.models import TenantSubscription
 
@@ -152,15 +160,67 @@ class TestIsBlocked:
         org = MagicMock()
         org.id = 'org-db-err'
 
-        with patch('apps.billing.models.TenantSubscription') as MockSub:
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
+             patch('apps.core.metrics.BILLING_PLAN_LIMIT_FAIL_OPEN') as MockCounter:
             MockSub.DoesNotExist = TenantSubscription.DoesNotExist
             MockSub.objects.select_related.return_value.get.side_effect = RuntimeError('db down')
 
             result = mw._is_blocked(org)
 
-        assert result[0] is True
-        # Should NOT be cached
+        assert result == (False, '')
+        # Counter must fire so ops see the fail-open in Grafana.
+        MockCounter.inc.assert_called_once()
+        # Must NOT be cached — a transient error should not persist.
         assert cache.get(f'plan_limit_over:{org.id}') is None
+
+    def test_cache_get_error_fails_open(self, rf):
+        """
+        Redis unreachable on the cache.get path must also fail OPEN rather than
+        crashing the request with a 500 from an uncaught exception.
+        """
+        from apps.billing.middleware import PlanLimitMiddleware
+
+        mw = PlanLimitMiddleware(MagicMock())
+        org = MagicMock()
+        org.id = 'org-cache-err'
+
+        with patch('apps.billing.middleware.cache') as MockCache, \
+             patch('apps.core.metrics.BILLING_PLAN_LIMIT_FAIL_OPEN') as MockCounter:
+            MockCache.get.side_effect = ConnectionError('redis down')
+
+            result = mw._is_blocked(org)
+
+        assert result == (False, '')
+        MockCounter.inc.assert_called_once()
+
+    def test_cache_set_error_still_returns_db_result(self, rf):
+        """
+        If cache.set fails (Redis partial outage), the DB-derived result must
+        still be returned — the next request will recompute it.
+        """
+        from apps.billing.middleware import PlanLimitMiddleware
+
+        mw = PlanLimitMiddleware(MagicMock())
+        org = MagicMock()
+        org.id = 'org-cache-set-err'
+
+        sub = MagicMock()
+        sub.status = 'ACTIVE'
+        sub.plan.monthly_limit = 100
+        sub.current_period_count = 5  # under limit
+
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
+             patch('apps.billing.middleware.cache') as MockCache:
+            MockSub.objects.select_related.return_value.get.return_value = sub
+            MockSub.Status.EXPIRED = 'EXPIRED'
+            MockSub.Status.CANCELLED = 'CANCELLED'
+            MockSub.Status.TRIAL = 'TRIAL'
+            MockCache.get.return_value = None
+            MockCache.set.side_effect = ConnectionError('redis down on write')
+
+            result = mw._is_blocked(org)
+
+        assert result == (False, '')
 
     def test_cache_hit_returns_cached_value(self, rf):
         """Cached results should be returned without DB hit."""

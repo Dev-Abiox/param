@@ -224,12 +224,15 @@ class PlanLimitMiddleware:
     When the tenant's current_period_count has reached or exceeded the plan
     limit, returns HTTP 402 immediately — the view is never called.
 
-    The over-limit flag is cached per org for 60 seconds; it is busted by the
+    The over-limit flag is cached per org for 10 seconds; it is busted by the
     billing.increment_usage Celery task whenever the counter changes.
 
-    On DB errors the middleware fails closed (blocks the request) and does NOT
-    cache the error result, so a transient DB issue does not persist as a
-    5-minute outage.
+    On cache or DB errors the middleware fails OPEN (allows the request through)
+    and increments clinomic_billing_plan_limit_fail_open_total so the incident
+    is visible in Prometheus. A brief Redis blip that would otherwise 402 every
+    paying customer is more damaging than letting a handful of extra-quota
+    requests through — the billing.increment_usage task reconciles usage and
+    the over-limit flag will re-engage on the next successful cache lookup.
     """
 
     PREDICT_PATHS = frozenset([
@@ -262,7 +265,12 @@ class PlanLimitMiddleware:
     def _is_blocked(self, org) -> tuple[bool, str]:
         """Return (blocked: bool, reason: str)."""
         cache_key = f'plan_limit_over:{org.id}'
-        cached = cache.get(cache_key)
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            # Redis unreachable on the read path — fail open, not 500.
+            self._record_fail_open(org, source='cache_get')
+            return (False, '')
         if cached is not None:
             return cached
 
@@ -298,8 +306,32 @@ class PlanLimitMiddleware:
         except TenantSubscription.DoesNotExist:
             result = (False, '')
         except Exception:
-            logger.error('PlanLimitMiddleware: DB error checking limit for org %s', org.id, exc_info=True)
-            return (True, self._REASON_LIMIT)  # fail closed — do NOT cache error state
+            # DB error — fail OPEN rather than 402 every paying customer.
+            # Don't cache the failure; next request retries the DB.
+            self._record_fail_open(org, source='db_query')
+            return (False, '')
 
-        cache.set(cache_key, result, timeout=self.CACHE_TTL)
+        try:
+            cache.set(cache_key, result, timeout=self.CACHE_TTL)
+        except Exception:
+            # Cache unreachable on the write path — request still proceeds
+            # with the DB-derived result; next request will pay the DB again.
+            logger.warning(
+                'PlanLimitMiddleware: cache.set failed for org %s, skipping cache',
+                org.id, exc_info=True,
+            )
         return result
+
+    @staticmethod
+    def _record_fail_open(org, source: str) -> None:
+        """Log + bump the Prometheus counter so fail-open events are visible."""
+        logger.warning(
+            'PlanLimitMiddleware: fail-open on %s for org %s — allowing request through',
+            source, getattr(org, 'id', '?'), exc_info=True,
+        )
+        try:
+            from apps.core.metrics import BILLING_PLAN_LIMIT_FAIL_OPEN
+            BILLING_PLAN_LIMIT_FAIL_OPEN.inc()
+        except Exception:
+            # Metrics shouldn't be able to break request handling.
+            pass
