@@ -190,6 +190,16 @@ def backup_database(self) -> str:
         )
         s3.upload_file(tmp_path, bucket, s3_key)
 
+        # Report success to Prometheus. The BackupMissing alert watches this
+        # gauge via (time() - clinomic_backup_last_success_timestamp) > 25h.
+        try:
+            import time as _time
+            from apps.core.metrics import BACKUP_LAST_SUCCESS_TIMESTAMP
+            BACKUP_LAST_SUCCESS_TIMESTAMP.set(_time.time())
+        except Exception:
+            # Metric failures must never break a completed backup.
+            pass
+
         logger.info("backup_complete", s3_bucket=bucket, s3_key=s3_key)
         return s3_key
 

@@ -32,10 +32,14 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-clinomic}
       POOL_MODE: transaction
-      DEFAULT_POOL_SIZE: 20
+      # Bumped 20 -> 40: signup bursts (tenant schema creation + migrations)
+      # plus concurrent screening traffic can push above 20 active txns across
+      # ~11 Django processes (4 uvicorn + 2 shared worker + 4 email worker + beat).
+      # 40 is still comfortable inside Postgres's default max_connections=100.
+      DEFAULT_POOL_SIZE: 40
       MAX_CLIENT_CONN: 200
-      MIN_POOL_SIZE: 5
-      RESERVE_POOL_SIZE: 5
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 10
       RESERVE_POOL_TIMEOUT: 3
       SERVER_IDLE_TIMEOUT: 300
       SERVER_LIFETIME: 3600
@@ -431,12 +435,28 @@ services:
           --config.file=/tmp/alertmanager.yml \
           --storage.path=/alertmanager \
           --web.external-url=http://localhost:9093
+    healthcheck:
+      # Alertmanager exposes /-/healthy once config is loaded. A wedged
+      # alertmanager silently drops pages, so Docker healthcheck must catch it.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9093/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     expose:
       - "9093"
     depends_on:
       - prometheus
     networks:
       - clinomic_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
 
 volumes:
   postgres_data:

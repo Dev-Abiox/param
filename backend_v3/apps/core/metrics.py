@@ -28,7 +28,7 @@ every metric degrades to a no-op shim so the import always works.
 """
 
 try:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Gauge, Histogram
     _PROMETHEUS_AVAILABLE = True
 except ImportError:  # pragma: no cover — prod always has it
     _PROMETHEUS_AVAILABLE = False
@@ -44,6 +44,12 @@ class _NoopMetric:
         pass
 
     def observe(self, *args, **kwargs):
+        pass
+
+    def set(self, *args, **kwargs):
+        pass
+
+    def set_to_current_time(self, *args, **kwargs):
         pass
 
     def time(self):
@@ -68,6 +74,12 @@ def _histogram(name, description, labelnames=(), buckets=None):
         if buckets is not None:
             return Histogram(name, description, labelnames, buckets=buckets)
         return Histogram(name, description, labelnames)
+    return _NoopMetric()
+
+
+def _gauge(name, description, labelnames=()):
+    if _PROMETHEUS_AVAILABLE:
+        return Gauge(name, description, labelnames)
     return _NoopMetric()
 
 
@@ -128,4 +140,15 @@ AUTH_LOGIN_OUTCOMES = _counter(
 BILLING_PLAN_LIMIT_FAIL_OPEN = _counter(
     'clinomic_billing_plan_limit_fail_open_total',
     'PlanLimitMiddleware fell through to fail-open on cache/DB error.',
+)
+
+
+# ── Backup liveness ───────────────────────────────────────────────────────────
+# Unix-epoch timestamp of the last successful S3 backup upload. Set ONLY by
+# core.backup_database on success; a `skipped` result (BACKUP_S3_BUCKET unset)
+# or a failure does NOT update this gauge, so the BackupMissing alert fires
+# either when the gauge is absent or when it ages past 25 hours.
+BACKUP_LAST_SUCCESS_TIMESTAMP = _gauge(
+    'clinomic_backup_last_success_timestamp',
+    'Unix epoch seconds of the last successful DB backup S3 upload.',
 )

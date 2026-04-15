@@ -208,9 +208,11 @@ class TestIsBlocked:
         sub.status = 'ACTIVE'
         sub.plan.monthly_limit = 100
         sub.current_period_count = 5  # under limit
+        sub.trial_end = None  # not on the TRIAL auto-expire path
 
         with patch('apps.billing.models.TenantSubscription') as MockSub, \
-             patch('apps.billing.middleware.cache') as MockCache:
+             patch('apps.billing.middleware.cache') as MockCache, \
+             patch('apps.core.metrics.BILLING_PLAN_LIMIT_FAIL_OPEN') as MockCounter:
             MockSub.objects.select_related.return_value.get.return_value = sub
             MockSub.Status.EXPIRED = 'EXPIRED'
             MockSub.Status.CANCELLED = 'CANCELLED'
@@ -221,6 +223,48 @@ class TestIsBlocked:
             result = mw._is_blocked(org)
 
         assert result == (False, '')
+        # Lock in: cache.set failure is a soft miss, NOT a fail-open event.
+        # The DB-derived result is trustworthy; we just skip caching it.
+        # A regression that mistakenly counts this as fail-open would hide
+        # real cache/DB outages behind legitimate cache-set flakiness.
+        MockCounter.inc.assert_not_called()
+
+    def test_trial_auto_expire_save_failure_fails_open(self, rf):
+        """
+        The subtlest fail-open path: a TRIAL subscription whose trial_end has
+        passed triggers the auto-expire branch. transition_to() mutates the
+        in-memory status, then save() runs inside db_tx.atomic(). If save()
+        raises (DB hiccup mid-transition), we fall into the generic exception
+        handler and must fail-open, not return the half-computed EXPIRED state.
+        """
+        from apps.billing.middleware import PlanLimitMiddleware
+        from apps.billing.models import TenantSubscription
+        from django.utils import timezone
+        from datetime import timedelta
+
+        mw = PlanLimitMiddleware(MagicMock())
+        org = MagicMock()
+        org.id = 'org-trial-save-err'
+
+        sub = MagicMock()
+        sub.status = TenantSubscription.Status.TRIAL
+        sub.trial_end = timezone.now() - timedelta(days=1)  # past trial_end
+        sub.save.side_effect = RuntimeError('db connection dropped mid-transition')
+
+        with patch('apps.billing.models.TenantSubscription') as MockSub, \
+             patch('apps.billing.middleware.cache') as MockCache, \
+             patch('apps.core.metrics.BILLING_PLAN_LIMIT_FAIL_OPEN') as MockCounter:
+            MockSub.Status.TRIAL = TenantSubscription.Status.TRIAL
+            MockSub.Status.EXPIRED = TenantSubscription.Status.EXPIRED
+            MockSub.Status.CANCELLED = TenantSubscription.Status.CANCELLED
+            MockSub.DoesNotExist = TenantSubscription.DoesNotExist
+            MockSub.objects.select_related.return_value.get.return_value = sub
+            MockCache.get.return_value = None
+
+            result = mw._is_blocked(org)
+
+        assert result == (False, '')
+        MockCounter.inc.assert_called_once()
 
     def test_cache_hit_returns_cached_value(self, rf):
         """Cached results should be returned without DB hit."""

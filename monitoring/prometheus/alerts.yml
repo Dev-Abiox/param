@@ -19,12 +19,17 @@ groups:
             Either the ML model is slow, the DB is slow, or the backend container is
             memory-pressured. Check docker stats on the backend container and Grafana
             "screening latency" panel.
+          runbook_url: "https://github.com/Dev-Abiox/param/blob/master/docs/RUNBOOK.md#highpredictlatency"
 
       - alert: PredictErrorSpike
+        # NOTE: queries the histogram's _count series (which carries the `outcome`
+        # label), NOT clinomic_screening_predict_outcomes_total (which is labelled
+        # by risk_class only). A previous revision of this rule referenced the
+        # wrong counter and silently matched zero series.
         expr: |
-          sum(rate(clinomic_screening_predict_outcomes_total{outcome!~"ok|idempotent"}[5m]))
+          sum(rate(clinomic_screening_predict_seconds_count{outcome!~"ok|idempotent"}[5m]))
           /
-          clamp_min(sum(rate(clinomic_screening_predict_outcomes_total[5m])), 0.001)
+          clamp_min(sum(rate(clinomic_screening_predict_seconds_count[5m])), 0.001)
           > 0.1
         for: 5m
         labels:
@@ -34,9 +39,10 @@ groups:
           summary: "Predict error rate >10%"
           description: >
             More than 10% of /api/screening/predict calls are returning non-ok
-            outcomes (ml_not_ready, error, etc.) for 5 minutes. Check backend
+            outcomes (ml_not_ready, error) over the last 5 minutes. Check backend
             logs for ML model load errors, DB connection issues, or ingress
             validation failures.
+          runbook_url: "https://github.com/Dev-Abiox/param/blob/master/docs/RUNBOOK.md#predicterrorspike"
 
   - name: clinomic.auth
     interval: 30s
@@ -54,35 +60,77 @@ groups:
             More than 1 failed login per second sustained for 10 minutes. Likely
             credential stuffing or a broken client. Check /api/auth/login source
             IPs via access logs.
+          runbook_url: "https://github.com/Dev-Abiox/param/blob/master/docs/RUNBOOK.md#loginfailurespike"
 
   - name: clinomic.billing
     interval: 30s
     rules:
       - alert: BillingWebhookFailures
+        # Ratio-based: alert when >5% of webhooks fail over a 10m window, instead
+        # of on a single failure. Razorpay retries individual webhooks, so one
+        # transient error isn't actionable — a sustained elevated rate is.
         expr: |
-          sum(rate(clinomic_billing_webhook_events_total{outcome="error"}[10m])) > 0
-        for: 5m
+          sum(rate(clinomic_billing_webhook_events_total{outcome="error"}[10m]))
+          /
+          clamp_min(sum(rate(clinomic_billing_webhook_events_total[10m])), 0.001)
+          > 0.05
+        for: 10m
         labels:
           severity: critical
           component: billing
         annotations:
-          summary: "Razorpay webhook processing failures"
+          summary: "Razorpay webhook failure rate >5%"
           description: >
-            The Razorpay webhook handler has been returning errors for 5 minutes.
-            Subscription state in our DB is drifting from Razorpay's. Check
-            backend logs for the webhook handler stack trace and verify the
-            HMAC secret, plan ID mapping, and DB connectivity.
+            More than 5% of Razorpay webhooks have failed over the last 10 minutes.
+            Subscription state in our DB is drifting from Razorpay's. Check backend
+            logs for the webhook handler stack trace and verify the HMAC secret,
+            plan ID mapping, and DB connectivity.
+          runbook_url: "https://github.com/Dev-Abiox/param/blob/master/docs/RUNBOOK.md#billingwebhookfailures"
 
       - alert: PlanLimitFailOpen
+        # Debounced: require a sustained fail-open rate, not a single event.
+        # A single Redis hiccup that fail-opens once should not page; a cluster
+        # of hits over 5 minutes should. `for: 2m` ensures the counter has moved
+        # long enough to be real, not a one-shot blip during Redis restart.
         expr: |
-          increase(clinomic_billing_plan_limit_fail_open_total[5m]) > 0
+          increase(clinomic_billing_plan_limit_fail_open_total[5m]) > 3
+        for: 2m
         labels:
           severity: warning
           component: billing
         annotations:
-          summary: "PlanLimitMiddleware failing open (cache/DB blip)"
+          summary: "PlanLimitMiddleware failing open repeatedly"
           description: >
-            PlanLimitMiddleware has fallen through to fail-open behavior,
-            meaning a cache or DB exception was hit during quota checking.
-            Paying customers are currently NOT being quota-enforced. Check
-            Redis and Postgres health immediately.
+            PlanLimitMiddleware has fallen through to fail-open behavior more than
+            3 times in 5 minutes, sustained for 2 minutes — meaning cache or DB
+            exceptions are hitting the quota-check path. Paying customers are
+            currently NOT being quota-enforced. Check Redis and Postgres health
+            immediately.
+          runbook_url: "https://github.com/Dev-Abiox/param/blob/master/docs/RUNBOOK.md#planlimitfailopen"
+
+  - name: clinomic.backup
+    interval: 60s
+    rules:
+      - alert: BackupMissing
+        # clinomic_backup_last_success_timestamp is a Gauge set by the
+        # core.backup_database Celery task ONLY on successful S3 upload.
+        # If BACKUP_S3_BUCKET is unset the task returns 'skipped' without
+        # touching the gauge, so `absent()` fires. If the task fails or
+        # stops running, the timestamp ages past 25h and the age check fires.
+        expr: |
+          absent(clinomic_backup_last_success_timestamp)
+          or
+          (time() - clinomic_backup_last_success_timestamp) > 90000
+        for: 10m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "No successful DB backup in the last 25 hours"
+          description: >
+            The daily PostgreSQL backup task (core.backup_database, scheduled
+            03:00 UTC) has not reported a successful S3 upload in the last 25
+            hours. Either BACKUP_S3_BUCKET is unset in .env, the task is crashing,
+            or Celery beat has stopped scheduling it. Patient data is at risk —
+            the DB volume on the VM is the only copy right now.
+          runbook_url: "https://github.com/Dev-Abiox/param/blob/master/docs/RUNBOOK.md#backupmissing"
