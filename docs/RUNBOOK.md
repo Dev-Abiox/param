@@ -194,7 +194,9 @@ docker compose -f docker-compose.prod.yml logs --tail 50 backend
 - **Task:** `core.backup_database` in [backend_v3/apps/core/tasks.py](../backend_v3/apps/core/tasks.py)
 - **Schedule:** daily at 03:00 UTC via Celery beat (`settings.CELERY_BEAT_SCHEDULE`)
 - **Flow:** `pg_dump --format=custom` → gzip → `s3.upload_file()` → `clinomic_backup_last_success_timestamp` gauge set
-- **Skipped when:** `BACKUP_S3_BUCKET` env var is empty (task logs `backup_skipped` and returns)
+- **Backend:** any S3-compatible store (AWS S3, **Cloudflare R2 (recommended, free)**, Backblaze B2, DO Spaces, MinIO). Set `BACKUP_S3_ENDPOINT_URL` for non-AWS backends.
+- **Skipped when:** `BACKUP_S3_BUCKET` env var is empty (task logs `backup_skipped` and returns; `BackupMissing` alert fires within 10 minutes)
+- **First-time setup:** see [BACKUP_SETUP.md](BACKUP_SETUP.md) — 5-minute walkthrough for Cloudflare R2
 
 ### 6.2 How to verify backups are running
 

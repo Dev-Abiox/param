@@ -181,10 +181,16 @@ def backup_database(self) -> str:
             )
             gz_fh.write(result.stdout)
 
-        # Upload to S3
+        # Upload to S3 (or any S3-compatible endpoint: R2, B2, Spaces, etc).
+        # Setting BACKUP_S3_ENDPOINT_URL switches boto3 to a non-AWS backend
+        # while keeping the rest of the upload path identical.
         import boto3
+        endpoint = getattr(settings, 'BACKUP_S3_ENDPOINT_URL', '') or None
+        region = getattr(settings, 'BACKUP_S3_REGION', 'auto') or None
         s3 = boto3.client(
             's3',
+            endpoint_url=endpoint,
+            region_name=region,
             aws_access_key_id=getattr(settings, 'AWS_BACKUP_ACCESS_KEY_ID', None),
             aws_secret_access_key=getattr(settings, 'AWS_BACKUP_SECRET_ACCESS_KEY', None),
         )

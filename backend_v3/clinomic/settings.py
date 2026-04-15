@@ -488,8 +488,14 @@ if SENTRY_DSN:
         environment=APP_ENV,
     )
 
-# ── S3 Backup (optional — only active when BACKUP_S3_BUCKET is set) ───────────
+# ── S3-compatible Backup (optional — only active when BACKUP_S3_BUCKET is set)
+# Works with AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi,
+# MinIO, or any other S3-compatible store. Leave BACKUP_S3_ENDPOINT_URL empty
+# for AWS S3 (boto3 picks the default). Set it to e.g.
+# https://<account-id>.r2.cloudflarestorage.com for R2.
 BACKUP_S3_BUCKET = os.environ.get('BACKUP_S3_BUCKET', '')
 BACKUP_S3_PREFIX = os.environ.get('BACKUP_S3_PREFIX', 'db-backups/')
+BACKUP_S3_ENDPOINT_URL = os.environ.get('BACKUP_S3_ENDPOINT_URL', '')
+BACKUP_S3_REGION = os.environ.get('BACKUP_S3_REGION', 'auto')
 AWS_BACKUP_ACCESS_KEY_ID = os.environ.get('AWS_BACKUP_ACCESS_KEY_ID', '')
 AWS_BACKUP_SECRET_ACCESS_KEY = os.environ.get('AWS_BACKUP_SECRET_ACCESS_KEY', '')
