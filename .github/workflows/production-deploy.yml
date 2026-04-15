@@ -198,6 +198,16 @@ jobs:
           # Grafana dashboard provisioning.
           scp -r monitoring/grafana/provisioning $SERVER:/opt/clinomic-b12-platform/monitoring/grafana/
           scp monitoring/alertmanager/alertmanager.tmpl.yml $SERVER:/opt/clinomic-b12-platform/monitoring/alertmanager/alertmanager.tmpl.yml
+          # Operational scripts (restore drill, host-cron db backup, etc).
+          # These run from the host, not inside containers, so they must be
+          # copied as files on the VM rather than baked into the image.
+          # db-backup.sh is version-controlled here for disaster recovery;
+          # the cron on the VM points at /opt/clinomic-b12-platform/db-backup.sh,
+          # which pre-dates this pipeline and is left untouched.
+          ssh $SERVER "mkdir -p /opt/clinomic-b12-platform/scripts"
+          scp scripts/restore_test.sh $SERVER:/opt/clinomic-b12-platform/scripts/restore_test.sh
+          scp scripts/db-backup.sh $SERVER:/opt/clinomic-b12-platform/scripts/db-backup.sh
+          ssh $SERVER "chmod +x /opt/clinomic-b12-platform/scripts/*.sh"
           # Fix Grafana ownership (UID 472) and set secure permissions
           ssh $SERVER 'docker run --rm -v /opt/clinomic-b12-platform:/host alpine sh -c "chown -R 472:472 /host/monitoring/grafana && chmod -R 755 /host/monitoring"'
       - name: Deploy to Production
