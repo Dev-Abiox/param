@@ -414,12 +414,37 @@ services:
     networks:
       - clinomic_network
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: always
+    environment:
+      - DISCORD_ALERT_WEBHOOK_URL=${DISCORD_ALERT_WEBHOOK_URL:?DISCORD_ALERT_WEBHOOK_URL must be set}
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.tmpl.yml:/etc/alertmanager/alertmanager.tmpl.yml:ro
+      - alertmanager_data:/alertmanager
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sed "s|__DISCORD_WEBHOOK__|$${DISCORD_ALERT_WEBHOOK_URL}|g" /etc/alertmanager/alertmanager.tmpl.yml > /tmp/alertmanager.yml
+        exec /bin/alertmanager \
+          --config.file=/tmp/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.external-url=http://localhost:9093
+    expose:
+      - "9093"
+    depends_on:
+      - prometheus
+    networks:
+      - clinomic_network
+
 volumes:
   postgres_data:
   static_volume:
   redis_data:
   prometheus_data:
   grafana_data:
+  alertmanager_data:
   static_testing_volume:
     external: true
 

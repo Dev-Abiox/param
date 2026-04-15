@@ -1,0 +1,59 @@
+global:
+  resolve_timeout: 5m
+
+# --------------------------------------------------------------------------
+# Routing — everything goes to Discord for now. Split critical/warning into
+# two receivers so you can mute warnings later via Alertmanager's silences
+# UI without losing the critical pages.
+# --------------------------------------------------------------------------
+route:
+  receiver: discord-warning
+  group_by: ['alertname', 'component']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: discord-critical
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  # Discord webhooks implement a Slack-compatible endpoint at <webhook>/slack.
+  # __DISCORD_WEBHOOK__ is substituted from the DISCORD_ALERT_WEBHOOK_URL env
+  # var by the container entrypoint at startup (see docker-compose.prod.yml).
+  - name: discord-warning
+    slack_configs:
+      - api_url: "__DISCORD_WEBHOOK__/slack"
+        channel: "#alerts"
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          _component:_ `{{ .Labels.component }}` · _severity:_ `{{ .Labels.severity }}`
+          {{ end }}
+
+  - name: discord-critical
+    slack_configs:
+      - api_url: "__DISCORD_WEBHOOK__/slack"
+        channel: "#alerts"
+        send_resolved: true
+        title: '🚨 [CRITICAL] {{ .CommonLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          _component:_ `{{ .Labels.component }}`
+          {{ end }}
+
+inhibit_rules:
+  # Don't double-page: if a critical is firing for a component, mute its
+  # warning for the same component.
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'component']
