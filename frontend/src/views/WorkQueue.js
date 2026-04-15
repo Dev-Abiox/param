@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { LisService, getAccessToken } from "../services/api";
 import useWebSocket from "../hooks/useWebSocket";
+import ScreeningDetailDrawer from "../components/ScreeningDetailDrawer";
+import { Role } from "../types";
 import {
   Activity,
   Clock,
@@ -10,7 +12,6 @@ import {
   ChevronRight,
   User,
   Loader2,
-  X,
 } from "lucide-react";
 
 const RISK_BADGE = {
@@ -41,10 +42,7 @@ const WorkQueue = () => {
   const [queueData, setQueueData]   = useState({ counts: {}, items: [] });
   const [loading, setLoading]       = useState(true);
   const [transitioning, setTransitioning] = useState(null); // screeningId being updated
-  const [reviewItem, setReviewItem] = useState(null);
-  const [reviewNote, setReviewNote] = useState("");
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewError, setReviewError] = useState(null);
+  const [reviewScreeningId, setReviewScreeningId] = useState(null);
 
   const load = useCallback(async (tab = activeTab) => {
     setLoading(true);
@@ -75,34 +73,13 @@ const WorkQueue = () => {
     setActiveTab(tab);
   };
 
-  const openReview = (item) => {
-    setReviewItem(item);
-    setReviewNote("");
-    setReviewError(null);
-  };
-
-  const closeReview = () => {
-    if (reviewSubmitting) return;
-    setReviewItem(null);
-    setReviewNote("");
-    setReviewError(null);
-  };
-
-  const handleSubmitReview = async () => {
-    if (!reviewItem) return;
-    setReviewSubmitting(true);
-    setReviewError(null);
+  const handleReviewed = async (updated) => {
     try {
-      await LisService.reviewScreening(reviewItem.id, reviewNote);
-      await LisService.updateScreeningStatus(reviewItem.id, "in_progress");
-      setReviewItem(null);
-      setReviewNote("");
+      await LisService.updateScreeningStatus(updated.id, "in_progress");
+      setReviewScreeningId(null);
       await load(activeTab);
     } catch (e) {
-      console.error("Review submit failed", e);
-      setReviewError(e?.response?.data?.error || "Failed to submit review. Please try again.");
-    } finally {
-      setReviewSubmitting(false);
+      console.error("Status transition after review failed", e);
     }
   };
 
@@ -229,7 +206,7 @@ const WorkQueue = () => {
                     <td className="px-5 py-4 text-right">
                       {activeTab === "pending" && (
                         <button
-                          onClick={() => openReview(item)}
+                          onClick={() => setReviewScreeningId(item.id)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                         >
                           <ChevronRight className="h-3 w-3" />
@@ -260,94 +237,13 @@ const WorkQueue = () => {
         )}
       </div>
 
-      {reviewItem && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={closeReview}
-        >
-          <div
-            className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-              <div>
-                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-                  Review screening
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  {reviewItem.patientInitials || "—"} · <span className="font-mono">{reviewItem.patientId}</span>
-                </p>
-              </div>
-              <button
-                onClick={closeReview}
-                disabled={reviewSubmitting}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 disabled:opacity-50"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="px-5 py-4 space-y-4">
-              <div className="grid grid-cols-3 gap-3 text-xs">
-                <div>
-                  <p className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">Lab</p>
-                  <p className="mt-1 font-mono text-slate-700 dark:text-slate-200">{reviewItem.labId || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">Risk</p>
-                  <div className="mt-1">
-                    {RISK_BADGE[reviewItem.riskClass] ?? <span className="text-slate-400">—</span>}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">Received</p>
-                  <p className="mt-1 text-slate-600 dark:text-slate-300">
-                    {new Date(reviewItem.createdAt).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                  Clinical note <span className="text-slate-400 normal-case font-normal">(optional)</span>
-                </label>
-                <textarea
-                  rows={4}
-                  value={reviewNote}
-                  onChange={(e) => setReviewNote(e.target.value)}
-                  disabled={reviewSubmitting}
-                  placeholder="Add any observations or follow-up notes…"
-                  className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-              </div>
-
-              {reviewError && (
-                <p className="text-xs text-red-600 dark:text-red-400">{reviewError}</p>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 rounded-b-xl">
-              <button
-                onClick={closeReview}
-                disabled={reviewSubmitting}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmitReview}
-                disabled={reviewSubmitting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {reviewSubmitting
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <CheckCircle2 className="h-3 w-3" />}
-                Submit review & start
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ScreeningDetailDrawer
+        screeningId={reviewScreeningId}
+        onClose={() => setReviewScreeningId(null)}
+        userRole={Role.LAB}
+        reviewCtaLabel="Submit review & start work"
+        onReviewed={handleReviewed}
+      />
     </div>
   );
 };
