@@ -215,6 +215,42 @@ The `BackupMissing` alert fires if either: the gauge is absent, or it's older th
 
 See [RESTORE_TEST.md](RESTORE_TEST.md). **Run this at least once before launch** and at least monthly thereafter.
 
+The drill has already been executed once (on 2026-04-15) against the 2026-04-15 local backup and passed — it recovered 4 orgs, 6 users, 4 subscriptions, and 135 screenings (116 satani + 19 sparsh), matching live DB counts.
+
+### 6.4 Pull a manual offsite copy (no cloud required)
+
+When you want an offsite copy without signing up for anything, pull the latest backup to whatever machine you're on. Requires the `clinomic` alias in `~/.ssh/config` (already configured on the primary dev machine):
+
+```bash
+# Pull the most recent backup to the current directory
+scp "clinomic:$(ssh clinomic 'ls -1t /opt/backups/clinomic/*.sql.gz | head -1')" .
+
+# Or by explicit date
+scp clinomic:/opt/backups/clinomic/clinomic_backup_20260415_020001.sql.gz .
+```
+
+Verify the pulled file is valid gzip before trusting it (Windows PowerShell):
+
+```powershell
+$f = 'clinomic_backup_20260415_020001.sql.gz'
+$s = [System.IO.File]::OpenRead($f)
+$g = New-Object System.IO.Compression.GZipStream($s, [System.IO.Compression.CompressionMode]::Decompress)
+$b = New-Object byte[] 4096
+$read = $g.Read($b, 0, $b.Length)
+$g.Close(); $s.Close()
+if ($read -gt 0) { 'OK' } else { 'CORRUPT' }
+```
+
+Or bash (Linux / Git Bash):
+
+```bash
+gunzip -t clinomic_backup_20260415_020001.sql.gz && echo OK
+```
+
+Store the file wherever you keep personal data (external drive, laptop disk, encrypted USB). **Treat it as PHI** — it contains patient records in plaintext inside the dump. Don't email it, don't drop it in a shared folder, don't commit it to git.
+
+To restore a pulled file, scp it back to the VM and run `scripts/restore_test.sh <path>` — the drill script accepts a local file path as its first argument.
+
 ---
 
 ## 7. Per-alert playbooks
