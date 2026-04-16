@@ -60,6 +60,7 @@ TENANT_APPS = [
     # Apps that have tenant-specific data
     'apps.screening',
     'apps.analytics',
+    'apps.integration',
 ]
 
 INSTALLED_APPS = list(SHARED_APPS) + [
