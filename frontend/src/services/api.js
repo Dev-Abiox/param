@@ -102,6 +102,7 @@ export const AuthService = {
         mfaPendingToken: res.data.mfa_pending_token,
         mfaMethod: res.data.mfa_method || 'TOTP',
         maskedEmail: res.data.masked_email || null,
+        mfaMigrated: res.data.mfa_migrated || false,
         id: res.data.id,
         name: res.data.name,
         role: res.data.role,
@@ -113,6 +114,7 @@ export const AuthService = {
     return {
       mfaRequired: false,
       mfaSetupRequired: res.data.mfaSetupRequired || false,
+      mfaMigrated: res.data.mfa_migrated || false,
       id: res.data.id,
       name: res.data.name,
       role: res.data.role,
@@ -315,8 +317,11 @@ export const LisService = {
   },
 
   // 3.3 — Doctor review
-  reviewScreening: async (screeningId, clinicalNote = '') => {
-    const res = await API.patch(`/screening/cases/${screeningId}/review`, { clinical_note: clinicalNote });
+  reviewScreening: async (screeningId, clinicalNote = '', reviewOutcome = 'approved') => {
+    const res = await API.patch(`/screening/cases/${screeningId}/review`, {
+      clinical_note: clinicalNote,
+      review_outcome: reviewOutcome,
+    });
     return res.data;
   },
 

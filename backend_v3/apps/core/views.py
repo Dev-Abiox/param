@@ -244,22 +244,27 @@ class LoginView(APIView):
             _login_metric('mfa_setup_required')
             return resp
 
+        mfa_migrated = False
         if mfa_status['enabled']:
             # Auto-migrate TOTP users to EMAIL on login
             if mfa_status['mfa_method'] != MFAMethod.EMAIL:
                 MFAManager.migrate_totp_to_email(user)
                 mfa_status['mfa_method'] = MFAMethod.EMAIL
+                mfa_migrated = True
 
             # Skip MFA if this device is trusted (remember-me cookie)
             if not mfa_code and _check_trusted_device(user, request):
                 access_token = create_access_token(user, mfa_verified=True)
                 refresh_token, _ = create_refresh_token(user, mfa_verified=True)
-                response = Response({
+                resp_data = {
                     'access_token': access_token,
                     'id': str(user.id),
                     'name': user.name or user.username,
                     'role': user.role,
-                })
+                }
+                if mfa_migrated:
+                    resp_data['mfa_migrated'] = True
+                response = Response(resp_data)
                 _set_refresh_cookie(response, refresh_token)
                 _login_metric('trusted_device_skip')
                 return response
@@ -280,6 +285,8 @@ class LoginView(APIView):
                     'role': user.role,
                     'masked_email': _mask_email(otp_email),
                 }
+                if mfa_migrated:
+                    resp_data['mfa_migrated'] = True
 
                 _login_metric('mfa_required')
                 return Response(resp_data)
@@ -299,12 +306,15 @@ class LoginView(APIView):
         access_token = create_access_token(user, mfa_verified=True)
         refresh_token, _ = create_refresh_token(user, mfa_verified=True)
 
-        response = Response({
+        resp_data = {
             'access_token': access_token,
             'id': str(user.id),
             'name': user.name or user.username,
             'role': user.role,
-        })
+        }
+        if mfa_migrated:
+            resp_data['mfa_migrated'] = True
+        response = Response(resp_data)
         _set_refresh_cookie(response, refresh_token)
         _login_metric('success')
         return response

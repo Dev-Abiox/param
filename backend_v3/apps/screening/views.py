@@ -849,9 +849,12 @@ class ReviewScreeningView(APIView):
         screening.is_reviewed = True
         screening.reviewed_at = datetime.now(timezone.utc)
         screening.reviewed_by = request.user.username
+        screening.review_outcome = serializer.validated_data.get('review_outcome', 'approved')
         if 'clinical_note' in serializer.validated_data:
             screening.clinical_note = serializer.validated_data['clinical_note']
-        screening.save(update_fields=['is_reviewed', 'reviewed_at', 'reviewed_by', 'clinical_note'])
+        screening.save(update_fields=[
+            'is_reviewed', 'reviewed_at', 'reviewed_by', 'review_outcome', 'clinical_note',
+        ])
 
         log_phi_access(
             request,
@@ -862,6 +865,7 @@ class ReviewScreeningView(APIView):
 
         return Response({
             'is_reviewed': screening.is_reviewed,
+            'review_outcome': screening.review_outcome,
             'reviewed_at': screening.reviewed_at.isoformat(),
             'reviewed_by': screening.reviewed_by,
             'clinical_note': screening.clinical_note,

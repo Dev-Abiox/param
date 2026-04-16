@@ -20,6 +20,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
   const [maskedEmail, setMaskedEmail] = useState(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [rememberDevice, setRememberDevice] = useState(false);
+  const [mfaMigrated, setMfaMigrated] = useState(false);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -41,6 +42,7 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
         setPendingUser({ id: result.id, name: result.name, role: result.role });
         setMfaMethod("EMAIL");
         setMaskedEmail(result.maskedEmail || null);
+        setMfaMigrated(result.mfaMigrated || false);
         setResendCooldown(60);
         setView("mfa_challenge");
       }
@@ -127,6 +129,12 @@ const Login = ({ onLogin, onMFARequired, isLoading, error }) => {
 
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
           <div className="bg-white dark:bg-slate-900 py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200 dark:border-slate-700">
+            {mfaMigrated && (
+              <div className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300">
+                <p className="font-semibold">Verification method updated</p>
+                <p className="mt-0.5">Your authenticator app has been replaced with email-based verification for improved security. You'll receive codes at your registered email from now on.</p>
+              </div>
+            )}
             <div className="mb-6 flex items-center justify-center space-x-2 text-slate-500 dark:text-slate-400">
               <Mail className="h-5 w-5" />
               <span className="text-sm">We sent a code to <span className="font-medium">{maskedEmail}</span></span>

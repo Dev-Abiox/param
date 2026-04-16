@@ -148,9 +148,12 @@ class ScreeningSerializer(serializers.ModelSerializer):
 
 
 class ReviewScreeningSerializer(serializers.Serializer):
-    """Validates clinical_note input for the review endpoint."""
+    """Validates clinical_note + review_outcome for the review endpoint."""
     clinical_note = serializers.CharField(
         max_length=5000, required=False, allow_blank=True,
+    )
+    review_outcome = serializers.ChoiceField(
+        choices=['approved', 'flagged'], required=False, default='approved',
     )
 
 

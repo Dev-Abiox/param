@@ -462,6 +462,24 @@ services:
           cpus: '0.05'
           memory: 32M
 
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: always
+    volumes:
+      - uptime_kuma_data:/app/data
+    expose:
+      - "3001"
+    networks:
+      - clinomic_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+
 volumes:
   postgres_data:
   static_volume:
@@ -469,6 +487,7 @@ volumes:
   prometheus_data:
   grafana_data:
   alertmanager_data:
+  uptime_kuma_data:
   static_testing_volume:
     external: true
 

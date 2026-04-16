@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { LisService } from "../services/api";
 import { Role } from "../types";
-import { X, Loader2, CheckCircle2, MessageSquare, Download } from "lucide-react";
+import { X, Loader2, CheckCircle2, MessageSquare, Download, AlertTriangle, Flag } from "lucide-react";
 import { generateReport, buildCbcRowsFromSnapshot, buildResultFromScreening } from "@/lib/generateReport";
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
@@ -78,12 +78,12 @@ const ScreeningDetailDrawer = ({
     };
   }, [screeningId]);
 
-  const handleMarkReviewed = async () => {
+  const handleMarkReviewed = async (outcome = "approved") => {
     if (!detailRecord) return;
     setReviewing(true);
     setReviewError(null);
     try {
-      const result = await LisService.reviewScreening(detailRecord.id, reviewNote);
+      const result = await LisService.reviewScreening(detailRecord.id, reviewNote, outcome);
       const updated = { ...detailRecord, ...result };
       setDetailRecord(updated);
       if (onReviewed) {
@@ -226,15 +226,27 @@ const ScreeningDetailDrawer = ({
             <section>
               <p className="text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-2">Clinical Review</p>
               {detailRecord.is_reviewed ? (
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800">
-                  <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                  <div className="text-xs text-green-800 dark:text-green-300">
-                    <p className="font-semibold">Reviewed by {detailRecord.reviewed_by}</p>
+                <div className={`flex items-start gap-2 p-3 rounded-lg border ${
+                  detailRecord.review_outcome === "flagged"
+                    ? "bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800"
+                    : "bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800"
+                }`}>
+                  {detailRecord.review_outcome === "flagged"
+                    ? <Flag className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                    : <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />}
+                  <div className={`text-xs ${
+                    detailRecord.review_outcome === "flagged"
+                      ? "text-amber-800 dark:text-amber-300"
+                      : "text-green-800 dark:text-green-300"
+                  }`}>
+                    <p className="font-semibold">
+                      {detailRecord.review_outcome === "flagged" ? "Flagged" : "Approved"} by {detailRecord.reviewed_by}
+                    </p>
                     {detailRecord.reviewed_at && (
-                      <p className="text-green-600 mt-0.5">{new Date(detailRecord.reviewed_at).toLocaleString()}</p>
+                      <p className="opacity-70 mt-0.5">{new Date(detailRecord.reviewed_at).toLocaleString()}</p>
                     )}
                     {detailRecord.clinical_note && (
-                      <p className="mt-1 text-green-800 dark:text-green-300 italic">"{detailRecord.clinical_note}"</p>
+                      <p className="mt-1 italic">"{detailRecord.clinical_note}"</p>
                     )}
                   </div>
                 </div>
@@ -252,16 +264,28 @@ const ScreeningDetailDrawer = ({
                     {reviewError && (
                       <p className="text-xs text-red-600 dark:text-red-400">{reviewError}</p>
                     )}
-                    <button
-                      onClick={handleMarkReviewed}
-                      disabled={reviewing}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded text-sm font-medium disabled:opacity-50"
-                    >
-                      {reviewing
-                        ? <Loader2 className="w-4 h-4 animate-spin" />
-                        : <MessageSquare className="w-4 h-4" />}
-                      {reviewCtaLabel}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleMarkReviewed("approved")}
+                        disabled={reviewing}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded text-sm font-medium disabled:opacity-50"
+                      >
+                        {reviewing
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <CheckCircle2 className="w-4 h-4" />}
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleMarkReviewed("flagged")}
+                        disabled={reviewing}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded text-sm font-medium disabled:opacity-50"
+                      >
+                        {reviewing
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <Flag className="w-4 h-4" />}
+                        Flag
+                      </button>
+                    </div>
                   </div>
                 )
               )}

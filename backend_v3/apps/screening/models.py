@@ -222,6 +222,12 @@ class Screening(models.Model):
 
     # Doctor review workflow (3.3)
     is_reviewed = models.BooleanField(default=False)
+    review_outcome = models.CharField(
+        max_length=20,
+        choices=[('approved', 'Approved'), ('flagged', 'Flagged')],
+        null=True,
+        blank=True,
+    )
     clinical_note = models.TextField(blank=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
     reviewed_by = models.CharField(max_length=255, blank=True)

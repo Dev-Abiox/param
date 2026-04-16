@@ -238,6 +238,27 @@ def _handle_payment_failed(sub, _sub_entity, _now):
     sub.save(update_fields=['status', 'updated_at'])
 
 
+def _handle_subscription_paused(sub, _sub_entity, _now):
+    sub.transition_to(TenantSubscription.Status.PAST_DUE)
+    sub.save(update_fields=['status', 'updated_at'])
+
+
+def _handle_subscription_resumed(sub, _sub_entity, _now):
+    sub.transition_to(TenantSubscription.Status.ACTIVE)
+    sub.save(update_fields=['status', 'updated_at'])
+
+
+def _handle_subscription_halted(sub, _sub_entity, _now):
+    sub.transition_to(TenantSubscription.Status.CANCELLED)
+    sub.save(update_fields=['status', 'updated_at'])
+
+
+def _handle_payment_authorized(_sub, _sub_entity, _now):
+    # Payment authorized but not yet captured — no state change needed.
+    # Razorpay will follow up with subscription.charged on capture.
+    pass
+
+
 # Event-type → handler. Any event not in this map is still recorded in
 # PaymentEvent but triggers no state transition. This makes adding a
 # new webhook event a one-line change.
@@ -245,7 +266,11 @@ _WEBHOOK_HANDLERS = {
     'subscription.activated': _handle_subscription_activated,
     'subscription.charged':   _handle_subscription_charged,
     'subscription.cancelled': _handle_subscription_cancelled,
+    'subscription.paused':    _handle_subscription_paused,
+    'subscription.resumed':   _handle_subscription_resumed,
+    'subscription.halted':    _handle_subscription_halted,
     'payment.failed':         _handle_payment_failed,
+    'payment.authorized':     _handle_payment_authorized,
 }
 
 # Events that must invalidate cached plan-limit decisions post-commit.
