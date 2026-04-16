@@ -467,8 +467,8 @@ services:
     restart: always
     volumes:
       - uptime_kuma_data:/app/data
-    expose:
-      - "3001"
+    ports:
+      - "3001:3001"
     networks:
       - clinomic_network
     deploy:
