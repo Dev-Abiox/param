@@ -29,7 +29,6 @@ urlpatterns = [
     path('api/v1/screening/', include('apps.screening.urls')),
     path('api/v1/analytics/', include('apps.analytics.urls')),
     path('api/v1/billing/', include('apps.billing.urls')),
-    path('api/v1/integration/', include('apps.integration.urls')),
     path('api/v1/admin/', include('apps.core.admin_urls')),
     path('api/v1/platform/', include('apps.core.platform_urls')),
 
@@ -38,7 +37,6 @@ urlpatterns = [
     path('api/screening/', include('apps.screening.urls')),
     path('api/analytics/', include('apps.analytics.urls')),
     path('api/billing/', include('apps.billing.urls')),
-    path('api/integration/', include('apps.integration.urls')),
     path('api/admin/', include('apps.core.admin_urls')),
     path('api/platform/', include('apps.core.platform_urls')),
 
