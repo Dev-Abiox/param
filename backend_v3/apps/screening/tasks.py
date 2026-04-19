@@ -166,3 +166,123 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
     job.status = BulkImportJob.JobStatus.DONE if not errors or processed > 0 else BulkImportJob.JobStatus.FAILED
     job.save(update_fields=['status', 'updated_at'])
     logger.info("bulk_import_complete", job_id=job_id, processed=processed, failed=len(errors))
+
+
+# ── SHAP backfill ─────────────────────────────────────────────────────────────
+# Long-form → short-form key map for legacy cbc_snapshot records written before
+# DRF's source='Hb' aliasing landed. New records already use short keys.
+_LEGACY_CBC_KEY_MAP = {
+    'Hb_g_dL':              'Hb',
+    'RBC_million_uL':       'RBC',
+    'HCT_percent':          'HCT',
+    'MCV_fL':               'MCV',
+    'MCH_pg':               'MCH',
+    'MCHC_g_dL':            'MCHC',
+    'RDW_percent':          'RDW',
+    'WBC_10_3_uL':          'WBC',
+    'Platelets_10_3_uL':    'Platelets',
+    'Neutrophils_percent':  'Neutrophils',
+    'Lymphocytes_percent':  'Lymphocytes',
+}
+
+
+def _normalise_cbc_snapshot(snapshot: dict) -> dict:
+    """Coerce legacy long-form keys to the short form the engine expects."""
+    if not snapshot:
+        return {}
+    out = dict(snapshot)
+    for long_key, short_key in _LEGACY_CBC_KEY_MAP.items():
+        if long_key in out and short_key not in out:
+            out[short_key] = out.pop(long_key)
+    return out
+
+
+@shared_task(name='screening.backfill_shap_values', bind=True, max_retries=0)
+def backfill_shap_values(self, batch_size: int = 200, limit: int | None = None):
+    """
+    Populate ``screening.indices['shap_values']`` for historical records that
+    pre-date the SHAP fix.
+
+    Args:
+        batch_size: how many rows to iterate before flushing log progress.
+        limit:      optional hard cap on total records processed (useful for
+                    a canary run before a full backfill).
+
+    Returns:
+        dict with processed / skipped / failed counts.
+
+    Safety:
+        - Reads ``cbc_snapshot`` and writes ONLY ``indices`` — does not touch
+          ``risk_class``, ``label_text``, ``probabilities``, or any hash
+          field. Prediction outputs are not mutated.
+        - Records where SHAP computation fails are skipped, not failed, so
+          one degenerate row does not abort the job.
+    """
+    import pandas as pd
+
+    from apps.screening.ml_engine import get_ml_engine
+    from apps.screening.models import Screening
+
+    engine = get_ml_engine()
+    if not engine.is_ready:
+        logger.error("backfill_shap_engine_not_ready")
+        return {'processed': 0, 'skipped': 0, 'failed': 0, 'error': 'ml_not_ready'}
+
+    expected_cols = [
+        "Age", "Sex", "Hb", "RBC", "HCT", "MCV", "MCH", "MCHC",
+        "RDW", "WBC", "Platelets", "Neutrophils", "Lymphocytes",
+    ]
+
+    qs = Screening.objects.exclude(indices__has_key='shap_values').only(
+        'id', 'indices', 'cbc_snapshot'
+    ).order_by('-created_at')
+    if limit:
+        qs = qs[:limit]
+
+    processed = skipped = failed = 0
+
+    for screening in qs.iterator(chunk_size=batch_size):
+        try:
+            cbc = _normalise_cbc_snapshot(screening.cbc_snapshot or {})
+            if not cbc:
+                skipped += 1
+                continue
+
+            df = pd.DataFrame([cbc])
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[expected_cols]
+            if df["Sex"].dtype == "object":
+                df["Sex"] = df["Sex"].map(
+                    {"M": 1, "F": 0, "m": 1, "f": 0}
+                ).fillna(0)
+
+            shap_values = engine.compute_shap_values(df)
+            if not shap_values:
+                skipped += 1
+                continue
+
+            indices = dict(screening.indices or {})
+            indices['shap_values'] = shap_values
+            Screening.objects.filter(id=screening.id).update(indices=indices)
+            processed += 1
+
+            if processed % batch_size == 0:
+                logger.info(
+                    "backfill_shap_progress",
+                    processed=processed, skipped=skipped, failed=failed,
+                )
+
+        except Exception as exc:
+            failed += 1
+            logger.warning(
+                "backfill_shap_row_failed",
+                screening_id=str(screening.id), error=str(exc),
+            )
+
+    logger.info(
+        "backfill_shap_complete",
+        processed=processed, skipped=skipped, failed=failed,
+    )
+    return {'processed': processed, 'skipped': skipped, 'failed': failed}

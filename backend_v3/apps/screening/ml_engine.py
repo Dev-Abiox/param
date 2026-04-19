@@ -193,9 +193,18 @@ class B12ClinicalEngine:
         """
         try:
             from catboost import Pool
+            # stage1 is typically a CalibratedClassifierCV wrapping CatBoost —
+            # unwrap to the underlying fitted CatBoost before calling
+            # get_feature_importance (which exists only on CatBoost estimators).
+            base = self._unwrap_catboost(self.stage1)
+            if base is None:
+                logger.warning(
+                    "SHAP skipped: could not locate underlying CatBoost estimator"
+                )
+                return None
             pool = Pool(df)
             # CatBoost shap: last column is the base value, drop it
-            shap_matrix = self.stage1.get_feature_importance(
+            shap_matrix = base.get_feature_importance(
                 data=pool,
                 type='ShapValues',
             )
@@ -208,6 +217,20 @@ class B12ClinicalEngine:
         except Exception as e:
             logger.warning("SHAP computation failed (non-fatal): %s", e)
             return None
+
+    @staticmethod
+    def _unwrap_catboost(model):
+        """Return the underlying CatBoost estimator from a possibly-wrapped model."""
+        if hasattr(model, "get_feature_importance"):
+            return model
+        calibrated = getattr(model, "calibrated_classifiers_", None)
+        if calibrated:
+            inner = calibrated[0]
+            # sklearn >=1.2 uses `.estimator`; older uses `.base_estimator`.
+            base = getattr(inner, "estimator", None) or getattr(inner, "base_estimator", None)
+            if base is not None and hasattr(base, "get_feature_importance"):
+                return base
+        return None
 
     def apply_rules(self, row: dict[str, Any]) -> tuple[float, list[str]]:
         """Apply clinical rules for score adjustment."""
