@@ -40,14 +40,14 @@ No PDF/OCR parser exists in the codebase. Prior POA wording referencing `apps/in
 All CBC parameters (`Hb`, `RBC`, `HCT`, `MCV`, `MCH`, `MCHC`, `RDW`, `WBC`, `Platelets`, `Neutrophils_%`, `Lymphocytes_%`, `Monocytes_%`, `Eosinophils_%`, `Basophils_%`) are:
 
 - Required inputs to the classifier (see [Intended Purpose Statement](legal/CLINOMICLABS_LEGAL_FRAMEWORK.md#21-intended-purpose)).
-- Fernet-encrypted at rest inside `Screening.cbc_snapshot_enc` as of migration `screening/0012_encrypt_cbc_snapshot.py`.
+- Fernet-encrypted at rest inside `Screening.cbc_snapshot_enc` — new writes go through `Screening.save()` which transparently moves `cbc_snapshot=` assignments into the encrypted column.  The schema change lands in migration `screening/0012_encrypt_cbc_snapshot.py`; legacy plaintext rows are backfilled via the one-shot `python manage.py encrypt_plaintext_columns --cbc-snapshots` run at a chosen maintenance window (not executed at container start to avoid blocking deploys).
 - Never persisted outside of encrypted columns on a `Screening` row or its `Consent`/`Patient` relations.
 
 ### 2.3 Secrets and third-party credentials
 
 | Field | Storage | Since |
 |---|---|---|
-| `WebhookEndpoint.secret` | Fernet-encrypted (`EncryptedTextField`) | migration `billing/0008_encrypt_webhook_secret.py` |
+| `WebhookEndpoint.secret` | Fernet-encrypted (`EncryptedTextField`) | migration `billing/0008_encrypt_webhook_secret.py` (schema); backfill via `manage.py encrypt_plaintext_columns --webhook-secrets` |
 | `MFASettings.secret_key` | Fernet-encrypted text (see `apps/core/mfa.py`) | pre-existing |
 | `Patient.name_encrypted`, `age_encrypted`, `sex_encrypted` | Fernet-encrypted text | pre-existing |
 | `APIKey.key_hash` | SHA-256 digest only; raw key shown once | pre-existing |

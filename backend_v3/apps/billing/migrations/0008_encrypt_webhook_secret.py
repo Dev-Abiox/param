@@ -1,39 +1,25 @@
-"""P0-4 — encrypt WebhookEndpoint.secret at rest.
+"""P0-4 — encrypt WebhookEndpoint.secret at rest (schema only).
 
-Alters WebhookEndpoint.secret from a plain CharField to EncryptedTextField
-(Fernet ciphertext) and re-encrypts any existing rows that still hold
-plaintext secrets.
+Schema-level change: switches the ``secret`` column to
+EncryptedTextField (still a TEXT column underneath) so that any *new*
+write is Fernet-encrypted by the field's ``get_prep_value``.
 
-Legacy plaintext rows keep working after this migration because
-EncryptedTextField.from_db_value returns non-Fernet-token values as-is;
-however, after this migration runs, all persisted rows are ciphertext so
-that property is relied on only during rollout.
+Backfill of existing plaintext rows is deliberately NOT performed
+inside this migration — iterating and re-encrypting rows during
+``migrate_schemas`` at container startup is a failure mode that can
+break production deploys on larger datasets.  Instead, run the
+one-shot management command at a chosen maintenance window::
+
+    python manage.py encrypt_plaintext_columns --webhook-secrets
+
+EncryptedTextField.from_db_value transparently falls back to treating
+non-Fernet-token values as plaintext on read, so the legacy rows keep
+working until the backfill runs.
 """
 
 import apps.billing.models
 import apps.core.fields
 from django.db import migrations
-
-
-def _encrypt_existing_rows(apps_registry, schema_editor):
-    """Re-encrypt any existing WebhookEndpoint.secret rows that are still
-    plaintext (i.e. do not look like a Fernet token).
-    """
-    from apps.core.crypto import encrypt_field
-    from apps.core.fields import _looks_like_fernet_token
-
-    WebhookEndpoint = apps_registry.get_model('billing', 'WebhookEndpoint')
-    for row in WebhookEndpoint.objects.all().only('id', 'secret'):
-        if row.secret and not _looks_like_fernet_token(row.secret):
-            row.secret = encrypt_field(row.secret)
-            row.save(update_fields=['secret'])
-
-
-def _noop_reverse(apps_registry, schema_editor):
-    """Reverse is a no-op — we never attempt to downgrade ciphertext back
-    to plaintext automatically.  A manual rotation is required if you
-    need to revert, and no production flow should ever want that.
-    """
 
 
 class Migration(migrations.Migration):
@@ -51,5 +37,4 @@ class Migration(migrations.Migration):
                 help_text='HMAC-SHA256 signing secret.  Shown once at creation time.',
             ),
         ),
-        migrations.RunPython(_encrypt_existing_rows, reverse_code=_noop_reverse),
     ]
