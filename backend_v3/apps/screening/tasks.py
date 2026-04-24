@@ -154,8 +154,19 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
             processed += 1
 
         except Exception as exc:
-            errors.append({'row': i, 'patient_id': row.get('patient_id', '?'), 'error': str(exc)})
-            logger.warning("bulk_import_row_failed", row=i, error=str(exc))
+            # Bound the stored error message to limit accidental PHI leakage
+            # from future exception strings that might include row content.
+            # BulkImportJob.error_detail is visible to Lab admins viewing
+            # job status; see DATA_MINIMISATION_AUDIT.md §CSV bulk import.
+            err_msg = str(exc)
+            if len(err_msg) > 200:
+                err_msg = err_msg[:200] + '…'
+            errors.append({
+                'row': i,
+                'patient_id': row.get('patient_id', '?'),
+                'error': err_msg,
+            })
+            logger.warning("bulk_import_row_failed", row=i, error=err_msg)
 
         # Update progress every row
         job.processed_rows = processed
@@ -234,7 +245,7 @@ def backfill_shap_values(self, batch_size: int = 200, limit: int | None = None):
     ]
 
     qs = Screening.objects.exclude(indices__has_key='shap_values').only(
-        'id', 'indices', 'cbc_snapshot'
+        'id', 'indices', 'cbc_snapshot', 'cbc_snapshot_enc'
     ).order_by('-created_at')
     if limit:
         qs = qs[:limit]
@@ -243,7 +254,7 @@ def backfill_shap_values(self, batch_size: int = 200, limit: int | None = None):
 
     for screening in qs.iterator(chunk_size=batch_size):
         try:
-            cbc = _normalise_cbc_snapshot(screening.cbc_snapshot or {})
+            cbc = _normalise_cbc_snapshot(screening.get_cbc_dict())
             if not cbc:
                 skipped += 1
                 continue

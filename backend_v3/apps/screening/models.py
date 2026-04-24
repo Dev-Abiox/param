@@ -10,6 +10,62 @@ import uuid
 from django.db import models
 
 from apps.core.crypto import CryptoError, decrypt_field, encrypt_field
+from apps.core.fields import EncryptedJSONField
+
+
+# ── Age bucketing ─────────────────────────────────────────────────────────────
+# These labels MUST match apps.analytics.views.PopulationCohortsView.AGE_GROUPS
+# so that the denormalised `age_bucket` column can be filter-joined to the
+# cohort labels in population-level analytics.
+AGE_BUCKET_PEDIATRIC = 'pediatric'
+AGE_BUCKET_YOUNG = 'young_adult'
+AGE_BUCKET_MIDDLE = 'middle_aged'
+AGE_BUCKET_ELDERLY = 'elderly'
+AGE_BUCKET_UNKNOWN = ''
+
+AGE_BUCKET_CHOICES = [
+    (AGE_BUCKET_PEDIATRIC, 'Pediatric (0-17)'),
+    (AGE_BUCKET_YOUNG,     'Young Adult (18-39)'),
+    (AGE_BUCKET_MIDDLE,    'Middle Aged (40-59)'),
+    (AGE_BUCKET_ELDERLY,   'Elderly (60+)'),
+]
+
+
+def age_bucket_for(age) -> str:
+    """Coarse age bucket used by analytics.
+
+    Buckets are deliberately wide (pediatric / young / middle / elderly)
+    so the denormalised column is low-sensitivity demographic context,
+    not a precise PHI value.  The raw age stays encrypted on Patient and
+    inside ``cbc_snapshot_enc``.
+    """
+    if age is None or age == '':
+        return AGE_BUCKET_UNKNOWN
+    try:
+        age_int = int(age)
+    except (ValueError, TypeError):
+        return AGE_BUCKET_UNKNOWN
+    if age_int < 0:
+        return AGE_BUCKET_UNKNOWN
+    if age_int < 18:
+        return AGE_BUCKET_PEDIATRIC
+    if age_int < 40:
+        return AGE_BUCKET_YOUNG
+    if age_int < 60:
+        return AGE_BUCKET_MIDDLE
+    return AGE_BUCKET_ELDERLY
+
+
+def sex_code_for(value) -> str:
+    """Normalise whatever the CBC record calls ``Sex`` into an M/F/empty code."""
+    if value is None or value == '':
+        return ''
+    v = str(value).strip().upper()
+    if v in ('M', 'MALE'):
+        return 'M'
+    if v in ('F', 'FEMALE'):
+        return 'F'
+    return ''
 
 
 class Lab(models.Model):
@@ -195,8 +251,30 @@ class Screening(models.Model):
     probabilities = models.JSONField()  # {normal: 0.x, borderline: 0.x, deficient: 0.x}
     rules_fired = models.JSONField(default=list)
 
-    # CBC data snapshot
-    cbc_snapshot = models.JSONField()
+    # CBC data snapshot (PHI — age, sex, lab values).
+    #
+    # ``cbc_snapshot_enc`` holds the Fernet-encrypted JSON and is the
+    # authoritative store for all new rows.  ``cbc_snapshot`` is the
+    # legacy unencrypted JSONField kept only so we can read rows that
+    # were written before the DPDP encryption rollout; the data
+    # migration in this release backfills the new field and blanks the
+    # legacy one.  Readers should go through ``Screening.get_cbc_dict()``
+    # which encapsulates the prefer-encrypted-with-legacy-fallback read
+    # order.
+    cbc_snapshot_enc = EncryptedJSONField(null=True, blank=True)
+    cbc_snapshot = models.JSONField(default=dict, blank=True)
+
+    # Non-PHI denormalised columns derived from cbc_snapshot at write
+    # time.  These exist so analytics queries can filter on coarse
+    # demographics without having to JSON-query the encrypted blob.
+    age_bucket = models.CharField(
+        max_length=20, choices=AGE_BUCKET_CHOICES,
+        blank=True, default='', db_index=True,
+    )
+    sex_code = models.CharField(
+        max_length=1, blank=True, default='', db_index=True,
+        help_text="Normalised sex code: 'M', 'F', or ''.",
+    )
 
     # Calculated indices
     indices = models.JSONField(default=dict)
@@ -249,6 +327,54 @@ class Screening(models.Model):
 
     def __str__(self):
         return f"Screening {self.id} - {self.label_text}"
+
+    # ── Save-path auto-migration ──────────────────────────────────────
+    # Existing callers write ``cbc_snapshot=cbc`` directly on create().
+    # Transparently move that plaintext dict into the encrypted field
+    # and populate the denormalised columns before the row hits the DB.
+    # This means no caller needs to change, and legacy and new writes
+    # converge on the encrypted storage.
+    def save(self, *args, **kwargs):
+        if self.cbc_snapshot and not self.cbc_snapshot_enc:
+            self.set_cbc_dict(dict(self.cbc_snapshot))
+        elif self.cbc_snapshot_enc and (
+            not self.age_bucket or not self.sex_code
+        ):
+            # Encrypted payload already present but denorm fields not yet
+            # populated (e.g. direct assignment to cbc_snapshot_enc).
+            src = self.cbc_snapshot_enc if isinstance(self.cbc_snapshot_enc, dict) else {}
+            if not self.age_bucket:
+                self.age_bucket = age_bucket_for(src.get('Age', src.get('age')))
+            if not self.sex_code:
+                self.sex_code = sex_code_for(src.get('Sex', src.get('sex')))
+        super().save(*args, **kwargs)
+
+    # ── PHI-safe accessors ────────────────────────────────────────────
+    def get_cbc_dict(self) -> dict:
+        """Return the decrypted CBC snapshot dict for this screening.
+
+        Prefers ``cbc_snapshot_enc`` (Fernet-encrypted, the new storage).
+        Falls back to the legacy plaintext ``cbc_snapshot`` JSONField for
+        rows written before the DPDP encryption rollout.  Always returns
+        a dict — never None — so callers can safely ``.get(...)`` on it.
+        """
+        if self.cbc_snapshot_enc:
+            return self.cbc_snapshot_enc
+        return self.cbc_snapshot or {}
+
+    def set_cbc_dict(self, cbc: dict) -> None:
+        """Store the CBC snapshot under the encrypted column and populate
+        the non-PHI denormalised columns ``age_bucket`` and ``sex_code``.
+        Writes an empty dict to the legacy ``cbc_snapshot`` column so
+        new rows never retain plaintext there.
+        """
+        cbc = cbc or {}
+        self.cbc_snapshot_enc = cbc
+        self.cbc_snapshot = {}
+        age = cbc.get('Age', cbc.get('age'))
+        sex = cbc.get('Sex', cbc.get('sex'))
+        self.age_bucket = age_bucket_for(age)
+        self.sex_code = sex_code_for(sex)
 
 
 class BulkImportJob(models.Model):

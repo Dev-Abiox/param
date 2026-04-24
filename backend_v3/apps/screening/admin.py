@@ -42,7 +42,8 @@ class ScreeningAdmin(admin.ModelAdmin):
     readonly_fields = [
         'id', 'patient', 'lab', 'doctor', 'performed_by',
         'risk_class', 'label_text', 'probabilities', 'rules_fired',
-        'cbc_snapshot', 'indices', 'model_version', 'model_artifact_hash',
+        'cbc_snapshot', 'cbc_snapshot_enc', 'age_bucket', 'sex_code',
+        'indices', 'model_version', 'model_artifact_hash',
         'request_hash', 'response_hash', 'screening_hash', 'created_at'
     ]
 

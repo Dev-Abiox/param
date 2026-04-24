@@ -116,6 +116,48 @@ class HasAPIKeyScope(permissions.BasePermission):
         return api_key.has_scope(required_scope)
 
 
+# ── P1-19 Lab sub-role gates ─────────────────────────────────────────
+#
+# These classes enforce the purpose-limited access model documented in
+# DATA_MINIMISATION_AUDIT.md.  They delegate to the capability helpers
+# on the User model so the policy is defined in one place.
+
+class CanViewDemographics(permissions.BasePermission):
+    """Receptionist (or above) lab user, or any non-LAB authenticated user."""
+    message = 'Your role cannot view patient demographics.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.can_view_demographics())
+
+
+class CanViewCBCValues(permissions.BasePermission):
+    """Technician (or above) lab user — raw CBC numerics are restricted."""
+    message = 'Your role cannot view raw CBC values.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.can_view_cbc_values())
+
+
+class CanViewRecommendation(permissions.BasePermission):
+    """Pathologist (or above) — software workflow recommendation output."""
+    message = 'Only a pathologist or lab administrator may view workflow recommendations.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.can_view_recommendation())
+
+
+class CanManageLabUsers(permissions.BasePermission):
+    """Lab administrator only — tenant user management and audit-log read."""
+    message = 'Lab administrator access required.'
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.can_manage_lab_users())
+
+
 class IsMFAVerified(permissions.BasePermission):
     """
     Require MFA verification for sensitive operations.

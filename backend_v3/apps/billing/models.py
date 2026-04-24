@@ -14,6 +14,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from apps.core.fields import EncryptedTextField
+
 logger = logging.getLogger(__name__)
 
 
@@ -300,8 +302,10 @@ class WebhookEndpoint(models.Model):
             '"consent.revoked", "subscription.changed".'
         ),
     )
-    secret = models.CharField(
-        max_length=64,
+    # Encrypted at rest via Fernet (see apps.core.fields.EncryptedTextField).
+    # Application code sees plaintext via normal ``endpoint.secret`` access —
+    # the field transparently encrypts on write and decrypts on read.
+    secret = EncryptedTextField(
         default=_default_webhook_secret,
         help_text='HMAC-SHA256 signing secret.  Shown once at creation time.',
     )

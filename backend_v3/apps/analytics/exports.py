@@ -93,7 +93,7 @@ class ExportCSVView(APIView):
         ])
 
         for s in queryset:
-            cbc = s.cbc_snapshot or {}
+            cbc = s.get_cbc_dict()
             probs = s.probabilities or {}
             writer.writerow([
                 str(s.id),
@@ -180,7 +180,7 @@ class ExportScreeningPDFView(APIView):
 
     def _report_data(self, screening) -> dict:
         """Structured report data for client-side PDF generation."""
-        cbc = screening.cbc_snapshot or {}
+        cbc = screening.get_cbc_dict()
         probs = screening.probabilities or {}
         indices = screening.indices or {}
         return {

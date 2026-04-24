@@ -122,6 +122,10 @@ class ScreeningSerializer(serializers.ModelSerializer):
     patient_name = serializers.SerializerMethodField()
     lab_name = serializers.SerializerMethodField()
     doctor_name = serializers.SerializerMethodField()
+    # cbc_snapshot is sourced from the decrypted view of cbc_snapshot_enc
+    # (with legacy-row fallback) so API consumers always see the full CBC
+    # regardless of which storage column the row happens to live in.
+    cbc_snapshot = serializers.SerializerMethodField()
 
     class Meta:
         model = Screening
@@ -145,6 +149,9 @@ class ScreeningSerializer(serializers.ModelSerializer):
 
     def get_doctor_name(self, obj):
         return obj.doctor.name if obj.doctor else None
+
+    def get_cbc_snapshot(self, obj):
+        return obj.get_cbc_dict()
 
 
 class ReviewScreeningSerializer(serializers.Serializer):

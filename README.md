@@ -37,7 +37,7 @@ Labs upload CBC (Complete Blood Count) parameters. A two-stage CatBoost ML model
 | Frontend | React 18, Material-UI, Recharts |
 | Backend | Django 5, DRF, Channels (WebSocket) |
 | Database | PostgreSQL 15, django-tenants (schema-per-tenant) |
-| Auth | JWT with rotation, TOTP MFA, RBAC |
+| Auth | JWT with rotation, Email OTP MFA, RBAC |
 | ML | CatBoost two-stage classifier |
 | Queue | Celery + Redis |
 | Security | Fernet PHI encryption, HMAC audit chain |
@@ -62,8 +62,8 @@ Each organization (lab) gets an isolated PostgreSQL schema via `django-tenants`.
 ### Auth
 - `POST /api/auth/login` — Login (returns JWT)
 - `POST /api/auth/refresh` — Refresh token
-- `POST /api/auth/mfa/setup` — Enable TOTP MFA
-- `POST /api/auth/mfa/verify` — Verify MFA code
+- `POST /api/auth/mfa/setup` — Enable Email OTP MFA
+- `POST /api/auth/mfa/verify` — Verify MFA code (email OTP or backup code)
 
 ### Screening
 - `POST /api/screening/classify` — Run B12 classification on CBC data
@@ -127,8 +127,8 @@ Both pipelines include automated health checks with rollback on failure.
 ## Security
 
 - JWT access tokens (15 min) with rotating refresh tokens
-- TOTP MFA with encrypted backup codes
-- Fernet encryption for all PHI (patient names)
+- Email OTP MFA (6-digit, 5-min TTL) with hashed backup codes
+- Fernet encryption for all PHI (patient names, ages, sex, CBC snapshots)
 - HMAC SHA-256 hash-chain audit trail (tamper-evident)
 - Schema-level tenant isolation
 - HSTS, CSP, secure cookies in production

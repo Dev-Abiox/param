@@ -100,7 +100,7 @@ class SummaryView(APIView):
                 'id': str(s.id),
                 'date': s.created_at.strftime('%Y-%m-%d'),
                 'patientRef': s.patient.patient_id if s.patient else None,
-                'mcv': (s.cbc_snapshot or {}).get('MCV', '-'),
+                'mcv': s.get_cbc_dict().get('MCV', '-'),
                 'result': result_str,
             })
 
@@ -368,7 +368,7 @@ class PatientTrendView(APIView):
 
         trend = []
         for s in screenings_qs:
-            cbc = s.cbc_snapshot or {}
+            cbc = s.get_cbc_dict()
             trend.append({
                 'date': s.created_at.strftime('%Y-%m-%d'),
                 'screeningId': str(s.id),
@@ -530,11 +530,14 @@ class PopulationCohortsView(APIView):
         cohorts = []
         for label, age_min, age_max in self.AGE_GROUPS:
             for sex in ('M', 'F'):
-                # Single aggregate query per cohort instead of 4 separate COUNTs
+                # Filter on the denormalised non-PHI columns (age_bucket,
+                # sex_code) rather than JSON-path into the encrypted
+                # cbc_snapshot blob.  The bucket labels in AGE_GROUPS are
+                # the same strings defined on Screening, so the join is
+                # a simple equality.
                 stats = Screening.objects.filter(
-                    cbc_snapshot__Age__gte=age_min,
-                    cbc_snapshot__Age__lte=age_max,
-                    cbc_snapshot__Sex=sex,
+                    age_bucket=label,
+                    sex_code=sex,
                 ).aggregate(
                     total=Count('id'),
                     deficient=Count('id', filter=Q(risk_class=3)),

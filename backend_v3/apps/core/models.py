@@ -62,6 +62,40 @@ class Role(models.TextChoices):
     DOCTOR = 'DOCTOR', 'Doctor'
 
 
+class LabSubRole(models.TextChoices):
+    """
+    Sub-roles inside a Lab tenant (role=LAB) used to implement
+    purpose-limited access per DPDP Act §4.  See DATA_MINIMISATION_AUDIT.md
+    and the P1-19 section of the DPDP POA.
+
+    Ordering (least → most permissive):
+        receptionist  → demographics + status + billing
+        technician    → + raw CBC values
+        pathologist   → + software workflow recommendations / narrative
+        lab_admin     → + tenant user management + audit log
+
+    Empty string = legacy/unscoped LAB user retaining full access (used
+    during rollout so existing accounts keep working).
+    """
+    UNSCOPED     = '',             '(unscoped — legacy full-access LAB user)'
+    RECEPTIONIST = 'receptionist', 'Lab Receptionist'
+    TECHNICIAN   = 'technician',   'Lab Technician'
+    PATHOLOGIST  = 'pathologist',  'Lab Pathologist'
+    LAB_ADMIN    = 'lab_admin',    'Lab Administrator'
+
+
+# Rank map for least-to-most-permissive comparisons.  The empty-string
+# UNSCOPED level is treated as fully-permissive (legacy behaviour)
+# so no call site is broken when a user has not been assigned a sub-role.
+_LAB_SUB_ROLE_RANK = {
+    LabSubRole.RECEPTIONIST: 1,
+    LabSubRole.TECHNICIAN: 2,
+    LabSubRole.PATHOLOGIST: 3,
+    LabSubRole.LAB_ADMIN: 4,
+    LabSubRole.UNSCOPED: 99,  # treated as highest so unscoped users pass any floor
+}
+
+
 class UserManager(BaseUserManager):
     """Custom user manager for email-based authentication."""
 
@@ -92,6 +126,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         max_length=20,
         choices=Role.choices,
         default=Role.LAB
+    )
+    # Sub-role inside a Lab tenant.  Ignored for role != LAB.  The empty
+    # default ('unscoped') preserves legacy full-access behaviour for
+    # accounts that existed before P1-19.  See LabSubRole docstring.
+    lab_sub_role = models.CharField(
+        max_length=20,
+        choices=LabSubRole.choices,
+        default=LabSubRole.UNSCOPED,
+        blank=True,
     )
 
     # Organization reference (for non-super users)
@@ -144,6 +187,50 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_super_admin(self):
         return self.is_superuser or self.role == Role.SUPER_ADMIN
+
+    # ── Lab sub-role capability helpers (P1-19) ───────────────────────
+    #
+    # These helpers return True when the user is authorised to perform
+    # the capability at issue.  They fail open for SUPER_ADMIN, DOCTOR,
+    # and legacy-unscoped LAB users so existing behaviour is preserved
+    # during rollout.  Once every LAB user has been assigned a sub-role,
+    # remove the UNSCOPED short-circuit in each helper.
+    def _lab_rank(self) -> int:
+        if self.role != Role.LAB:
+            return 0
+        return _LAB_SUB_ROLE_RANK.get(self.lab_sub_role, 99)
+
+    def can_view_demographics(self) -> bool:
+        """Patient id, age bucket, sex, status — receptionist and up."""
+        if self.is_super_admin or self.role == Role.DOCTOR:
+            return True
+        if self.role != Role.LAB:
+            return False
+        return self._lab_rank() >= _LAB_SUB_ROLE_RANK[LabSubRole.RECEPTIONIST]
+
+    def can_view_cbc_values(self) -> bool:
+        """Raw CBC numerics — technician and up."""
+        if self.is_super_admin or self.role == Role.DOCTOR:
+            return True
+        if self.role != Role.LAB:
+            return False
+        return self._lab_rank() >= _LAB_SUB_ROLE_RANK[LabSubRole.TECHNICIAN]
+
+    def can_view_recommendation(self) -> bool:
+        """Software workflow recommendation / narrative — pathologist and up."""
+        if self.is_super_admin or self.role == Role.DOCTOR:
+            return True
+        if self.role != Role.LAB:
+            return False
+        return self._lab_rank() >= _LAB_SUB_ROLE_RANK[LabSubRole.PATHOLOGIST]
+
+    def can_manage_lab_users(self) -> bool:
+        """Tenant user management + audit-log access — lab_admin only."""
+        if self.is_super_admin:
+            return True
+        if self.role != Role.LAB:
+            return False
+        return self._lab_rank() >= _LAB_SUB_ROLE_RANK[LabSubRole.LAB_ADMIN]
 
 
 class MFAMethod(models.TextChoices):
