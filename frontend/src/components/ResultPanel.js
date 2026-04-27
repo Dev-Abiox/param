@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { AlertTriangle, CheckCircle, AlertOctagon, FileText, Download, Printer, Stethoscope, Eye } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
-import { ScreeningLabel, isSuperAdmin } from "../types";
+import { ScreeningLabel } from "../types";
 import { generateReport } from "@/lib/generateReport";
 import {
   CONFIDENCE_PILL,
@@ -39,11 +39,16 @@ const ResultPanel = ({ result, patient, cbcRows, user }) => {
     window.open(url, "_blank");
   };
 
-  // Patient PDF Disclosure Spec preview — SUPER_ADMIN only.  Forces the
-  // spec_v1 template and stamps a diagonal "PREVIEW — NOT FOR PATIENT
-  // DISTRIBUTION" watermark on every page so a previewed PDF cannot be
-  // forwarded to a real patient as if it were the real report.
-  const canPreviewSpecV1 = isSuperAdmin(user);
+  // Patient PDF Disclosure Spec preview — visible to every
+  // authenticated user while the platform is effectively single-
+  // tenant.  Misuse protection relies on the diagonal "PREVIEW — NOT
+  // FOR PATIENT DISTRIBUTION" watermark stamped on every page (18%
+  // opacity, drawn last) plus the ``_preview_spec_v1.pdf`` filename
+  // suffix.  When additional labs onboard, tighten this back to
+  // ``isSuperAdmin(user)`` so partner-lab clinicians can't accidentally
+  // surface the preview to patients — see commit 37261cc for the
+  // original SUPER_ADMIN-only gate.
+  const canPreviewSpecV1 = !!user;
   const handlePreviewSpecV1 = async () => {
     const doc = await generateDoc({ previewMode: true });
     doc.save(`ClinomicLabs_Report_${patient.id}_preview_spec_v1.pdf`);
