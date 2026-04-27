@@ -96,3 +96,118 @@ probabilities, and indices as before.  The only behavioural change is
 PDF rendering.
 
 ---
+
+## 2026-04-27 (later) — Patient PDF Disclosure spec_v1 template implemented (gated)
+
+**Status:** Spec_v1 patient-facing PDF template implemented behind the
+existing `Lab.patient_pdf_workflow_recs_enabled` per-lab flag.  Default
+False everywhere; production behaviour is unchanged.  Counsel review
+of the disclosure language remains an open dependency.
+
+**What changed:**
+
+- `Lab` model gained six per-lab disclosure config fields, all
+  optional / blank by default (migration 0014):
+  `grievance_email`, `privacy_notice_url`, `pathologist_name`,
+  `pathologist_registration`, `pathologist_qualification`,
+  `pathologist_designation`.  Empty values render `[TBD]` on the
+  spec_v1 PDF.
+- `clinomic/settings.py` gained four manufacturer-level entries:
+  `AROGYABIOX_DPO_EMAIL`, `AROGYABIOX_CDSCO_LICENSE_NUMBER`,
+  `SOFTWARE_VERSION`, `RULES_VERSION`.  All blank by default.
+  `PRODUCTION_CDSCO_REGISTERED` is derived from a non-empty
+  CDSCO license number — when blank, the spec_v1 footer renders the
+  pre-commercial-evaluation status line.
+- `_build_disclosure_config(lab)` in `apps/screening/serializers.py`
+  bundles manufacturer + per-lab values into a single dict surfaced as
+  `disclosure_config` (snake_case GET) /
+  `disclosureConfig` (camelCase live predict).  Single source of truth
+  for the frontend renderer.
+- `frontend/src/lib/clinicalRulesHelpers.js` gained patient-facing
+  translation maps per the Disclosure Spec §D — module titles
+  ("Iron-related follow-up testing may be considered" not
+  "Iron Deficiency"), confidence labels ("Stronger workflow signal"
+  not "high"), reasoning chips (lay translations, with de-duplication
+  of overlapping codes), per-card source lines, empty-state text
+  (D.4), macrocytic footnote (D.5), and `[TBD]` placeholder helpers.
+- `frontend/src/lib/generateReport.js` rewritten as a router:
+  `result.labWorkflowRecsEnabled === true` → spec_v1 template
+  (Block A header + manufacturer ID + beta-phase line, indices,
+  CBC, Block C banner, Block D translated cards, Block E pathologist
+  sign-off panel with `[TBD]` fallback for missing config, Block F
+  mandatory footer with the §8 unbreakable line on every page).
+  `false` (or missing / undefined) → legacy template — preserved
+  bit-for-bit so production behaviour is unchanged until the
+  per-lab flag is flipped.
+
+**Per-lab flip recipe (Option B preconditions still apply):**
+
+```sql
+-- 1. Fill the manufacturer-level config via env vars in production
+--    deployment (AROGYABIOX_DPO_EMAIL, AROGYABIOX_CDSCO_LICENSE_NUMBER,
+--    SOFTWARE_VERSION, RULES_VERSION) — these apply globally.
+--
+-- 2. Fill the per-lab disclosure config:
+UPDATE labs
+SET grievance_email = '<lab grievance email>',
+    privacy_notice_url = '<https://lab.example/privacy>',
+    pathologist_name = '<full name>',
+    pathologist_registration = '<state council registration number>',
+    pathologist_qualification = '<MBBS/MD/DPB>',
+    pathologist_designation = '<designation at lab>'
+WHERE code = '<LAB-CODE>';
+
+-- 3. Verify config completeness then flip the flag:
+UPDATE labs
+SET patient_pdf_workflow_recs_enabled = TRUE
+WHERE code = '<LAB-CODE>';
+```
+
+The frontend's `disclosureConfigComplete()` helper can be invoked from
+ops tooling to verify all required fields are populated before
+flipping the flag.  Renderer fails *soft* — `[TBD]` is rendered for any
+missing value rather than blocking PDF generation.
+
+**What did not change:**
+
+- `apps/screening/clinical_rules.py` — untouched; isolation contract
+  pinned by `test_clinical_rules_module_does_not_reference_flag` and
+  `test_clinical_rules_module_does_not_reference_disclosure_config` is
+  not yet added but the module has zero references to the new keys.
+- B12 ML output — bit-identical.
+- On-screen `ResultPanel` cards — unchanged.  Clinicians still see the
+  jargon-rich rule output during case review; only the patient PDF
+  carries the lay-translated language.
+- Legacy PDF template — preserved bit-for-bit.  No production lab has
+  the flag flipped, so every patient PDF rendered post-deploy is
+  byte-equivalent to pre-deploy.
+
+**Open dependencies (not unblocked by this commit):**
+
+- §6 counsel review (PATectual + regulatory consultant + commercial
+  counsel) of the patient-facing language.
+- DPDP POA P0-2 (DPO appointment).  Until appointed, the footer's
+  "For privacy questions about how the software handles your data"
+  email renders `[TBD]`.
+- CDSCO Class A license grant.  Until granted, the footer renders the
+  pre-commercial-evaluation status line.
+- Per-lab signature workflow audit (DSC integration or wet-signature
+  policy).  Without this, Block E renders the typed name + reg
+  number but no actual signature is applied — IT Act §65B compliance
+  is incomplete.
+
+**Tests:**
+
+- 19 new frontend test cases:
+  - patient-facing translations: titles never name conditions,
+    confidence labels never use "confidence", reasoning chips strip
+    Mentzer / BTT / IDA / anisocytosis / microcytic / hypochromic
+    jargon, source lines never claim diagnosis.
+  - `patientModuleCard`: null on unflagged, lay-readable fields on
+    flagged, de-duplication of overlapping reasoning chips,
+    anemia_subtype branch.
+  - `tbd` and `disclosureConfigComplete` helpers.
+  - `disclosureConfig` pass-through under both casings.
+- 107 backend / 42 frontend tests pass.  Production build clean.
+
+---

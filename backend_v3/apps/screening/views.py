@@ -29,6 +29,7 @@ from .clinical_rules import all_clinical_rules
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
 from .narrative_engine import NarrativeEngine
+from .serializers import _build_disclosure_config
 from .ws_broadcast import broadcast_high_risk_alert, broadcast_new_screening, broadcast_status_change
 from .serializers import (
     AdminDoctorUpdateSerializer,
@@ -191,6 +192,7 @@ class PredictView(APIView):
             'labWorkflowRecsEnabled': bool(
                 existing.lab and existing.lab.patient_pdf_workflow_recs_enabled
             ),
+            'disclosureConfig': _build_disclosure_config(existing.lab),
             'duplicate': True,
         })
 
@@ -430,6 +432,7 @@ class PredictView(APIView):
                 'labWorkflowRecsEnabled': bool(
                     screening.lab and screening.lab.patient_pdf_workflow_recs_enabled
                 ),
+                'disclosureConfig': _build_disclosure_config(screening.lab),
             })
         finally:
             try:

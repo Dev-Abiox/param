@@ -2,10 +2,40 @@
 Serializers for Screening API endpoints.
 """
 
+from django.conf import settings
 from rest_framework import serializers
 
 from .clinical_rules import all_clinical_rules
 from .models import Consent, Doctor, Lab, Patient, Screening
+
+
+def _build_disclosure_config(lab):
+    """Bundle the manufacturer-level + per-lab disclosure values for the
+    patient PDF spec_v1 template.  Every field defaults to ``''`` so the
+    frontend renders ``[TBD]`` for any missing value.
+
+    Lives at module scope (not a serializer method) because the live
+    PredictView constructs its response by hand and shares the same
+    bundle shape.
+    """
+    return {
+        # Manufacturer-level — Arogya BioX
+        'manufacturer_name': 'Arogya BioX Pvt Ltd',
+        'manufacturer_city': 'Ahmedabad',
+        'dpo_email': getattr(settings, 'AROGYABIOX_DPO_EMAIL', '') or '',
+        'cdsco_license_number': getattr(settings, 'AROGYABIOX_CDSCO_LICENSE_NUMBER', '') or '',
+        'cdsco_registered': bool(getattr(settings, 'PRODUCTION_CDSCO_REGISTERED', False)),
+        'software_version': getattr(settings, 'SOFTWARE_VERSION', '0.0.0-dev'),
+        'rules_version': getattr(settings, 'RULES_VERSION', '1.0.0'),
+        # Per-lab
+        'grievance_email': (lab.grievance_email or '') if lab else '',
+        'privacy_notice_url': (lab.privacy_notice_url or '') if lab else '',
+        'pathologist_name': (lab.pathologist_name or '') if lab else '',
+        'pathologist_registration': (lab.pathologist_registration or '') if lab else '',
+        'pathologist_qualification': (lab.pathologist_qualification or '') if lab else '',
+        'pathologist_designation': (lab.pathologist_designation or '') if lab else '',
+        'lab_name': (lab.name or '') if lab else '',
+    }
 
 
 class CBCSerializer(serializers.Serializer):
@@ -135,13 +165,18 @@ class ScreeningSerializer(serializers.ModelSerializer):
     # patient PDF for this screening's lab.  Default False until
     # counsel sign-off lands per the spec.
     lab_workflow_recs_enabled = serializers.SerializerMethodField()
+    # Patient PDF Disclosure Spec — manufacturer + per-lab placeholder
+    # bundle for Block A header, Block E pathologist sign-off and Block
+    # F footer rendering.  Always emitted; values blank-but-present
+    # render as ``[TBD]`` on the PDF.
+    disclosure_config = serializers.SerializerMethodField()
 
     class Meta:
         model = Screening
         fields = [
             'id', 'patient_id', 'patient_name', 'risk_class', 'label_text',
             'probabilities', 'rules_fired', 'indices', 'cbc_snapshot',
-            'clinical_rules', 'lab_workflow_recs_enabled',
+            'clinical_rules', 'lab_workflow_recs_enabled', 'disclosure_config',
             'model_version', 'lab_name', 'doctor_name', 'created_at',
             # 3.2 work queue
             'status',
@@ -168,6 +203,9 @@ class ScreeningSerializer(serializers.ModelSerializer):
 
     def get_lab_workflow_recs_enabled(self, obj):
         return bool(obj.lab and obj.lab.patient_pdf_workflow_recs_enabled)
+
+    def get_disclosure_config(self, obj):
+        return _build_disclosure_config(obj.lab if obj else None)
 
 
 class ReviewScreeningSerializer(serializers.Serializer):

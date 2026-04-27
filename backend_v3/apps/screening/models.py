@@ -107,6 +107,59 @@ class Lab(models.Model):
         ),
     )
 
+    # ── Patient PDF Disclosure Spec (April 2026) — per-lab config ────────
+    # Filled during the per-lab commercial-launch readiness audit.  When
+    # ``patient_pdf_workflow_recs_enabled`` is flipped to True for a lab,
+    # the spec_v1 PDF template renders these values; any value left blank
+    # renders as ``[TBD]`` so missing config is visible (rather than
+    # silent), and the readiness audit flags it for completion.
+    grievance_email = models.EmailField(
+        blank=True, default='',
+        help_text=(
+            "Lab grievance contact email for patient questions about the "
+            "report.  Surfaced verbatim on the patient PDF footer per "
+            "Disclosure Spec Block F."
+        ),
+    )
+    privacy_notice_url = models.URLField(
+        blank=True, default='',
+        help_text=(
+            "Public URL where the full DPDP Privacy Notice for this lab "
+            "is hosted.  Surfaced on the patient PDF footer per "
+            "Disclosure Spec Block F + DPDP Act §5(1)."
+        ),
+    )
+    pathologist_name = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text=(
+            "Name of the pathologist who reviews and signs reports for "
+            "this lab.  Rendered in the Block E sign-off panel.  Wet "
+            "signature or DSC must be applied separately per the "
+            "spec; a typed name alone does not meet IT Act §65B."
+        ),
+    )
+    pathologist_registration = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text=(
+            "State Medical Council registration number for the signing "
+            "pathologist.  Required by MDR for medical device labelling."
+        ),
+    )
+    pathologist_qualification = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text=(
+            "Pathologist qualification (MBBS / MD / DPB).  Rendered in "
+            "the Block E sign-off panel."
+        ),
+    )
+    pathologist_designation = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text=(
+            "Pathologist designation at this lab (e.g., Chief Pathologist, "
+            "Consultant Pathologist).  Rendered in Block E."
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -499,3 +499,21 @@ BACKUP_S3_ENDPOINT_URL = os.environ.get('BACKUP_S3_ENDPOINT_URL', '')
 BACKUP_S3_REGION = os.environ.get('BACKUP_S3_REGION', 'auto')
 AWS_BACKUP_ACCESS_KEY_ID = os.environ.get('AWS_BACKUP_ACCESS_KEY_ID', '')
 AWS_BACKUP_SECRET_ACCESS_KEY = os.environ.get('AWS_BACKUP_SECRET_ACCESS_KEY', '')
+
+# ── Patient PDF Disclosure Spec (April 2026) ──────────────────────────────────
+# Manufacturer-level config surfaced on the patient PDF.  Values blank by
+# default — the PDF renderer falls back to "[TBD]" so missing config is
+# visible.  When CDSCO Class A registration lands and the DPO is appointed,
+# fill these via env vars; the per-lab readiness audit validates non-empty
+# values before flipping ``patient_pdf_workflow_recs_enabled`` on any lab.
+#
+# Per Disclosure Spec §F:
+#   - AROGYABIOX_DPO_EMAIL must NOT be ``param@arogyabiox.com`` (i.e. the
+#     founding engineer's address).  DPDP Act §10 requires a designated DPO.
+#   - AROGYABIOX_CDSCO_LICENSE_NUMBER stays blank (and the PDF prints the
+#     beta-phase line) until the Class A license is granted.
+AROGYABIOX_DPO_EMAIL = os.environ.get('AROGYABIOX_DPO_EMAIL', '')
+AROGYABIOX_CDSCO_LICENSE_NUMBER = os.environ.get('AROGYABIOX_CDSCO_LICENSE_NUMBER', '')
+PRODUCTION_CDSCO_REGISTERED = bool(AROGYABIOX_CDSCO_LICENSE_NUMBER.strip())
+SOFTWARE_VERSION = os.environ.get('SOFTWARE_VERSION', '0.0.0-dev')
+RULES_VERSION = os.environ.get('RULES_VERSION', '1.0.0')
