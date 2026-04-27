@@ -4,6 +4,7 @@ Serializers for Screening API endpoints.
 
 from rest_framework import serializers
 
+from .clinical_rules import all_clinical_rules
 from .models import Consent, Doctor, Lab, Patient, Screening
 
 
@@ -126,12 +127,16 @@ class ScreeningSerializer(serializers.ModelSerializer):
     # (with legacy-row fallback) so API consumers always see the full CBC
     # regardless of which storage column the row happens to live in.
     cbc_snapshot = serializers.SerializerMethodField()
+    # Re-derived from cbc_snapshot on each read so that updating the rule
+    # logic doesn't require a backfill — see apps.screening.clinical_rules.
+    clinical_rules = serializers.SerializerMethodField()
 
     class Meta:
         model = Screening
         fields = [
             'id', 'patient_id', 'patient_name', 'risk_class', 'label_text',
             'probabilities', 'rules_fired', 'indices', 'cbc_snapshot',
+            'clinical_rules',
             'model_version', 'lab_name', 'doctor_name', 'created_at',
             # 3.2 work queue
             'status',
@@ -152,6 +157,9 @@ class ScreeningSerializer(serializers.ModelSerializer):
 
     def get_cbc_snapshot(self, obj):
         return obj.get_cbc_dict()
+
+    def get_clinical_rules(self, obj):
+        return all_clinical_rules(obj.get_cbc_dict())
 
 
 class ReviewScreeningSerializer(serializers.Serializer):

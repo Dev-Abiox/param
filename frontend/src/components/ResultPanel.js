@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { AlertTriangle, CheckCircle, AlertOctagon, FileText, Download, Printer } from "lucide-react";
+import { AlertTriangle, CheckCircle, AlertOctagon, FileText, Download, Printer, Stethoscope } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
 import { ScreeningLabel } from "../types";
 import { generateReport } from "@/lib/generateReport";
+import {
+  CONFIDENCE_PILL,
+  REASONING_LABEL,
+  flaggedModules,
+} from "@/lib/clinicalRulesHelpers";
 import { LisService } from "../services/api";
 
 const ResultPanel = ({ result, patient, cbcRows }) => {
@@ -149,6 +154,44 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
             <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2 border-b border-blue-200 dark:border-blue-800 pb-2">Recommendation</h4>
             <p className="text-sm text-blue-900 dark:text-blue-200 font-medium">{result.recommendation}</p>
           </div>
+
+          {(() => {
+            const flagged = flaggedModules(result.clinicalRules);
+            if (flagged.length === 0) return null;
+            return (
+              <div data-testid="clinical-rules-panel" className="bg-teal-50 dark:bg-teal-900/20 p-4 rounded border border-teal-100 dark:border-teal-800 space-y-3">
+                <h4 className="text-sm font-semibold text-teal-800 dark:text-teal-300 mb-1 border-b border-teal-200 dark:border-teal-800 pb-2 flex items-center">
+                  <Stethoscope className="w-4 h-4 mr-1.5" />
+                  Workflow Recommendations
+                </h4>
+                <p className="text-xs italic text-teal-700 dark:text-teal-400">
+                  Rule-based flags from published hematology indices. Advisory; do not replace clinical judgement.
+                </p>
+                {flagged.map((m) => (
+                  <div key={m.key} data-testid={`clinical-rule-${m.key}`} className="bg-white dark:bg-slate-900 p-3 rounded border border-teal-100 dark:border-teal-800">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{m.label}</span>
+                      {m.confidence && (
+                        <span className={`text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border ${CONFIDENCE_PILL[m.confidence] || CONFIDENCE_PILL.low}`}>
+                          {m.confidence}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {m.reasoning.map((code, i) => (
+                        <span key={i} className="text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                          {REASONING_LABEL[code] || code.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                    {m.recommendation && (
+                      <p className="text-xs text-slate-700 dark:text-slate-300">{m.recommendation}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="space-y-4">
@@ -248,7 +291,16 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
               <tr>
                 <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">Mentzer Index</td>
                 <td className="px-4 py-2 text-right font-mono">{result.indices.mentzer}</td>
-                <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs">{result.indices.mentzer > 13 ? "Suggests Iron Deficiency" : "Suggests Thalassemia Trait"} (if microcytic)</td>
+                <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs">
+                  {(() => {
+                    const mcv = parseFloat(cbcRows?.find(r => r.key === "mcv")?.value);
+                    const microcytic = Number.isFinite(mcv) && mcv < 80;
+                    if (!microcytic) return "Discrimination index — only meaningful in microcytic patients";
+                    return result.indices.mentzer > 13
+                      ? "Microcytic + Mentzer > 13: favors IDA over BTT"
+                      : "Microcytic + Mentzer < 13: favors BTT";
+                  })()}
+                </td>
               </tr>
               <tr>
                 <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">Green & King Index</td>

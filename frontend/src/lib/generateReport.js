@@ -9,6 +9,17 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { INITIAL_CBC_ROWS } from "@/constants";
+import {
+  buildResultFromScreening as _buildResultFromScreening,
+  formatReasoning as _formatReasoning,
+  moduleCells as _moduleCells,
+} from "./clinicalRulesHelpers";
+
+// Re-export the pure helpers so existing import sites keep working
+// after the helpers were moved to clinicalRulesHelpers.js.
+export const buildResultFromScreening = _buildResultFromScreening;
+export const formatReasoning = _formatReasoning;
+export const moduleCells = _moduleCells;
 
 // Map cbc_snapshot field names to INITIAL_CBC_ROWS keys.
 // Short keys (Hb, RBC, …) are the actual format stored by the DRF serializer;
@@ -57,31 +68,8 @@ export function buildCbcRowsFromSnapshot(cbcSnapshot) {
   });
 }
 
-/**
- * Build the result object expected by generateReport() from a full screening record.
- *
- * @param {object} screening - Full screening record from the API.
- * @returns {object}
- */
-export function buildResultFromScreening(screening) {
-  const riskClass = screening.risk_class;
-  let recommendation;
-  if (riskClass === 3) {
-    recommendation = "Serum B12 measurement recommended. Clinical correlation advised.";
-  } else if (riskClass === 2) {
-    recommendation = "Consider serum B12 measurement if clinically indicated.";
-  } else {
-    recommendation = "B12 deficiency unlikely based on CBC parameters.";
-  }
-
-  return {
-    label: riskClass,
-    probabilities: screening.probabilities,
-    indices: screening.indices,
-    interpretation: (screening.rules_fired || []).join(", "),
-    recommendation,
-  };
-}
+// buildResultFromScreening lives in ./clinicalRulesHelpers.js and is
+// re-exported above for backward-compat with existing import sites.
 
 const loadImage = (url) =>
   new Promise((resolve, reject) => {
@@ -90,6 +78,10 @@ const loadImage = (url) =>
     img.onload = () => resolve(img);
     img.onerror = reject;
   });
+
+// Clinical-rule presentation helpers are defined in
+// ./clinicalRulesHelpers.js and re-exported above.  Inside the PDF
+// generator we just use the local aliases.
 
 /**
  * Generate a jsPDF document for a B12 screening report.
@@ -193,6 +185,22 @@ export async function generateReport(patient, result, cbcRows) {
   doc.text(result.recommendation || "", 18, 102, { maxWidth: 174 });
 
   // ── Indices table ─────────────────────────────────────────────────────────
+  // Mentzer and Green-King are IDA-vs-BTT discrimination indices defined
+  // for microcytic patients only.  In non-microcytic patients (MCV>=80)
+  // they are mathematically computable but clinically meaningless, so
+  // gate the significance text on MCV to avoid the "high Mentzer ratio
+  // on a non-anemic patient is flagged Possible Iron Deficiency" trap.
+  const mcvRow = (cbcRows || []).find((r) => r.key === "mcv");
+  const mcvValue = parseFloat(mcvRow?.value);
+  const isMicrocytic = Number.isFinite(mcvValue) && mcvValue < 80;
+
+  const mentzerSig = isMicrocytic
+    ? (result.indices.mentzer > 13 ? "Microcytic + Mentzer > 13: favors IDA over BTT" : "Microcytic + Mentzer < 13: favors BTT")
+    : "Discrimination index — only meaningful in microcytic patients";
+  const greenKingSig = isMicrocytic
+    ? (result.indices.greenKing > 65 ? "Microcytic + G&K > 65: favors IDA over BTT" : "Microcytic + G&K < 65: favors BTT")
+    : "Discrimination index — only meaningful in microcytic patients";
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Hematological Indices", 14, 120);
@@ -201,15 +209,56 @@ export async function generateReport(patient, result, cbcRows) {
     startY: 124,
     head: [["Index", "Value", "Clinical Significance"]],
     body: [
-      ["Mentzer Index",              String(result.indices.mentzer),   result.indices.mentzer > 13 ? "Possible Iron Deficiency" : "Possible Thalassemia"],
-      ["Green & King Index",         String(result.indices.greenKing), "Differentiation of IDA vs Thalassemia"],
-      ["NLR (Neutrophil/Lymphocyte)", String(result.indices.nlr),      "Inflammatory Marker"],
+      ["Mentzer Index",               String(result.indices.mentzer),   mentzerSig],
+      ["Green & King Index",          String(result.indices.greenKing), greenKingSig],
+      ["NLR (Neutrophil/Lymphocyte)", String(result.indices.nlr),       "Inflammatory marker"],
     ],
     theme: "grid",
     headStyles: { fillColor: [13, 148, 136], fontSize: 9, fontStyle: "bold" },
     styles: { fontSize: 8, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: "bold", cellWidth: 70 }, 1: { cellWidth: 30 } },
   });
+
+  // ── Workflow recommendations from rule-based modules ──────────────────────
+  // Iron-deficiency, BTT, macrocytic, and composite anemia-subtype modules
+  // are pure-function workflow triggers computed server-side from the CBC
+  // (apps.screening.clinical_rules).  Renders only the modules that
+  // actually flagged — silent on healthy CBCs — so the report stays
+  // readable when nothing is suspect.
+  if (result.clinicalRules) {
+    const flaggedRows = ["iron_deficiency", "thalassemia_trait", "macrocytic_anemia", "anemia_subtype"]
+      .map((k) => moduleCells(k, result.clinicalRules[k]))
+      .filter(Boolean);
+
+    if (flaggedRows.length > 0) {
+      const rulesY = doc.lastAutoTable.finalY + 8;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("Workflow Recommendations", 14, rulesY);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.setTextColor(100);
+      doc.text(
+        "Rule-based flags from published hematology indices. Advisory; do not replace clinical judgement.",
+        14, rulesY + 4, { maxWidth: 182 },
+      );
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: rulesY + 8,
+        head: [["Workflow", "Confidence", "Reasoning", "Recommendation"]],
+        body: flaggedRows,
+        theme: "grid",
+        headStyles: { fillColor: [13, 148, 136], fontSize: 9, fontStyle: "bold" },
+        styles: { fontSize: 8, cellPadding: 3, valign: "top" },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 42 },
+          1: { cellWidth: 22, halign: "center" },
+          2: { cellWidth: 60 },
+        },
+      });
+    }
+  }
 
   // ── CBC table ─────────────────────────────────────────────────────────────
   const finalY = doc.lastAutoTable.finalY + 12;
