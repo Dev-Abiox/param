@@ -456,7 +456,7 @@ const UserWorkspace = ({ user }) => {
 
         <div className="xl:col-span-6">
           {result ? (
-            <ResultPanel result={result} patient={patient} cbcRows={rows} />
+            <ResultPanel result={result} patient={patient} cbcRows={rows} user={user} />
           ) : (
             <div className="h-full min-h-[500px] border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-sm bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500" data-testid="no-results-empty">
               <div className="bg-white dark:bg-slate-900 p-6 rounded-full shadow-sm mb-4">

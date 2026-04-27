@@ -114,16 +114,74 @@ const loadImage = (url) =>
  * workflow audit are all complete; flipping the flag is a manual
  * operations step, not exposed in any admin UI yet.
  *
+ * Preview mode (``options.previewMode === true``)
+ *   - Forces the spec_v1 template regardless of the per-lab flag.
+ *   - Applies a diagonal "PREVIEW — NOT FOR PATIENT DISTRIBUTION"
+ *     watermark on every page.
+ *   - Intended for SUPER_ADMIN review of the disclosure language
+ *     before counsel sign-off.  The watermark is non-removable from
+ *     the rendered PDF (drawn on top of all content) so a previewed
+ *     PDF cannot accidentally be forwarded to a patient as a real
+ *     report.
+ *   - Does NOT touch the ``labWorkflowRecsEnabled`` field on the
+ *     result object — it's a render-time-only override scoped to the
+ *     single PDF.
+ *
  * @param {object} patient  - { name, id, age, sex, date, labId }
  * @param {object} result   - { probabilities, interpretation, recommendation, indices, ... }
  * @param {Array}  cbcRows  - INITIAL_CBC_ROWS-shaped array with .value populated
+ * @param {object} [options]
+ * @param {boolean} [options.previewMode=false] — see above.
  * @returns {Promise<jsPDF>}
  */
-export async function generateReport(patient, result, cbcRows) {
-  if (result?.labWorkflowRecsEnabled === true) {
-    return _generateReportSpecV1(patient, result, cbcRows);
+export async function generateReport(patient, result, cbcRows, options = {}) {
+  const preview = options.previewMode === true;
+  let doc;
+  if (preview || result?.labWorkflowRecsEnabled === true) {
+    // Preview mode renders spec_v1 regardless of the per-lab flag, so
+    // SUPER_ADMINS can spot-check the disclosure language without
+    // flipping any live lab.
+    const overridden = preview ? { ...result, labWorkflowRecsEnabled: true } : result;
+    doc = await _generateReportSpecV1(patient, overridden, cbcRows);
+  } else {
+    doc = await _generateReportLegacy(patient, result, cbcRows);
   }
-  return _generateReportLegacy(patient, result, cbcRows);
+  if (preview) {
+    _applyPreviewWatermark(doc);
+  }
+  return doc;
+}
+
+/** Stamp every page with a diagonal "PREVIEW — NOT FOR PATIENT
+ * DISTRIBUTION" watermark.  Drawn last so it overlays all rendered
+ * content; a viewer cannot strip the watermark by scrolling under it.
+ *
+ * The watermark is ALSO applied to the legacy template when called
+ * (currently it never is — preview mode forces spec_v1 — but if a
+ * future caller wants a watermarked legacy preview, the function is
+ * shape-agnostic). */
+function _applyPreviewWatermark(doc) {
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.saveGraphicsState();
+    if (typeof doc.GState === "function") {
+      // jsPDF >= 2.x: use a graphics state to set partial opacity
+      // so the watermark doesn't bury the report content.
+      doc.setGState(new doc.GState({ opacity: 0.18 }));
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(48);
+    doc.setTextColor(220, 38, 38);  // red-600
+    // Diagonal across the page — A4 is 210x297mm, centre is (105,148.5).
+    // Rotate 45° about the centre.
+    doc.text("PREVIEW — NOT FOR PATIENT DISTRIBUTION", 105, 150, {
+      align: "center",
+      angle: 45,
+    });
+    doc.restoreGraphicsState();
+    doc.setTextColor(0, 0, 0);
+  }
 }
 
 /**

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { AlertTriangle, CheckCircle, AlertOctagon, FileText, Download, Printer, Stethoscope } from "lucide-react";
+import { AlertTriangle, CheckCircle, AlertOctagon, FileText, Download, Printer, Stethoscope, Eye } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from "recharts";
-import { ScreeningLabel } from "../types";
+import { ScreeningLabel, isSuperAdmin } from "../types";
 import { generateReport } from "@/lib/generateReport";
 import {
   CONFIDENCE_PILL,
@@ -10,7 +10,7 @@ import {
 } from "@/lib/clinicalRulesHelpers";
 import { LisService } from "../services/api";
 
-const ResultPanel = ({ result, patient, cbcRows }) => {
+const ResultPanel = ({ result, patient, cbcRows, user }) => {
   const [shapData, setShapData] = useState(null);
   const [shapLoading, setShapLoading] = useState(false);
 
@@ -24,7 +24,7 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
     }
   }, [result?.id]);
 
-  const generateDoc = () => generateReport(patient, result, cbcRows);
+  const generateDoc = (options = {}) => generateReport(patient, result, cbcRows, options);
 
   const handleDownloadPDF = async () => {
     const doc = await generateDoc();
@@ -37,6 +37,16 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
+  };
+
+  // Patient PDF Disclosure Spec preview — SUPER_ADMIN only.  Forces the
+  // spec_v1 template and stamps a diagonal "PREVIEW — NOT FOR PATIENT
+  // DISTRIBUTION" watermark on every page so a previewed PDF cannot be
+  // forwarded to a real patient as if it were the real report.
+  const canPreviewSpecV1 = isSuperAdmin(user);
+  const handlePreviewSpecV1 = async () => {
+    const doc = await generateDoc({ previewMode: true });
+    doc.save(`ClinomicLabs_Report_${patient.id}_preview_spec_v1.pdf`);
   };
 
   const getBadge = (label) => {
@@ -132,6 +142,16 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
           >
             <Download className="w-3.5 h-3.5 mr-1.5" /> PDF
           </button>
+          {canPreviewSpecV1 && (
+            <button
+              data-testid="preview-spec-v1-button"
+              onClick={handlePreviewSpecV1}
+              title="Renders the Patient PDF Disclosure Spec v1 template with a watermark. SUPER_ADMIN preview only."
+              className="flex items-center px-3 py-1.5 text-xs font-medium text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded border border-amber-300 dark:border-amber-800"
+            >
+              <Eye className="w-3.5 h-3.5 mr-1.5" /> Preview Spec v1
+            </button>
+          )}
         </div>
       </div>
 
