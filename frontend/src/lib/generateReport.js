@@ -219,13 +219,27 @@ export async function generateReport(patient, result, cbcRows) {
     columnStyles: { 0: { fontStyle: "bold", cellWidth: 70 }, 1: { cellWidth: 30 } },
   });
 
-  // ── Workflow recommendations from rule-based modules ──────────────────────
-  // Iron-deficiency, BTT, macrocytic, and composite anemia-subtype modules
-  // are pure-function workflow triggers computed server-side from the CBC
-  // (apps.screening.clinical_rules).  Renders only the modules that
-  // actually flagged — silent on healthy CBCs — so the report stays
-  // readable when nothing is suspect.
-  if (result.clinicalRules) {
+  // ── Workflow Recommendations (Patient PDF Disclosure Spec — Option A) ────
+  //
+  // The patient receives this PDF directly (see Report Disclosure Spec,
+  // §0).  The current rule output uses clinical jargon, raw confidence
+  // tiers ("high"/"medium"/"low"), and module names that name conditions
+  // directly — none of which is appropriate for a layperson reader and
+  // none of which has counsel sign-off.
+  //
+  // Until counsel reviews the disclosure language and the per-lab
+  // signature workflow + DPO email + grievance email are configured,
+  // every patient PDF withholds the Workflow Recommendations section
+  // entirely.  The on-screen ResultPanel cards (clinician-facing) are
+  // unaffected — that surface is still appropriate jargon-wise for the
+  // pathologist reviewing the case.
+  //
+  // Gate: ``result.labWorkflowRecsEnabled`` (sourced from
+  // ``Lab.patient_pdf_workflow_recs_enabled``, default False).  A
+  // missing / undefined flag fails closed — section is suppressed.
+  // Flipping the flag to True is reserved for Option B once §5 of the
+  // spec is implemented and counsel has signed off.
+  if (result.labWorkflowRecsEnabled === true && result.clinicalRules) {
     const flaggedRows = ["iron_deficiency", "thalassemia_trait", "macrocytic_anemia", "anemia_subtype"]
       .map((k) => moduleCells(k, result.clinicalRules[k]))
       .filter(Boolean);

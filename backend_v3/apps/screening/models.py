@@ -88,6 +88,25 @@ class Lab(models.Model):
     contact_email = models.EmailField(blank=True)
     is_active = models.BooleanField(default=True)
 
+    # Patient PDF Disclosure Spec — Option A gate.  When False (the
+    # default for all labs) the Workflow Recommendations table is
+    # withheld from the patient-facing PDF entirely.  The on-screen
+    # ResultPanel cards are unaffected — clinicians still see them.
+    # Flip-to-True per lab is reserved for Option B once counsel has
+    # signed off on the disclosure language and the lab has confirmed
+    # pathologist sign-off + DPO email + grievance email.  No admin UI
+    # exposes this flag yet; flip it manually via shell/SQL during the
+    # commercial-launch readiness audit.
+    patient_pdf_workflow_recs_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "If True, render the rule-based Workflow Recommendations "
+            "section on patient-facing PDFs for screenings performed "
+            "at this lab.  Default False until counsel sign-off and "
+            "lab signature workflow are both in place."
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

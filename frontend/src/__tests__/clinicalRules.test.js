@@ -133,3 +133,51 @@ describe("empty-state contract", () => {
     expect(rows).toEqual([]);
   });
 });
+
+// Patient PDF Disclosure Spec — Option A.  The lab feature flag must
+// fail closed: any value other than an explicit ``true`` from the
+// backend keeps the PDF Workflow Recommendations section suppressed.
+describe("Option A patient-PDF flag pass-through", () => {
+  const baseScreening = {
+    risk_class: 2,
+    probabilities: { normal: 0.3, borderline: 0.5, deficient: 0.2 },
+    indices: { mentzer: 18.4, greenKing: 66.1, nlr: 2.0 },
+    rules_fired: [],
+    cbc_snapshot: { Hb: 14.2, MCV: 85.3 },
+  };
+
+  test("explicit true enables the flag", () => {
+    const r = buildResultFromScreening({ ...baseScreening, lab_workflow_recs_enabled: true });
+    expect(r.labWorkflowRecsEnabled).toBe(true);
+  });
+
+  test("explicit false keeps the flag off", () => {
+    const r = buildResultFromScreening({ ...baseScreening, lab_workflow_recs_enabled: false });
+    expect(r.labWorkflowRecsEnabled).toBe(false);
+  });
+
+  test("missing flag defaults to off — the fail-closed contract", () => {
+    const r = buildResultFromScreening(baseScreening);
+    expect(r.labWorkflowRecsEnabled).toBe(false);
+  });
+
+  test("camelCase from live predict response also works", () => {
+    const r = buildResultFromScreening({ ...baseScreening, labWorkflowRecsEnabled: true });
+    expect(r.labWorkflowRecsEnabled).toBe(true);
+  });
+
+  test("non-boolean truthy values normalise to a real boolean", () => {
+    // Belt and braces: if the backend ever sends a string ``"true"``
+    // by accident, we still want a boolean out.  ``Boolean("true")``
+    // is true; ``Boolean("false")`` is also true (truthy string!) —
+    // this test pins the current behaviour so anyone touching this
+    // path notices.  The right thing is for the backend to send a
+    // boolean; the helper only normalises shape, not coerces strings.
+    const r1 = buildResultFromScreening({ ...baseScreening, lab_workflow_recs_enabled: 1 });
+    expect(r1.labWorkflowRecsEnabled).toBe(true);
+    const r2 = buildResultFromScreening({ ...baseScreening, lab_workflow_recs_enabled: 0 });
+    expect(r2.labWorkflowRecsEnabled).toBe(false);
+    const r3 = buildResultFromScreening({ ...baseScreening, lab_workflow_recs_enabled: null });
+    expect(r3.labWorkflowRecsEnabled).toBe(false);
+  });
+});

@@ -136,5 +136,15 @@ export function buildResultFromScreening(screening) {
     // camelCase from the live predict response.
     clinicalRules: screening.clinical_rules || screening.clinicalRules || null,
     cbcSnapshot: screening.cbc_snapshot || screening.cbcSnapshot || null,
+    // Patient PDF Disclosure Spec — Option A gate.  Defaults to false
+    // when the field is absent (legacy responses, FHIR-bypass reads,
+    // anything pre-Option-A) so a missing flag fails *closed* — the
+    // patient PDF withholds the Workflow Recommendations section.  Only
+    // an explicit ``true`` from the backend opens the gate.
+    labWorkflowRecsEnabled: Boolean(
+      screening.lab_workflow_recs_enabled
+        ?? screening.labWorkflowRecsEnabled
+        ?? false,
+    ),
   };
 }

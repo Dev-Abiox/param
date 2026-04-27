@@ -188,6 +188,9 @@ class PredictView(APIView):
             'modelVersion': existing.model_version,
             'narrative': existing.narrative,
             'clinicalRules': all_clinical_rules(existing.get_cbc_dict()),
+            'labWorkflowRecsEnabled': bool(
+                existing.lab and existing.lab.patient_pdf_workflow_recs_enabled
+            ),
             'duplicate': True,
         })
 
@@ -424,6 +427,9 @@ class PredictView(APIView):
                 'modelVersion': result['modelVersion'],
                 'narrative': narrative_text,
                 'clinicalRules': all_clinical_rules(cbc),
+                'labWorkflowRecsEnabled': bool(
+                    screening.lab and screening.lab.patient_pdf_workflow_recs_enabled
+                ),
             })
         finally:
             try:

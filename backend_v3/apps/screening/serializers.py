@@ -130,13 +130,18 @@ class ScreeningSerializer(serializers.ModelSerializer):
     # Re-derived from cbc_snapshot on each read so that updating the rule
     # logic doesn't require a backfill — see apps.screening.clinical_rules.
     clinical_rules = serializers.SerializerMethodField()
+    # Patient PDF Disclosure Spec — Option A gate.  Tells the frontend
+    # whether to render the Workflow Recommendations table in the
+    # patient PDF for this screening's lab.  Default False until
+    # counsel sign-off lands per the spec.
+    lab_workflow_recs_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = Screening
         fields = [
             'id', 'patient_id', 'patient_name', 'risk_class', 'label_text',
             'probabilities', 'rules_fired', 'indices', 'cbc_snapshot',
-            'clinical_rules',
+            'clinical_rules', 'lab_workflow_recs_enabled',
             'model_version', 'lab_name', 'doctor_name', 'created_at',
             # 3.2 work queue
             'status',
@@ -160,6 +165,9 @@ class ScreeningSerializer(serializers.ModelSerializer):
 
     def get_clinical_rules(self, obj):
         return all_clinical_rules(obj.get_cbc_dict())
+
+    def get_lab_workflow_recs_enabled(self, obj):
+        return bool(obj.lab and obj.lab.patient_pdf_workflow_recs_enabled)
 
 
 class ReviewScreeningSerializer(serializers.Serializer):
