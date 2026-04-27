@@ -305,7 +305,16 @@ const ResultPanel = ({ result, patient, cbcRows }) => {
               <tr>
                 <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">Green & King Index</td>
                 <td className="px-4 py-2 text-right font-mono">{result.indices.greenKing}</td>
-                <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs">Used for differentiating IDA vs Thalassemia</td>
+                <td className="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs">
+                  {(() => {
+                    const mcv = parseFloat(cbcRows?.find(r => r.key === "mcv")?.value);
+                    const microcytic = Number.isFinite(mcv) && mcv < 80;
+                    if (!microcytic) return "Discrimination index — only meaningful in microcytic patients";
+                    return result.indices.greenKing > 65
+                      ? "Microcytic + G&K > 65: favors IDA over BTT"
+                      : "Microcytic + G&K < 65: favors BTT";
+                  })()}
+                </td>
               </tr>
               <tr>
                 <td className="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">NLR (Neutrophil/Lymphocyte)</td>
