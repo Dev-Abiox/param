@@ -25,6 +25,7 @@ from apps.core.metrics import SCREENING_PREDICT_LATENCY, SCREENING_PREDICT_OUTCO
 from apps.core.models import Role
 from apps.core.permissions import HasRole, HasAPIKeyScope, IsAdmin, IsMFAVerified, IsOrgManager
 
+from .clinical_rules import all_clinical_rules
 from .ml_engine import get_ml_engine, predict_async
 from .models import BulkImportJob, Consent, Doctor, Lab, Patient, Screening, ScreeningStatus
 from .narrative_engine import NarrativeEngine
@@ -186,6 +187,7 @@ class PredictView(APIView):
             'rulesFired': existing.rules_fired,
             'modelVersion': existing.model_version,
             'narrative': existing.narrative,
+            'clinicalRules': all_clinical_rules(existing.get_cbc_dict()),
             'duplicate': True,
         })
 
@@ -421,6 +423,7 @@ class PredictView(APIView):
                 'rulesFired': result['rulesFired'],
                 'modelVersion': result['modelVersion'],
                 'narrative': narrative_text,
+                'clinicalRules': all_clinical_rules(cbc),
             })
         finally:
             try:
@@ -1270,6 +1273,10 @@ class FHIRBundleView(APIView):
                 {
                     'url': 'https://clinomiclabs.com/fhir/StructureDefinition/b12-probabilities',
                     'valueString': str(result['probabilities']),
+                },
+                {
+                    'url': 'https://clinomiclabs.com/fhir/StructureDefinition/clinical-rules',
+                    'valueString': json.dumps(all_clinical_rules(cbc)),
                 },
             ],
         }, status=status.HTTP_201_CREATED)
