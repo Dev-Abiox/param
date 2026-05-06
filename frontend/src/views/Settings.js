@@ -91,7 +91,7 @@ const Settings = ({ user }) => {
         <div className="p-4">
           {showMFASetup ? (
             <MFASetup
-              userEmail={`${user.id}@clinomic.local`}
+              userEmail={user.email}
               onComplete={() => {
                 setShowMFASetup(false);
                 loadData();
