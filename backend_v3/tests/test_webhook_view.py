@@ -109,7 +109,13 @@ class TestWebhookView:
         mock_settings.RAZORPAY_KEY_ID = 'key_id'
         mock_settings.RAZORPAY_KEY_SECRET = 'key_secret'
 
-        MockPE.objects.filter.return_value.exists.return_value = True  # already processed
+        # get_or_create returns (instance, created) — created=False signals
+        # "already exists" (the new idempotency path replaces the
+        # exists()/create() pair).
+        MockPE.objects.get_or_create.return_value = (MagicMock(), False)
+        # Pre-fe3d9b8 path also called .filter().exists(); keep the False
+        # default so both code paths short-circuit consistently.
+        MockPE.objects.filter.return_value.exists.return_value = True
 
         payload = _subscription_payload('subscription.activated', event_id='evt_dup123')
         request = _webhook_request(rf, payload)
@@ -142,6 +148,8 @@ class TestWebhookView:
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
         MockPE.objects.create.return_value = mock_pe
+        # New idempotency path uses get_or_create((instance, created)).
+        MockPE.objects.get_or_create.return_value = (mock_pe, True)
 
         mock_sub = MagicMock()
         mock_sub.organization_id = str(uuid.uuid4())
@@ -182,6 +190,8 @@ class TestWebhookView:
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
         MockPE.objects.create.return_value = mock_pe
+        # New idempotency path uses get_or_create((instance, created)).
+        MockPE.objects.get_or_create.return_value = (mock_pe, True)
 
         mock_sub = MagicMock()
         mock_sub.organization_id = str(uuid.uuid4())
@@ -217,6 +227,8 @@ class TestWebhookView:
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
         MockPE.objects.create.return_value = mock_pe
+        # New idempotency path uses get_or_create((instance, created)).
+        MockPE.objects.get_or_create.return_value = (mock_pe, True)
 
         mock_sub = MagicMock()
         mock_sub.organization_id = str(uuid.uuid4())
@@ -252,6 +264,8 @@ class TestWebhookView:
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
         MockPE.objects.create.return_value = mock_pe
+        # New idempotency path uses get_or_create((instance, created)).
+        MockPE.objects.get_or_create.return_value = (mock_pe, True)
 
         mock_sub = MagicMock()
         mock_sub.organization_id = str(uuid.uuid4())
@@ -284,6 +298,8 @@ class TestWebhookView:
         MockPE.objects.filter.return_value.exists.return_value = False
         mock_pe = MagicMock()
         MockPE.objects.create.return_value = mock_pe
+        # New idempotency path uses get_or_create((instance, created)).
+        MockPE.objects.get_or_create.return_value = (mock_pe, True)
 
         # No matching subscription
         MockSub.objects.filter.return_value.select_related.return_value.first.return_value = None
