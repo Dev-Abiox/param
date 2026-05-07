@@ -338,7 +338,8 @@ class TestAdminUserDetailView:
             is_active=True,
         )
 
-        with patch('apps.core.views.User') as MockUser:
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.revoke_all_user_tokens') as mock_revoke:
             MockUser.objects.get.return_value = mock_user
             MockUser.DoesNotExist = Exception
 
@@ -350,6 +351,8 @@ class TestAdminUserDetailView:
 
         assert response.status_code == 200
         assert mock_user.is_active is False
+        # Deactivation must invalidate the target user's outstanding tokens.
+        mock_revoke.assert_called_once_with(mock_user)
 
     @pytest.mark.django_db
     def test_delete_self_returns_400(self, api_rf):
@@ -363,7 +366,8 @@ class TestAdminUserDetailView:
 
         mock_user = MagicMock(id=user_id, is_active=True)
 
-        with patch('apps.core.views.User') as MockUser:
+        with patch('apps.core.views.User') as MockUser, \
+             patch('apps.core.views.revoke_all_user_tokens'):
             MockUser.objects.get.return_value = mock_user
             MockUser.DoesNotExist = Exception
 
