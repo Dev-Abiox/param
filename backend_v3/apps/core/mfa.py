@@ -74,22 +74,28 @@ class MFAManager:
 
         Args:
             user: The user to set up MFA for.
-            email: Recovery email (also used as OTP destination).
+            email: Ignored — recovery email is always derived from user.email
+                to prevent synthetic frontend values from poisoning the OTP
+                destination. Kept for API compatibility.
             method: Ignored — always uses EMAIL.
 
         Returns:
             dict with setup data.
         """
+        # Always derive recovery_email from user.email. Synthetic frontend-supplied
+        # values (e.g. <uuid>@clinomic.local from older Settings.js) must never be
+        # persisted as the OTP destination — the `email` argument is ignored.
+        del email
+        otp_email = user.email
+        if not otp_email:
+            return {'error': 'Email address is required for email OTP'}
+
         mfa_settings, _ = MFASettings.objects.get_or_create(user=user)
         mfa_settings.mfa_method = MFAMethod.EMAIL
-        mfa_settings.recovery_email = email
+        mfa_settings.recovery_email = otp_email
         mfa_settings.is_enabled = False
         mfa_settings.verified_at = None
         mfa_settings.secret_key = ''
-
-        otp_email = email or user.email
-        if not otp_email:
-            return {'error': 'Email address is required for email OTP'}
 
         mfa_settings.save()
 
