@@ -24,6 +24,7 @@ from apps.core.permissions import HasRole, IsMFAVerified
 from apps.screening.ml_engine import get_ml_engine
 from apps.screening.models import Doctor, Lab, Patient, Screening, ScreeningStatus
 from apps.screening.serializers import ScreeningSerializer
+from apps.screening.views import _validate_lab_association
 
 logger = structlog.get_logger(__name__)
 
@@ -353,8 +354,17 @@ class PatientTrendView(APIView):
             logger.debug("cache_hit", key=ck)
             return Response(cached)
 
+        # Scope patient lookup by caller's lab — multi-lab tenants must not
+        # leak patient trends across labs.
+        assoc_lab, err_response = _validate_lab_association(request.user)
+        if err_response:
+            return err_response
+
+        patient_qs = Patient.objects.all()
+        if assoc_lab is not None:
+            patient_qs = patient_qs.filter(lab=assoc_lab)
         try:
-            patient = Patient.objects.get(patient_id=patient_id)
+            patient = patient_qs.get(patient_id=patient_id)
         except Patient.DoesNotExist:
             return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -423,6 +433,14 @@ class ScreeningDetailView(APIView):
         if request.user.role == Role.DOCTOR:
             doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
             if not doctor or screening.doctor_id != doctor.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        # LAB isolation: can only view screenings owned by their lab.
+        if request.user.role == Role.LAB:
+            assoc_lab, err_response = _validate_lab_association(request.user)
+            if err_response:
+                return err_response
+            if assoc_lab is not None and screening.lab_id != assoc_lab.id:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         log_phi_access(request, screening.patient.patient_id if screening.patient else '*',

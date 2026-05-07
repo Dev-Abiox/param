@@ -242,16 +242,28 @@ class PredictView(APIView):
         """
         lab = None
         if data.get('labId'):
-            lab = Lab.objects.filter(code=data['labId']).first()
+            lab = Lab.objects.filter(code=data['labId'], is_active=True).first()
         if not lab:
             return None, None, None, Response(
                 {'error': 'labId is required or no matching lab found'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Caller must belong to the lab they're posting under — prevents
+        # cross-lab record creation in multi-lab tenants.
+        assoc_lab, err_response = _validate_lab_association(request.user)
+        if err_response:
+            return None, None, None, err_response
+        if assoc_lab is not None and lab.id != assoc_lab.id:
+            return None, None, None, Response(
+                {'error': 'You are not authorized to create screenings for this lab.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         doctor = None
         if data.get('doctorId'):
-            doctor = Doctor.objects.filter(code=data['doctorId']).first()
+            # Doctor must belong to the same lab.
+            doctor = Doctor.objects.filter(code=data['doctorId'], lab=lab, is_active=True).first()
 
         try:
             patient, _ = Patient.objects.update_or_create(
@@ -634,12 +646,17 @@ class ConsentStatusView(APIView):
 
     def get(self, request, patient_id):
         # Validate that the user is associated with a lab in this tenant
-        _, err_response = _validate_lab_association(request.user)
+        assoc_lab, err_response = _validate_lab_association(request.user)
         if err_response:
             return err_response
 
         try:
-            patient = Patient.objects.get(patient_id=patient_id)
+            # Scope patient lookup by the caller's lab to prevent cross-lab
+            # leakage in multi-lab tenants.
+            patient_qs = Patient.objects.all()
+            if assoc_lab is not None:
+                patient_qs = patient_qs.filter(lab=assoc_lab)
+            patient = patient_qs.get(patient_id=patient_id)
             consent = Consent.objects.filter(
                 patient=patient,
                 status='active'
@@ -694,7 +711,7 @@ class ConsentRevokeView(APIView):
 
     def post(self, request, consent_id):
         try:
-            consent = Consent.objects.select_related('patient__referring_doctor').get(id=consent_id)
+            consent = Consent.objects.select_related('patient__referring_doctor', 'patient__lab').get(id=consent_id)
         except Consent.DoesNotExist:
             return Response(
                 {'error': 'Consent not found'},
@@ -707,7 +724,15 @@ class ConsentRevokeView(APIView):
             doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
             if not doctor or consent.patient.referring_doctor_id != doctor.id:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
-        elif user_role != Role.LAB:
+        elif user_role == Role.LAB:
+            # Scope LAB users to their own lab — prevents cross-lab consent
+            # revocation in multi-lab tenants.
+            assoc_lab, err_response = _validate_lab_association(request.user)
+            if err_response:
+                return err_response
+            if assoc_lab is not None and consent.patient.lab_id != assoc_lab.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        else:
             return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         consent.status = 'revoked'
@@ -806,25 +831,37 @@ class ScreeningStatusView(APIView):
     }
 
     def patch(self, request, screening_id):
-        try:
-            screening = Screening.objects.get(id=screening_id)
-        except Screening.DoesNotExist:
-            return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
+        from django.db import transaction
+
+        assoc_lab, err_response = _validate_lab_association(request.user)
+        if err_response:
+            return err_response
 
         new_status = request.data.get('status')
         if not new_status:
             return Response({'error': 'status is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        allowed = self.ALLOWED_TRANSITIONS.get(screening.status, [])
-        if new_status not in allowed:
-            return Response(
-                {'error': f"Cannot transition from '{screening.status}' to '{new_status}'"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Lock the row for the transition check + write to prevent two concurrent
+        # PATCHes from both observing pending and both transitioning to in_progress.
+        with transaction.atomic():
+            screening_qs = Screening.objects.select_for_update()
+            if assoc_lab is not None:
+                screening_qs = screening_qs.filter(lab=assoc_lab)
+            try:
+                screening = screening_qs.get(id=screening_id)
+            except Screening.DoesNotExist:
+                return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        old_status = screening.status
-        screening.status = new_status
-        screening.save(update_fields=['status'])
+            allowed = self.ALLOWED_TRANSITIONS.get(screening.status, [])
+            if new_status not in allowed:
+                return Response(
+                    {'error': f"Cannot transition from '{screening.status}' to '{new_status}'"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            old_status = screening.status
+            screening.status = new_status
+            screening.save(update_fields=['status'])
 
         broadcast_status_change(
             str(screening.id), old_status, new_status, screening.risk_class,
@@ -853,6 +890,14 @@ class ReviewScreeningView(APIView):
         if request.user.role == Role.DOCTOR:
             doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
             if not doctor or screening.doctor_id != doctor.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        # LAB isolation: can only review screenings owned by their lab.
+        if request.user.role == Role.LAB:
+            assoc_lab, err_response = _validate_lab_association(request.user)
+            if err_response:
+                return err_response
+            if assoc_lab is not None and screening.lab_id != assoc_lab.id:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = ReviewScreeningSerializer(data=request.data)
@@ -904,6 +949,14 @@ class ExplainView(APIView):
         if request.user.role == Role.DOCTOR:
             doctor = Doctor.objects.filter(email=request.user.email, is_active=True).first()
             if not doctor or screening.doctor_id != doctor.id:
+                return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+
+        # LAB isolation: can only explain screenings owned by their lab.
+        if request.user.role == Role.LAB:
+            assoc_lab, err_response = _validate_lab_association(request.user)
+            if err_response:
+                return err_response
+            if assoc_lab is not None and screening.lab_id != assoc_lab.id:
                 return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         indices = screening.indices or {}
@@ -1138,6 +1191,16 @@ class FHIRBundleView(APIView):
             return Response(
                 {'error': 'labId not found or inactive'},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Caller must belong to the lab they're posting under.
+        assoc_lab, err_response = _validate_lab_association(request.user)
+        if err_response:
+            return err_response
+        if assoc_lab is not None and lab.id != assoc_lab.id:
+            return Response(
+                {'error': 'You are not authorized to submit FHIR bundles for this lab.'},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         entries = bundle.get('entry', [])
