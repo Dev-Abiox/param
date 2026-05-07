@@ -653,10 +653,10 @@ class ConsentStatusView(APIView):
         try:
             # Scope patient lookup by the caller's lab to prevent cross-lab
             # leakage in multi-lab tenants.
-            patient_qs = Patient.objects.all()
-            if assoc_lab is not None:
-                patient_qs = patient_qs.filter(lab=assoc_lab)
-            patient = patient_qs.get(patient_id=patient_id)
+            if assoc_lab is None:
+                patient = Patient.objects.get(patient_id=patient_id)
+            else:
+                patient = Patient.objects.get(patient_id=patient_id, lab=assoc_lab)
             consent = Consent.objects.filter(
                 patient=patient,
                 status='active'

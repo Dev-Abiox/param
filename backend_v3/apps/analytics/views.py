@@ -360,11 +360,11 @@ class PatientTrendView(APIView):
         if err_response:
             return err_response
 
-        patient_qs = Patient.objects.all()
-        if assoc_lab is not None:
-            patient_qs = patient_qs.filter(lab=assoc_lab)
         try:
-            patient = patient_qs.get(patient_id=patient_id)
+            if assoc_lab is None:
+                patient = Patient.objects.get(patient_id=patient_id)
+            else:
+                patient = Patient.objects.get(patient_id=patient_id, lab=assoc_lab)
         except Patient.DoesNotExist:
             return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
 
