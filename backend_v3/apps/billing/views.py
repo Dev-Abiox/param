@@ -753,23 +753,19 @@ class PaymentVerifyView(APIView):
 
         # Surface the matching DB subscription so the frontend can refresh state.
         # Bind the lookup to the caller's org so a LAB user from org A cannot
-        # verify and observe org B's subscription state.
+        # verify and observe org B's subscription state. If the subscription
+        # isn't in the DB at all (legacy / mid-flight create), tolerate that
+        # — but if it exists under a different org, reject.
         org = getattr(request.user, 'organization', None)
-        if not org:
-            return Response(
-                {'error': 'No organisation found for user'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         with schema_context('public'):
-            db_sub = TenantSubscription.objects.filter(
-                razorpay_sub_id=sub_id, organization=org
-            ).first()
-        if not db_sub:
+            db_sub = TenantSubscription.objects.filter(razorpay_sub_id=sub_id).first()
+        if db_sub is not None and db_sub.organization_id != getattr(org, 'id', None):
             logger.warning(
                 'billing.payment_verify_org_mismatch',
                 user=request.user.username,
                 org=getattr(org, 'name', None),
                 sub_id=sub_id,
+                actual_org_id=str(db_sub.organization_id),
             )
             return Response(
                 {'error': 'Subscription does not belong to your organisation'},
