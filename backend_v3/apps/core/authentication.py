@@ -24,6 +24,11 @@ _JWT_AUDIENCE = 'clinomic'
 # Redis key prefix for revoked access tokens (JWT blacklist)
 _BLACKLIST_PREFIX = 'jwt_blacklist:'
 
+# Redis key prefix for per-user minimum-iat. Tokens issued before this timestamp
+# are rejected — used to mass-revoke access tokens on role/active/MFA changes
+# without enumerating every outstanding JTI.
+_MIN_IAT_PREFIX = 'jwt_min_iat:'
+
 
 def blacklist_access_token(jti: str, ttl_seconds: int | None = None) -> None:
     """Add an access token JTI to the blacklist (Redis-backed)."""
@@ -34,6 +39,35 @@ def blacklist_access_token(jti: str, ttl_seconds: int | None = None) -> None:
         cache.set(f'{_BLACKLIST_PREFIX}{jti}', '1', timeout=ttl)
     except Exception:
         pass  # blacklist is best-effort
+
+
+def _user_min_iat(user_id: str) -> int:
+    """Return the per-user min-iat timestamp; 0 if unset/unavailable."""
+    try:
+        v = cache.get(f'{_MIN_IAT_PREFIX}{user_id}')
+        return int(v) if v else 0
+    except Exception:
+        return 0
+
+
+def revoke_all_user_tokens(user: User) -> None:
+    """Invalidate every outstanding access AND refresh token for ``user``.
+
+    Used when a JWT-baked claim changes server-side (role, is_active, org,
+    mfa setup) and existing tokens must stop working immediately rather than
+    drifting until expiry.
+
+    Implementation: revokes all refresh-token rows AND bumps a per-user
+    min-iat timestamp in Redis. ``JWTAuthentication`` rejects access tokens
+    whose ``iat`` is earlier than this timestamp.
+    """
+    RefreshToken.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
+    now = int(datetime.now(timezone.utc).timestamp())
+    ttl = int(settings.JWT_REFRESH_TOKEN_LIFETIME.total_seconds())
+    try:
+        cache.set(f'{_MIN_IAT_PREFIX}{user.id}', now, timeout=ttl)
+    except Exception:
+        pass  # cache write is best-effort; refresh-token revocation still applies
 
 
 class BlacklistUnavailable(Exception):
@@ -104,6 +138,13 @@ class JWTAuthentication(authentication.BaseAuthentication):
 
         if not user.is_active:
             raise exceptions.AuthenticationFailed('User is inactive')
+
+        # Mass-revocation check: any token issued before the user's min-iat
+        # is rejected. Set by revoke_all_user_tokens() when JWT-baked claims
+        # change (role demotion, deactivation, MFA setup, org suspension).
+        min_iat = _user_min_iat(payload['sub'])
+        if min_iat and payload.get('iat', 0) < min_iat:
+            raise exceptions.AuthenticationFailed('Token has been revoked')
 
         # Attach token payload to request for later use
         request.token_payload = payload

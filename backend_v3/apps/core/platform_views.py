@@ -44,6 +44,7 @@ from apps.billing.serializers import (
     UsageRecordSerializer,
 )
 
+from .authentication import revoke_all_user_tokens
 from .models import Domain, Organization, Role, User
 from .permissions import IsMFAVerified, IsPlatformSuperAdmin
 from .throttling import AdminEndpointThrottle
@@ -471,6 +472,13 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
         sub.save(update_fields=['status'])
         org.save(update_fields=['is_active'])
 
+        # Suspending the org must immediately invalidate every user's
+        # outstanding access AND refresh tokens; otherwise sessions issued
+        # before suspension drift along with full access until expiry.
+        if action == 'suspend':
+            for u in User.objects.filter(organization=org):
+                revoke_all_user_tokens(u)
+
         logger.info(
             'platform.org_status_changed',
             org=org.name,
@@ -503,6 +511,12 @@ class PlatformOrgDetailView(PublicSchemaMixin, APIView):
         org_schema = org.schema_name
 
         try:
+            # Revoke every user's tokens up front — once the User rows are
+            # gone, JWTAuthentication still trusts in-flight access tokens
+            # until natural expiry; bumping min-iat ensures they fail now.
+            for u in User.objects.filter(organization=org):
+                revoke_all_user_tokens(u)
+
             # Delete related records in correct order
             TenantSubscription.objects.filter(organization=org).delete()
             UsageRecord.objects.filter(organization=org).delete()

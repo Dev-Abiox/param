@@ -67,6 +67,21 @@ class UserSerializer(serializers.ModelSerializer):
         return None
 
 
+class AdminUserUpdateSerializer(serializers.Serializer):
+    """Strict allowlist for PATCH /api/admin/users/<id>.
+
+    Defines the only fields an org admin can change on another user. Anything
+    not declared here (e.g. username, mfa_verified, is_super_admin, organization)
+    is silently ignored — the endpoint must not trust client-supplied identity
+    fields beyond these.
+    """
+    name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_null=True, allow_blank=True)
+    role = serializers.CharField(required=False)
+    is_active = serializers.BooleanField(required=False)
+    password = serializers.CharField(required=False, write_only=True, allow_blank=False, min_length=1)
+
+
 class MFAResendOTPSerializer(serializers.Serializer):
     """MFA OTP resend request serializer."""
     mfa_pending_token = serializers.CharField()
@@ -86,10 +101,12 @@ class MFACodeSerializer(serializers.Serializer):
 class MFAStatusSerializer(serializers.Serializer):
     """MFA status response serializer."""
     enabled = serializers.BooleanField()
+    is_enabled = serializers.BooleanField()
     verified = serializers.BooleanField()
     recovery_email = serializers.BooleanField()
     backup_codes_remaining = serializers.IntegerField()
     mfa_method = serializers.CharField()
+    mfa_required_for_role = serializers.BooleanField()
 
 
 class HealthSerializer(serializers.Serializer):

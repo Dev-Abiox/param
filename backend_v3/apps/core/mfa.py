@@ -49,22 +49,28 @@ class MFAManager:
     @staticmethod
     def get_mfa_status(user: User) -> dict:
         """Get MFA status for a user."""
+        required_for_role = MFAManager.is_mfa_required(user)
         try:
             mfa_settings = user.mfa_settings
+            enabled = mfa_settings.is_enabled
             return {
-                'enabled': mfa_settings.is_enabled,
+                'enabled': enabled,
+                'is_enabled': enabled,
                 'verified': mfa_settings.verified_at is not None,
                 'recovery_email': bool(mfa_settings.recovery_email),
                 'backup_codes_remaining': len([c for c in mfa_settings.backup_codes if not c.get('used')]),
                 'mfa_method': MFAMethod.EMAIL,
+                'mfa_required_for_role': required_for_role,
             }
         except MFASettings.DoesNotExist:
             return {
                 'enabled': False,
+                'is_enabled': False,
                 'verified': False,
                 'recovery_email': False,
                 'backup_codes_remaining': 0,
                 'mfa_method': MFAMethod.EMAIL,
+                'mfa_required_for_role': required_for_role,
             }
 
     @staticmethod

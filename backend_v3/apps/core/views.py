@@ -25,6 +25,7 @@ from .authentication import (
     create_refresh_token,
     decode_token,
     refresh_tokens,
+    revoke_all_user_tokens,
     revoke_refresh_token,
 )
 from .crypto import get_crypto_status
@@ -33,6 +34,7 @@ from .mfa import MFAManager
 from .models import MFAMethod, Role, User
 from .permissions import IsAdmin, IsMFAVerified, IsOrgManager
 from .serializers import (
+    AdminUserUpdateSerializer,
     LoginSerializer,
     MFACodeSerializer,
     MFAResendOTPSerializer,
@@ -498,7 +500,18 @@ class MFAVerifySetupView(APIView):
         if not result['success']:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(result)
+        # MFA was just successfully verified — issue fresh tokens with
+        # mfa_verified=True so the user doesn't have to log out and back in
+        # to clear an existing mfa_verified=False JWT against IsMFAVerified.
+        # Old tokens are mass-revoked so the prior unverified session can't
+        # continue running with stale claims.
+        revoke_all_user_tokens(request.user)
+        access_token = create_access_token(request.user, mfa_verified=True)
+        refresh_token, _ = create_refresh_token(request.user, mfa_verified=True)
+
+        response = Response({**result, 'access_token': access_token})
+        _set_refresh_cookie(response, refresh_token)
+        return response
 
 
 class MFAStatusView(APIView):
@@ -1135,30 +1148,50 @@ class AdminUserDetailView(APIView):
         if not user:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        allowed = ['name', 'email', 'role', 'is_active']
-        for field in allowed:
-            if field in request.data:
-                value = request.data[field]
-                if field == 'role':
-                    value = value.upper()
-                    if value not in Role.values:
-                        return Response({'error': f'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
-                    # LAB users can only assign LAB or DOCTOR roles
-                    if request.user.role == Role.LAB and value not in (Role.LAB, Role.DOCTOR):
-                        return Response(
-                            {'error': 'You can only assign LAB or DOCTOR roles'},
-                            status=status.HTTP_403_FORBIDDEN,
-                        )
-                setattr(user, field, value)
+        serializer = AdminUserUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        if 'password' in request.data and request.data['password']:
+        # Track changes that must invalidate the target user's existing JWTs.
+        # role / is_active / password are all baked into auth state; mutating
+        # any of them server-side without revoking tokens leaves stale claims
+        # active until expiry.
+        token_invalidating = False
+
+        if 'role' in data:
+            value = data['role'].upper()
+            if value not in Role.values:
+                return Response({'error': 'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+            if request.user.role == Role.LAB and value not in (Role.LAB, Role.DOCTOR):
+                return Response(
+                    {'error': 'You can only assign LAB or DOCTOR roles'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if user.role != value:
+                token_invalidating = True
+            user.role = value
+
+        if 'name' in data:
+            user.name = data['name']
+        if 'email' in data:
+            user.email = data['email'] or None
+        if 'is_active' in data and user.is_active != data['is_active']:
+            user.is_active = data['is_active']
+            token_invalidating = True
+
+        if 'password' in data and data['password']:
             try:
-                validate_password(request.data['password'], user=user)
+                validate_password(data['password'], user=user)
             except ValidationError as e:
                 return Response({'error': e.messages}, status=status.HTTP_400_BAD_REQUEST)
-            user.set_password(request.data['password'])
+            user.set_password(data['password'])
+            token_invalidating = True
 
         user.save()
+
+        if token_invalidating:
+            revoke_all_user_tokens(user)
+
         return Response({
             'id': str(user.id),
             'username': user.username,
@@ -1183,9 +1216,11 @@ class AdminUserDetailView(APIView):
                     {'error': 'Deactivate the user first before permanently removing'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            revoke_all_user_tokens(user)
             user.delete()
             return Response({'detail': 'User permanently removed'})
 
         user.is_active = False
         user.save(update_fields=['is_active', 'updated_at'])
+        revoke_all_user_tokens(user)
         return Response({'detail': 'User deactivated'})
