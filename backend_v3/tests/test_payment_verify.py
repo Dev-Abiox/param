@@ -132,8 +132,15 @@ class TestPaymentVerifyView:
         mock_schema_ctx.return_value.__enter__ = MagicMock()
         mock_schema_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
+        # Build a request whose user belongs to a known org, then make the
+        # mocked DB subscription point at that same org so the cross-org
+        # guard added in fe3d9b8 / 4ff8c2e accepts the lookup.
+        user = _make_user()
+        org_id = user.organization.id
+
         mock_db_sub = MagicMock()
         mock_db_sub.status = 'ACTIVE'
+        mock_db_sub.organization_id = org_id
         MockSub.objects.filter.return_value.first.return_value = mock_db_sub
 
         # Razorpay SDK client: the fetch must not blow up (defence-in-depth).
@@ -149,7 +156,7 @@ class TestPaymentVerifyView:
             'razorpay_signature': _sign(payment_id, sub_id, secret),
         }
 
-        request = _make_request(payload)
+        request = _make_request(payload, user=user)
         response = PaymentVerifyView.as_view()(request)
 
         assert response.status_code == status.HTTP_200_OK
