@@ -362,11 +362,20 @@ class WebhookView(APIView):
                 pe.processed = True
                 pe.save(update_fields=['processed'])
 
+            # Cache bust is best-effort — its failure must NOT mask the
+            # successful state transition above as a retry-worthy error.
             if event_type in _CACHE_BUST_EVENTS:
-                org_id = sub.organization_id
-                from django.db import transaction as db_tx
-                from django.core.cache import cache
-                db_tx.on_commit(lambda: cache.delete(f'plan_limit_over:{org_id}'))
+                try:
+                    org_id = sub.organization_id
+                    from django.db import transaction as db_tx
+                    from django.core.cache import cache
+                    db_tx.on_commit(lambda: cache.delete(f'plan_limit_over:{org_id}'))
+                except Exception as exc:
+                    logger.warning(
+                        'billing.webhook_cache_bust_failed',
+                        event_type=event_type,
+                        error=type(exc).__name__,
+                    )
 
             logger.info(
                 'billing.webhook_processed',
