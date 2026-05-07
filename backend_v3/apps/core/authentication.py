@@ -42,12 +42,19 @@ def blacklist_access_token(jti: str, ttl_seconds: int | None = None) -> None:
 
 
 def _user_min_iat(user_id: str) -> int:
-    """Return the per-user min-iat timestamp; 0 if unset/unavailable."""
+    """Return the per-user min-iat timestamp; 0 if unset.
+
+    Fails closed: when the cache backend is unreachable we cannot confirm
+    whether a token has been mass-revoked, so we raise BlacklistUnavailable
+    and let the auth class surface a 503. Mirrors ``is_token_blacklisted``
+    so the access-token blacklist and the per-user min-iat have the same
+    threat model — never silently let a potentially-revoked token through.
+    """
     try:
         v = cache.get(f'{_MIN_IAT_PREFIX}{user_id}')
         return int(v) if v else 0
-    except Exception:
-        return 0
+    except Exception as exc:
+        raise BlacklistUnavailable(str(exc))
 
 
 def revoke_all_user_tokens(user: User) -> None:
@@ -63,15 +70,36 @@ def revoke_all_user_tokens(user: User) -> None:
     """
     RefreshToken.objects.filter(user=user, is_revoked=False).update(is_revoked=True)
     now = int(datetime.now(timezone.utc).timestamp())
-    ttl = int(settings.JWT_REFRESH_TOKEN_LIFETIME.total_seconds())
+    # TTL = access-token lifetime: every token issued before `now` is already
+    # naturally expired by the time this key would drop, so a 30-day TTL was
+    # over-budget and exposed the key to LRU eviction without security gain.
+    ttl = int(settings.JWT_ACCESS_TOKEN_LIFETIME.total_seconds())
     try:
         cache.set(f'{_MIN_IAT_PREFIX}{user.id}', now, timeout=ttl)
-    except Exception:
-        pass  # cache write is best-effort; refresh-token revocation still applies
+    except Exception as exc:
+        # DB-side refresh-token revocation still applies, but operators must
+        # know the access-token kill failed so they can investigate Redis.
+        import logging
+        logging.getLogger(__name__).warning(
+            'jwt.min_iat_set_failed user_id=%s error=%s',
+            user.id, type(exc).__name__,
+        )
 
 
 class BlacklistUnavailable(Exception):
-    """Raised when the JWT blacklist cannot be consulted (Redis down)."""
+    """Raised when the JWT blacklist or min-iat store cannot be consulted (Redis down)."""
+
+
+def _blacklist_down_response():
+    """Build the 503 response surface for an unreachable blacklist/min-iat store."""
+    from rest_framework.exceptions import APIException
+
+    class _BlacklistDown(APIException):
+        status_code = 503
+        default_detail = 'Auth blacklist unavailable. Please retry shortly.'
+        default_code = 'blacklist_unavailable'
+
+    return _BlacklistDown()
 
 
 def is_token_blacklisted(jti: str) -> bool:
@@ -122,14 +150,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
                 if is_token_blacklisted(jti):
                     raise exceptions.AuthenticationFailed('Token has been revoked')
             except BlacklistUnavailable:
-                # 503 maps to NotAuthenticated/throttled at the framework level —
-                # use APIException with status 503 so DRF emits the right code.
-                from rest_framework.exceptions import APIException
-                class _BlacklistDown(APIException):
-                    status_code = 503
-                    default_detail = 'Auth blacklist unavailable. Please retry shortly.'
-                    default_code = 'blacklist_unavailable'
-                raise _BlacklistDown()
+                raise _blacklist_down_response()
 
         try:
             user = User.objects.get(id=payload['sub'])
@@ -142,7 +163,11 @@ class JWTAuthentication(authentication.BaseAuthentication):
         # Mass-revocation check: any token issued before the user's min-iat
         # is rejected. Set by revoke_all_user_tokens() when JWT-baked claims
         # change (role demotion, deactivation, MFA setup, org suspension).
-        min_iat = _user_min_iat(payload['sub'])
+        # Fails closed under cache outage — same threat model as the blacklist.
+        try:
+            min_iat = _user_min_iat(payload['sub'])
+        except BlacklistUnavailable:
+            raise _blacklist_down_response()
         if min_iat and payload.get('iat', 0) < min_iat:
             raise exceptions.AuthenticationFailed('Token has been revoked')
 

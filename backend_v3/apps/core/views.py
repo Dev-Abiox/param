@@ -470,7 +470,6 @@ class MFASetupView(APIView):
 
         result = MFAManager.setup_mfa(
             request.user,
-            email=serializer.validated_data.get('email'),
             method=serializer.validated_data.get('method', 'TOTP'),
         )
 
@@ -504,12 +503,18 @@ class MFAVerifySetupView(APIView):
         # mfa_verified=True so the user doesn't have to log out and back in
         # to clear an existing mfa_verified=False JWT against IsMFAVerified.
         # Old tokens are mass-revoked so the prior unverified session can't
-        # continue running with stale claims.
+        # continue running with stale claims; this also logs the user out
+        # of any other concurrent sessions, which the frontend can surface
+        # via the `sessions_revoked` flag below.
         revoke_all_user_tokens(request.user)
         access_token = create_access_token(request.user, mfa_verified=True)
         refresh_token, _ = create_refresh_token(request.user, mfa_verified=True)
 
-        response = Response({**result, 'access_token': access_token})
+        response = Response({
+            **result,
+            'access_token': access_token,
+            'sessions_revoked': True,
+        })
         _set_refresh_cookie(response, refresh_token)
         return response
 

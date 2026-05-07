@@ -182,7 +182,7 @@ class TestSetupMFAEmailMethod:
         mock_settings = MagicMock()
         MockMFA.objects.get_or_create.return_value = (mock_settings, True)
 
-        result = MFAManager.setup_mfa(user, email="alice@example.com", method=MFAMethod.EMAIL)
+        result = MFAManager.setup_mfa(user, method=MFAMethod.EMAIL)
 
         assert result['method'] == MFAMethod.EMAIL
         assert result['email_masked'] == "a***@example.com"
@@ -195,7 +195,7 @@ class TestSetupMFAEmailMethod:
         mock_settings = MagicMock()
         MockMFA.objects.get_or_create.return_value = (mock_settings, True)
 
-        result = MFAManager.setup_mfa(user, email=None, method=MFAMethod.EMAIL)
+        result = MFAManager.setup_mfa(user, method=MFAMethod.EMAIL)
 
         assert 'error' in result
         mock_send.assert_not_called()

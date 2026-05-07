@@ -460,6 +460,7 @@ class BulkImportJob(models.Model):
         PENDING    = 'pending',    'Pending'
         PROCESSING = 'processing', 'Processing'
         DONE       = 'done',       'Done'
+        PARTIAL    = 'partial',    'Partial'
         FAILED     = 'failed',     'Failed'
 
     id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

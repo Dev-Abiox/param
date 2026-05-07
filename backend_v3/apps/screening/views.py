@@ -9,7 +9,6 @@ import uuid
 from datetime import datetime, timezone
 
 from django.core.cache import cache
-from django.db import transaction
 from django.db.models import Count, Case, When, IntegerField
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination

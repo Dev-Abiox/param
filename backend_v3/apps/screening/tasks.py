@@ -188,10 +188,7 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
     if errors and processed == 0:
         job.status = BulkImportJob.JobStatus.FAILED
     elif errors:
-        # Partial success — surface as a distinct state if available, else DONE.
-        job.status = getattr(
-            BulkImportJob.JobStatus, 'PARTIAL', BulkImportJob.JobStatus.DONE
-        )
+        job.status = BulkImportJob.JobStatus.PARTIAL
     else:
         job.status = BulkImportJob.JobStatus.DONE
     job.save(update_fields=['status', 'updated_at'])

@@ -88,8 +88,12 @@ class MFAResendOTPSerializer(serializers.Serializer):
 
 
 class MFASetupSerializer(serializers.Serializer):
-    """MFA setup request serializer."""
-    email = serializers.EmailField(required=False)
+    """MFA setup request serializer.
+
+    `email` is intentionally NOT accepted — recovery_email is always derived
+    server-side from `user.email` to prevent synthetic frontend values from
+    poisoning the OTP destination (see feedback_mfa_recovery_email memory).
+    """
     method = serializers.ChoiceField(choices=['EMAIL'], default='EMAIL', required=False)
 
 

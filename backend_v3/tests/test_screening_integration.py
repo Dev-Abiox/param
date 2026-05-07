@@ -85,6 +85,65 @@ class TestCaseListIntegration:
 
 
 @pytest.mark.django_db
+class TestLabIsolation:
+    """Verify LAB-role users cannot reach records owned by a different lab.
+
+    Backstop for the lab-scope guards added across screening / analytics
+    endpoints. Uses a real DB so the autouse `_validate_lab_association`
+    stub (which short-circuits to (None, None) for mock-only tests) does
+    NOT apply — the actual production guard runs here.
+    """
+
+    def test_lab_user_cannot_view_patient_trend_in_other_lab(self, test_tenant, db):
+        from apps.core.models import Role, User
+        from apps.core.authentication import create_access_token
+        from apps.screening.models import Patient
+        from apps.core.crypto import encrypt_field
+
+        with tenant_context(test_tenant):
+            lab_a = Lab.objects.create(code='ISO-LAB-A', name='Lab A', is_active=True)
+            lab_b = Lab.objects.create(code='ISO-LAB-B', name='Lab B', is_active=True)
+
+            # _validate_lab_association picks the first active lab — make sure
+            # that's lab_a deterministically by ordering. Both labs were just
+            # created in this transaction so ordering by created_at puts the
+            # first-inserted row first.
+            assert Lab.objects.filter(is_active=True).order_by('created_at').first().code == 'ISO-LAB-A'
+
+            # One patient in each lab — the lab_b patient is what we expect to be hidden.
+            Patient.objects.create(
+                patient_id='LAB-A-PATIENT', lab=lab_a,
+                name_encrypted=encrypt_field('Alice'),
+            )
+            Patient.objects.create(
+                patient_id='LAB-B-PATIENT', lab=lab_b,
+                name_encrypted=encrypt_field('Bob'),
+            )
+
+            # LAB user — _validate_lab_association will resolve to lab_a (first active).
+            lab_user = User.objects.create_user(
+                username='iso_lab_user', email='iso_lab_user@clinomic.test',
+                password='TestPass123!@#', role=Role.LAB,
+                organization=test_tenant,
+            )
+
+        token = create_access_token(lab_user, mfa_verified=True)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        # Reaching their own lab's patient must work.
+        own_resp = client.get('/api/analytics/trend/LAB-A-PATIENT')
+        assert own_resp.status_code == 200, \
+            f'LAB-A user denied access to LAB-A patient: {own_resp.status_code} {own_resp.content!r}'
+
+        # Reaching the OTHER lab's patient must return 404 — the patient row
+        # exists in this tenant but is scoped out by the lab guard.
+        leak_resp = client.get('/api/analytics/trend/LAB-B-PATIENT')
+        assert leak_resp.status_code == 404, \
+            f'Cross-lab leak: LAB-A user reached LAB-B patient (got {leak_resp.status_code})'
+
+
+@pytest.mark.django_db
 class TestDoctorIsolation:
     """Verify DOCTOR role data isolation is enforced."""
 

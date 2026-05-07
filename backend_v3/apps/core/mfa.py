@@ -74,24 +74,22 @@ class MFAManager:
             }
 
     @staticmethod
-    def setup_mfa(user: User, email: Optional[str] = None, method: str = MFAMethod.EMAIL) -> dict:
+    def setup_mfa(user: User, method: str = MFAMethod.EMAIL) -> dict:
         """
         Initialize MFA setup for a user (always uses Email OTP).
 
         Args:
             user: The user to set up MFA for.
-            email: Ignored — recovery email is always derived from user.email
-                to prevent synthetic frontend values from poisoning the OTP
-                destination. Kept for API compatibility.
             method: Ignored — always uses EMAIL.
 
         Returns:
             dict with setup data.
+
+        Note:
+            recovery_email is always derived from ``user.email``. The view
+            layer must not forward client-supplied emails — the request
+            serializer also no longer accepts an ``email`` field.
         """
-        # Always derive recovery_email from user.email. Synthetic frontend-supplied
-        # values (e.g. <uuid>@clinomic.local from older Settings.js) must never be
-        # persisted as the OTP destination — the `email` argument is ignored.
-        del email
         otp_email = user.email
         if not otp_email:
             return {'error': 'Email address is required for email OTP'}
