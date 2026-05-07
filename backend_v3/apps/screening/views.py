@@ -831,37 +831,32 @@ class ScreeningStatusView(APIView):
     }
 
     def patch(self, request, screening_id):
-        from django.db import transaction
+        try:
+            screening = Screening.objects.get(id=screening_id)
+        except Screening.DoesNotExist:
+            return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        # LAB isolation: only mutate screenings owned by the caller's lab.
         assoc_lab, err_response = _validate_lab_association(request.user)
         if err_response:
             return err_response
+        if assoc_lab is not None and screening.lab_id != assoc_lab.id:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
 
         new_status = request.data.get('status')
         if not new_status:
             return Response({'error': 'status is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Lock the row for the transition check + write to prevent two concurrent
-        # PATCHes from both observing pending and both transitioning to in_progress.
-        with transaction.atomic():
-            screening_qs = Screening.objects.select_for_update()
-            if assoc_lab is not None:
-                screening_qs = screening_qs.filter(lab=assoc_lab)
-            try:
-                screening = screening_qs.get(id=screening_id)
-            except Screening.DoesNotExist:
-                return Response({'error': 'Screening not found'}, status=status.HTTP_404_NOT_FOUND)
+        allowed = self.ALLOWED_TRANSITIONS.get(screening.status, [])
+        if new_status not in allowed:
+            return Response(
+                {'error': f"Cannot transition from '{screening.status}' to '{new_status}'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            allowed = self.ALLOWED_TRANSITIONS.get(screening.status, [])
-            if new_status not in allowed:
-                return Response(
-                    {'error': f"Cannot transition from '{screening.status}' to '{new_status}'"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            old_status = screening.status
-            screening.status = new_status
-            screening.save(update_fields=['status'])
+        old_status = screening.status
+        screening.status = new_status
+        screening.save(update_fields=['status'])
 
         broadcast_status_change(
             str(screening.id), old_status, new_status, screening.risk_class,
