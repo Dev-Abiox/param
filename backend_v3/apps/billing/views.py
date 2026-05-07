@@ -374,13 +374,29 @@ class WebhookView(APIView):
                 sub_id=razorpay_sub_id,
             )
             return True, None
-        except Exception as exc:
-            # Sanitize error — never store raw exception details (may contain DB paths, etc.)
+        except ValueError as exc:
+            # Logical error inside the handler (e.g. disallowed status transition).
+            # Retrying will produce the same outcome — record the error and ack
+            # 200 to prevent a retry storm.
             safe_error = f'{type(exc).__name__}: {event_type}'
             pe.error = safe_error
             pe.save(update_fields=['error'])
-            logger.error('billing.webhook_error', event_type=event_type, error=str(exc))
-            return False, None  # still return 200 to stop Razorpay retries
+            logger.error(
+                'billing.webhook_logic_error', event_type=event_type, error=str(exc)
+            )
+            return False, None  # 200 — handler logic rejected the event
+        except Exception as exc:
+            # Transient infra error (DB, network, cache). Surface 503 so
+            # Razorpay re-delivers — silently 200-ing here drops events.
+            safe_error = f'{type(exc).__name__}: {event_type}'
+            pe.error = safe_error
+            pe.save(update_fields=['error'])
+            logger.error(
+                'billing.webhook_error', event_type=event_type, error=str(exc)
+            )
+            return False, Response(
+                {'status': 'retry'}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
     def post(self, request):
         # Instrumentation: record the full webhook round-trip time and
@@ -427,23 +443,27 @@ class WebhookView(APIView):
         data = request.data
         event_type = data.get('event', '')
         _event_type_for_metric = event_type or 'unknown'
-        sub_entity = (
-            data.get('payload', {})
-            .get('subscription', {})
-            .get('entity', {})
+
+        # subscription.* events nest the entity at payload.subscription.entity.
+        # payment.failed / payment.authorized nest it at payload.payment.entity
+        # with the subscription id under entity.subscription_id. Reading only
+        # the subscription path leaves payment.* events with razorpay_sub_id=''
+        # so the dispatcher silently skipped the handler — PAST_DUE never fired.
+        payload = data.get('payload', {})
+        sub_entity = payload.get('subscription', {}).get('entity', {})
+        payment_entity = payload.get('payment', {}).get('entity', {})
+        razorpay_sub_id = (
+            sub_entity.get('id')
+            or payment_entity.get('subscription_id')
+            or ''
         )
-        razorpay_sub_id = sub_entity.get('id', '')
+
         event_id = data.get('id')
         if not event_id:
             logger.warning('billing.webhook_missing_event_id', event_type=event_type)
             _inc('error')
             _observe_latency()
             return Response({'error': 'missing event id'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if PaymentEvent.objects.filter(razorpay_event_id=event_id).exists():
-            _inc('duplicate')
-            _observe_latency()
-            return Response({'status': 'already_processed'})
 
         sub = (
             TenantSubscription.objects
@@ -452,12 +472,23 @@ class WebhookView(APIView):
             .first()
         )
 
-        pe = PaymentEvent.objects.create(
-            organization=sub.organization if sub else None,
+        # Idempotency: use get_or_create so concurrent deliveries of the same
+        # event_id don't both pass an exists() check then both call create()
+        # — the second create raises IntegrityError, becomes a 500, Razorpay
+        # retries forever. With get_or_create the second caller short-circuits
+        # to "already_processed".
+        pe, created = PaymentEvent.objects.get_or_create(
             razorpay_event_id=event_id,
-            event_type=event_type,
-            payload=data,
+            defaults={
+                'organization': sub.organization if sub else None,
+                'event_type': event_type,
+                'payload': data,
+            },
         )
+        if not created:
+            _inc('duplicate')
+            _observe_latency()
+            return Response({'status': 'already_processed'})
 
         if sub:
             _, early = self._apply_state_transition(
@@ -721,9 +752,29 @@ class PaymentVerifyView(APIView):
             )
 
         # Surface the matching DB subscription so the frontend can refresh state.
+        # Bind the lookup to the caller's org so a LAB user from org A cannot
+        # verify and observe org B's subscription state.
         org = getattr(request.user, 'organization', None)
+        if not org:
+            return Response(
+                {'error': 'No organisation found for user'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         with schema_context('public'):
-            db_sub = TenantSubscription.objects.filter(razorpay_sub_id=sub_id).first()
+            db_sub = TenantSubscription.objects.filter(
+                razorpay_sub_id=sub_id, organization=org
+            ).first()
+        if not db_sub:
+            logger.warning(
+                'billing.payment_verify_org_mismatch',
+                user=request.user.username,
+                org=getattr(org, 'name', None),
+                sub_id=sub_id,
+            )
+            return Response(
+                {'error': 'Subscription does not belong to your organisation'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         logger.info(
             'billing.payment_verified',
