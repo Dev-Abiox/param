@@ -37,6 +37,35 @@ django.setup()
 TEST_ENCRYPTION_KEY = "vXR9o6LX2YVy0aIYIvlq5tFyRp-kXHjnNzOm8o-mkYQ="
 
 
+@pytest.fixture(autouse=True)
+def _stub_lab_association(request, monkeypatch):
+    """Default `_validate_lab_association` to a no-op for mock-only unit tests.
+
+    The lab-scope guard added across screening/analytics views does a real
+    `Lab.objects.filter(...).first()`. The mock-only test files (no
+    `db`/`django_db` fixture) crash with ``Database access not allowed`` or
+    misroute through the guard with a randomly-generated MagicMock id.
+    Returning ``(None, None)`` from the helper makes view code skip lab-
+    scoping entirely, restoring the pre-guard behavior these tests assert.
+
+    Tests that need the real helper (or a specific lab return) can override
+    by patching at the call site — explicit patch beats autouse.
+    """
+    if 'db' in request.fixturenames or 'transactional_db' in request.fixturenames:
+        # Real-DB test: do not stub. Lab-scoping behavior is exercised
+        # against actual rows.
+        return
+    targets = (
+        'apps.screening.views._validate_lab_association',
+        'apps.analytics.views._validate_lab_association',
+    )
+    for target in targets:
+        try:
+            monkeypatch.setattr(target, lambda _user: (None, None))
+        except (AttributeError, ModuleNotFoundError):
+            pass
+
+
 # NOTE: django_db_setup is NOT overridden here.
 # settings.py already configures ENGINE='django_tenants.postgresql_backend'
 # and DATABASE_ROUTERS. Letting pytest-django's default django_db_setup

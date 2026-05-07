@@ -173,9 +173,10 @@ class TestCaseStatsViewIsolation:
 
 class TestPatientTrendView:
 
+    @patch("apps.analytics.views._validate_lab_association", return_value=(None, None))
     @patch("apps.analytics.views.cache")
     @patch("apps.analytics.views.Patient.objects.get")
-    def test_patient_not_found_returns_404(self, mock_get, mock_cache):
+    def test_patient_not_found_returns_404(self, mock_get, mock_cache, _mock_assoc):
         from apps.screening.models import Patient
         mock_cache.get.return_value = None
         mock_get.side_effect = Patient.DoesNotExist
@@ -184,10 +185,11 @@ class TestPatientTrendView:
         response = PatientTrendView.as_view()(_get("/api/analytics/trend/UNKNOWN", user), patient_id="UNKNOWN")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @patch("apps.analytics.views._validate_lab_association", return_value=(None, None))
     @patch("apps.analytics.views.cache")
     @patch("apps.analytics.views.Screening.objects.filter")
     @patch("apps.analytics.views.Patient.objects.get")
-    def test_doctor_scoped_to_own_patients(self, mock_patient_get, mock_screening_filter, mock_cache):
+    def test_doctor_scoped_to_own_patients(self, mock_patient_get, mock_screening_filter, mock_cache, _mock_assoc):
         mock_cache.get.return_value = None
 
         patient = MagicMock()
@@ -227,10 +229,11 @@ class TestScreeningDetailView:
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @patch("apps.analytics.views._validate_lab_association", return_value=(None, None))
     @patch("apps.analytics.views.log_phi_access")
     @patch("apps.analytics.views.ScreeningSerializer")
     @patch("apps.analytics.views.Screening.objects.select_related")
-    def test_lab_can_view_any_screening(self, mock_sel, mock_ser, mock_log):
+    def test_lab_can_view_any_screening(self, mock_sel, mock_ser, mock_log, _mock_assoc):
         import uuid
         sid = uuid.uuid4()
 
