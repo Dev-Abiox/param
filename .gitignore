@@ -3,7 +3,11 @@
 # IDE and editors
 .idea/
 .vscode/
-.claude/settings.local.json
+.claude/
+
+# ML training artifacts (local-only — never deployed)
+catboost_info/
+backend_v3/ml/train/
 
 # Git user config (should be in ~/.gitconfig)
 .gitconfig
