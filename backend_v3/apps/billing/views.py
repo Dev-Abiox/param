@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 import structlog
 from django.conf import settings
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 from django.utils import timezone
 
 from apps.core.metrics import BILLING_WEBHOOK_EVENTS, BILLING_WEBHOOK_LATENCY
@@ -465,6 +465,15 @@ class WebhookView(APIView):
             _observe_latency()
             return Response({'error': 'missing event id'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Fast-path idempotency check. Handles ~all duplicate retries without
+        # touching TenantSubscription so the existing test contract (which
+        # mocks PaymentEvent only) keeps working. The race for concurrent
+        # deliveries is closed by the IntegrityError fallback on create() below.
+        if PaymentEvent.objects.filter(razorpay_event_id=event_id).exists():
+            _inc('duplicate')
+            _observe_latency()
+            return Response({'status': 'already_processed'})
+
         sub = (
             TenantSubscription.objects
             .filter(razorpay_sub_id=razorpay_sub_id)
@@ -472,20 +481,16 @@ class WebhookView(APIView):
             .first()
         )
 
-        # Idempotency: use get_or_create so concurrent deliveries of the same
-        # event_id don't both pass an exists() check then both call create()
-        # — the second create raises IntegrityError, becomes a 500, Razorpay
-        # retries forever. With get_or_create the second caller short-circuits
-        # to "already_processed".
-        pe, created = PaymentEvent.objects.get_or_create(
-            razorpay_event_id=event_id,
-            defaults={
-                'organization': sub.organization if sub else None,
-                'event_type': event_type,
-                'payload': data,
-            },
-        )
-        if not created:
+        try:
+            pe = PaymentEvent.objects.create(
+                organization=sub.organization if sub else None,
+                razorpay_event_id=event_id,
+                event_type=event_type,
+                payload=data,
+            )
+        except IntegrityError:
+            # Concurrent delivery of the same event_id slipped past the
+            # exists() check above and inserted first. Treat as duplicate.
             _inc('duplicate')
             _observe_latency()
             return Response({'status': 'already_processed'})
