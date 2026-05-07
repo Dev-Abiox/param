@@ -95,7 +95,10 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
             for csv_col, cbc_key in _CSV_TO_CBC.items():
                 cbc[cbc_key] = float(row[csv_col])
             cbc['Age'] = int(row['age'])
-            cbc['Sex'] = row['sex'].strip().upper()[0]   # M or F
+            sex_raw = row['sex'].strip().upper()
+            if sex_raw not in ('M', 'F', 'MALE', 'FEMALE'):
+                raise ValueError(f"sex must be M or F (got '{row['sex']}')")
+            cbc['Sex'] = sex_raw[0]
 
             patient_id = row['patient_id'].strip()
             if not patient_id:
@@ -168,13 +171,29 @@ def process_bulk_import(self, job_id: str, csv_text: str, lab_code: str, usernam
             })
             logger.warning("bulk_import_row_failed", row=i, error=err_msg)
 
-        # Update progress every row
-        job.processed_rows = processed
-        job.failed_rows = len(errors)
-        job.error_detail = errors
-        job.save(update_fields=['processed_rows', 'failed_rows', 'error_detail', 'updated_at'])
+        # Update progress every row. We write absolute counters from the
+        # task-local accumulators (correct for a single worker). If two
+        # workers ever share a job_id the writes race; protection lives at
+        # task pickup, not per-row.
+        BulkImportJob.objects.filter(pk=job.pk).update(
+            processed_rows=processed,
+            failed_rows=len(errors),
+            error_detail=errors,
+        )
 
-    job.status = BulkImportJob.JobStatus.DONE if not errors or processed > 0 else BulkImportJob.JobStatus.FAILED
+    # Strict success/failure semantics: if every row failed (or any rows
+    # failed when none succeeded) the job is FAILED. Previously we marked
+    # DONE whenever even a single row succeeded, hiding 99% failure rates
+    # from operators with no retry signal.
+    if errors and processed == 0:
+        job.status = BulkImportJob.JobStatus.FAILED
+    elif errors:
+        # Partial success — surface as a distinct state if available, else DONE.
+        job.status = getattr(
+            BulkImportJob.JobStatus, 'PARTIAL', BulkImportJob.JobStatus.DONE
+        )
+    else:
+        job.status = BulkImportJob.JobStatus.DONE
     job.save(update_fields=['status', 'updated_at'])
     logger.info("bulk_import_complete", job_id=job_id, processed=processed, failed=len(errors))
 
